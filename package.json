@@ -1,0 +1,16 @@
+{
+  "name": "manga",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "bun run --filter @manga/api dev",
+    "start": "bun run --filter @manga/api start",
+    "typecheck": "bun run --workspaces typecheck"
+  },
+  "devDependencies": {
+    "effect": "^4.0.0",
+    "typescript": "^7"
+  }
+}
