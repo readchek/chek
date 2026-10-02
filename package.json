@@ -1,16 +1,24 @@
 {
   "name": "manga",
   "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
   "type": "module",
-  "packageManager": "bun@1.4.2",
-  "workspaces": ["apps/*"],
   "scripts": {
     "dev": "bun run --filter @manga/api dev",
     "start": "bun run --filter @manga/api start",
-    "typecheck": "bun run --workspaces typecheck"
+    "typecheck": "bun run --workspaces typecheck",
+    "lint": "oxlint --deny-warnings .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check ."
   },
   "devDependencies": {
     "effect": "^4.0.0",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
     "typescript": "^7"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

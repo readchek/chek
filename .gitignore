@@ -8,3 +8,9 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# Share editor settings even when .vscode is globally ignored.
+!.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

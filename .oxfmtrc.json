@@ -1,0 +1,5 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "ignorePatterns": ["AGENTS.md", "bun.lock", "**/dist/**", "**/out/**", "**/coverage/**"]
+}
