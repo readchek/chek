@@ -17,7 +17,7 @@ default independently to `127.0.0.1:8080`; invalid values fail at startup.
 
 The example sends API logs and HTTP request traces to the Jarvis test SigNoz
 collector at `http://jarvis:4318` using OTLP/HTTP. Connect to Tailscale to use it.
-View the service `manga-api` at `http://jarvis:8080`; the same logs are available
+View the service `chibi-manga-api` at `http://jarvis:8080`; the same logs are available
 in LogChef at `http://jarvis:8125`.
 
 Set `OTEL_LOGS_EXPORTER=none` or `OTEL_TRACES_EXPORTER=none` to disable a signal,

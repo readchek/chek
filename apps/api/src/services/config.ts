@@ -8,7 +8,7 @@ const config = Config.all({
   ).pipe(Config.withDefault(8080)),
   logLevel: Config.LogLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
   logFormat: Config.Literals(["pretty", "json"], "LOG_FORMAT").pipe(Config.withDefault("pretty")),
-  serviceName: Config.String("OTEL_SERVICE_NAME").pipe(Config.withDefault("manga-api")),
+  serviceName: Config.String("OTEL_SERVICE_NAME").pipe(Config.withDefault("chibi-manga-api")),
   otlpProtocol: Config.Literals(["http/protobuf", "http/json"], "OTEL_EXPORTER_OTLP_PROTOCOL").pipe(
     Config.withDefault("http/protobuf"),
   ),
