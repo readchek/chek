@@ -5,6 +5,8 @@ Bun monorepo with one workspace: `apps/api`, the Effect backend.
 Project domain: https://chek.page
 Repository: https://github.com/chibi-app/chek
 
+App design decisions: [starter palette and typography](docs/design.md).
+
 Run from the repository root:
 
 ```sh
