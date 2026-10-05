@@ -1,38 +1,39 @@
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
-import { Effect, Layer, Schema, Logger } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { HttpRouter } from "effect/http"
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { ApiConfig } from "./config"
+import { Observability } from "./observability"
 
 const Api = HttpApi.make("MangaApi").add(
   HttpApiGroup.make("basic").add(
+    HttpApiEndpoint.get("root", "/", {
+      success: Schema.Struct({ message: Schema.String }),
+    }),
     HttpApiEndpoint.get("health", "/health", {
       success: Schema.Struct({ status: Schema.Literal("ok") }),
-    }),
-    HttpApiEndpoint.get("hello", "/hello/:name", {
-      params: { name: Schema.String },
-      success: Schema.Struct({ message: Schema.String }),
     }),
   ),
 )
 
 const Handlers = HttpApiBuilder.group(Api, "basic", (handlers) =>
   handlers.handleAll({
-    health: () => Effect.succeed({ status: "ok" as const }),
-    hello: ({ params }) => Effect.succeed({ message: `Hello, ${params.name}!` }),
+    root: () => Effect.succeed({ message: "Chibi Manga API" }),
+    health: () => Effect.succeed({ status: "ok" }),
   }),
 )
 
 const Routes = HttpApiBuilder.layer(Api).pipe(Layer.provide(Handlers))
 
-const Server = HttpRouter.serve(Routes).pipe(
-  Layer.provide(
-    BunHttpServer.layer({
-      hostname: "127.0.0.1",
-      port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
-    }),
-  ),
+const Server = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* ApiConfig
+    return HttpRouter.serve(Routes).pipe(
+      Layer.provide(BunHttpServer.layer({ hostname: config.host, port: config.port })),
+    )
+  }),
 )
 
-const LoggerLayer = Logger.layer([Logger.consolePrettyTty()])
+const Main = Server.pipe(Layer.provide(Observability), Layer.provide(ApiConfig.layer))
 
-Layer.launch(Server).pipe(Effect.provide(LoggerLayer), BunRuntime.runMain)
+Layer.launch(Main).pipe(BunRuntime.runMain)
