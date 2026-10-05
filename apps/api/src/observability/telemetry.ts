@@ -1,17 +1,14 @@
-import { Effect, Layer, Logger, References } from "effect"
+import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { OtlpLogger, OtlpSerialization, OtlpTracer } from "effect/observability"
-import { ApiConfig } from "./config"
+import { ApiConfig } from "../services/config"
+import { LoggerLive } from "./logger"
 
-export const Observability = Layer.unwrap(
+export const TelemetryLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ApiConfig
     const resource = { serviceName: config.serviceName }
-    const consoleLogger = Logger.layer([
-      config.logFormat === "json" ? Logger.consoleJson : Logger.consolePrettyTty(),
-    ])
-
-    const exporters = Layer.merge(
+    return Layer.merge(
       OtlpLogger.layerFromConfig({ resource }),
       OtlpTracer.layerFromConfig({ resource }),
     ).pipe(
@@ -21,9 +18,6 @@ export const Observability = Layer.unwrap(
           : OtlpSerialization.layerProtobuf,
       ),
       Layer.provide(FetchHttpClient.layer),
-      Layer.provide(consoleLogger),
     )
-
-    return Layer.merge(exporters, Layer.succeed(References.MinimumLogLevel, config.logLevel))
   }),
-)
+).pipe(Layer.provideMerge(LoggerLive))
