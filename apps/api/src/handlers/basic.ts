@@ -4,7 +4,7 @@ import { MangaApi } from "../api/api"
 
 export const BasicHandlers = HttpApiBuilder.group(MangaApi, "basic", (handlers) =>
   handlers.handleAll({
-    root: () => Effect.succeed({ message: "Chibi Manga API" }),
+    root: () => Effect.succeed({ message: "Chek API" }),
     health: () => Effect.succeed({ status: "ok" }),
   }),
 )

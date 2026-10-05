@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "manga",
+      "name": "chek",
       "devDependencies": {
         "effect": "^4.0.0",
         "oxfmt": "^0.71.0",
@@ -12,7 +12,7 @@
       },
     },
     "apps/api": {
-      "name": "@manga/api",
+      "name": "@chek/api",
       "dependencies": {
         "@effect/platform-bun": "^4.0.0",
         "effect": "^4.0.0",
@@ -27,7 +27,7 @@
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.0.0" } }, "sha512-VBXHJU9UXVZPdQGGDRjGXpo+TpOzRwZuMrdKAtIxi1qwcRftmacZ1zTgIrzBa0Z2RA2KVkoOecQUsTlt/nJZhw=="],
 
-    "@manga/api": ["@manga/api@workspace:apps/api"],
+    "@chek/api": ["@chek/api@workspace:apps/api"],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.71.0", "", { "os": "android", "cpu": "arm" }, "sha512-l31EyBfB4egJeFua11aQFEUE9nnDtfpWCadqQovm0WL30t/yUHtdFl/5HyFXvd5xT8Ewh3U4TI9f30GowrQ1fw=="],
 

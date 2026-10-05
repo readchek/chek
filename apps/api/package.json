@@ -1,5 +1,5 @@
 {
-  "name": "@manga/api",
+  "name": "@chek/api",
   "private": true,
   "type": "module",
   "scripts": {

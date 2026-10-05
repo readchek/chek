@@ -8,14 +8,14 @@ const config = Config.all({
   ).pipe(Config.withDefault(8080)),
   logLevel: Config.LogLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
   logFormat: Config.Literals(["pretty", "json"], "LOG_FORMAT").pipe(Config.withDefault("pretty")),
-  serviceName: Config.String("OTEL_SERVICE_NAME").pipe(Config.withDefault("chibi-manga-api")),
+  serviceName: Config.String("OTEL_SERVICE_NAME").pipe(Config.withDefault("chek-api")),
   otlpProtocol: Config.Literals(["http/protobuf", "http/json"], "OTEL_EXPORTER_OTLP_PROTOCOL").pipe(
     Config.withDefault("http/protobuf"),
   ),
 })
 
 export class ApiConfig extends Context.Service<ApiConfig, Config.Success<typeof config>>()(
-  "@manga/api/ApiConfig",
+  "@chek/api/ApiConfig",
 ) {
   static readonly layer = Layer.effect(ApiConfig, config)
 }

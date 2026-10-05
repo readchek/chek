@@ -1,4 +1,4 @@
-# Manga API
+# Chek API
 
 Run from the repository root:
 
@@ -36,4 +36,4 @@ and telemetry layers handle console output and OTLP export. Use `Effect.fn` or
 `Effect.withSpan` for meaningful operations within the automatic HTTP spans.
 
 - `GET /health` returns `{ "status": "ok" }`.
-- `GET /` returns `{ "message": "Chibi Manga API" }`.
+- `GET /` returns `{ "message": "Chek API" }`.
