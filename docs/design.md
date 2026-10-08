@@ -3,6 +3,28 @@
 This document records agreed choices for Chek's apps. It is a design reference;
 it does not imply that the current app implements these choices.
 
+## Product context
+
+Chek is a versatile e-reader for local files and provider-backed libraries, including
+e-books, manga, manhwa, and comics. Its visual identity can lean into manga and
+manhwa, but navigation and copy must make the wider reading scope clear. See
+[product direction](product.md) for the distinction between Chibi Manga today and
+the new Chek clients and server.
+
+## Landing page direction
+
+On 2026-10-08, Astra's landing design was selected for the website. Its reader-oriented
+feel combines cobalt and paper surfaces, large Bricolage type, and original manga artwork.
+Its messaging explains books and comics, local files, and choice of provider.
+Introduce the project without a SaaS sales pitch; keep the layout and copy focused
+on the reader rather than a conversion funnel. The selected page lives in
+`apps/website/`. The existing Chek mark is selected: two page shapes with a zigzag that gives it
+a books-and-comics character. Future work may refine its spacing and small-size
+clarity without replacing the concept. Official Komga and Kavita logos identify those providers.
+
+This is a landing-page direction, not a decision to apply its colors or fonts to
+the iOS app. Keep the app decisions below separate from the website study.
+
 ## Starter palette
 
 Palette selection reopened on 2026-10-06: the charcoal and blue study below did
@@ -15,10 +37,10 @@ reserve accent color for a small number of actions or selected states. Prefer
 spacing and typography over filled containers. The latest neutral study is
 exploratory; its palette and layout are not yet approved.
 
-| Role | Color | Use |
-| --- | --- | --- |
-| Background | `#11110F` | Main content canvas |
-| Accent | `#4A8CE0` | Primary action, reading progress, and selected controls |
+| Role       | Color     | Use                                                     |
+| ---------- | --------- | ------------------------------------------------------- |
+| Background | `#11110F` | Main content canvas                                     |
+| Accent     | `#4A8CE0` | Primary action, reading progress, and selected controls |
 
 Reference: [Emil Kowalski's charcoal and blue examples](https://x.com/emilkowalski/status/2089372767934115883).
 These values were supplied and accepted by Arya on 2026-10-06, replacing the earlier

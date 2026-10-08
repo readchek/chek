@@ -12,9 +12,12 @@
     "lint": "oxlint --deny-warnings .",
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --write .",
-    "format:check": "oxfmt --check ."
+    "format:check": "oxfmt --check .",
+    "dev:website": "bun run --filter @chek/website dev",
+    "build:website": "bun run --filter @chek/website build"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "effect": "^4.0.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

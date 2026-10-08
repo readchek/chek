@@ -1,0 +1,13 @@
+{
+  "name": "@chek/website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/server.ts",
+    "build": "bun build ./src/index.html --outdir ./dist --minify",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

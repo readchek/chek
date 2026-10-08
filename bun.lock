@@ -5,6 +5,7 @@
     "": {
       "name": "chek",
       "devDependencies": {
+        "@types/bun": "latest",
         "effect": "^4.0.0",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
@@ -21,13 +22,21 @@
         "@types/bun": "latest",
       },
     },
+    "apps/website": {
+      "name": "@chek/website",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
   },
   "packages": {
+    "@chek/api": ["@chek/api@workspace:apps/api"],
+
+    "@chek/website": ["@chek/website@workspace:apps/website"],
+
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0" }, "peerDependencies": { "effect": "^4.0.0" } }, "sha512-g9O41Sub/+JKfLjvBNEoqR1Pg6wtc2bbYzv7Kw8YsMihbt/ypCn7ZoydEXaHvTTUvbVrXOQbVFlfplyo84Clug=="],
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.0.0" } }, "sha512-VBXHJU9UXVZPdQGGDRjGXpo+TpOzRwZuMrdKAtIxi1qwcRftmacZ1zTgIrzBa0Z2RA2KVkoOecQUsTlt/nJZhw=="],
-
-    "@chek/api": ["@chek/api@workspace:apps/api"],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.71.0", "", { "os": "android", "cpu": "arm" }, "sha512-l31EyBfB4egJeFua11aQFEUE9nnDtfpWCadqQovm0WL30t/yUHtdFl/5HyFXvd5xT8Ewh3U4TI9f30GowrQ1fw=="],
 
