@@ -33,11 +33,13 @@ bun run start
 bun run typecheck
 bun run dev:website
 bun run build:website
+bun run deploy:website
 ```
 
 The website preview runs at http://127.0.0.1:18357/. Its build goes to
 `apps/website/dist/`. See [website notes](apps/website/README.md) for assets and
-design details. The landing design and existing Chek logo are selected.
+design and deployment details. Production is hosted at https://chek.page.
+The landing design and existing Chek logo are selected.
 
 The API reads `apps/api/.env` through Bun and validates configuration with Effect.
 Copy `apps/api/.env.example` to `apps/api/.env` on a fresh checkout. Host and port

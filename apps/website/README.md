@@ -11,11 +11,31 @@ bun run dev:website
 bun run build:website
 ```
 
-Open http://127.0.0.1:18357/. Override with `PORT` if necessary. The development server binds to localhost. The static build is written to `apps/website/dist/`; deployment is not configured yet.
+Open http://127.0.0.1:18357/. Override with `PORT` if necessary. The development server binds to localhost. The static build is written to `apps/website/dist/`; production is hosted at https://chek.page.
+
+## Deployment
+
+From the repository root, after signing in with `cf auth login`:
+
+```sh
+bun run deploy:website
+```
+
+The command builds the static site with Bun, then publishes its assets with `cf deploy --prebuilt`.
+`cloudflare.config.ts` defines the `chek-website` Worker and `chek.page` custom domain.
+`scripts/build.ts` cleans and builds `dist/`, then uses Cloudflare’s build-output
+utility to prepare assets-only output in `.cloudflare/output/v0/`. There is no
+Worker bundle, Wrangler dependency, or deployed server code. The Bun development
+server stays local. Generated Cloudflare output is ignored.
+
+The installed `cf` CLI calls its static hosting “Pages on Workers”;
+`cf pages deploy` explicitly directs users to `cf deploy`. The `worker` config
+names that hosting resource and its domain, not an application server.
 
 ## Structure
 
 - `src/`: HTML entry, reader interactions, styles, and Bun development server.
+- `scripts/`: Bun build and Cloudflare static-output preparation.
 - `public/assets/fonts/`: local typefaces and their licenses.
 - `public/assets/logos/`: Chek and official provider marks.
 - `public/assets/images/`: original reading artwork.

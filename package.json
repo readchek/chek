@@ -14,7 +14,8 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "dev:website": "bun run --filter @chek/website dev",
-    "build:website": "bun run --filter @chek/website build"
+    "build:website": "bun run --filter @chek/website build",
+    "deploy:website": "bun run --filter @chek/website deploy"
   },
   "devDependencies": {
     "@types/bun": "latest",

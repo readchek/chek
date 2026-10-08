@@ -4,10 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/server.ts",
-    "build": "bun build ./src/index.html --outdir ./dist --minify",
-    "typecheck": "tsc --noEmit"
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "deploy": "bun run build && cf deploy --prebuilt"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@cloudflare/build-output-utils": "0.8.6",
+    "@types/bun": "latest",
+    "cf": "^1.0.0-beta.13"
   }
 }
