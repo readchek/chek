@@ -1,18 +1,18 @@
 @font-face {
   font-family: Bricolage;
-  src: url("../public/assets/fonts/bricolage-700.ttf") format("truetype");
+  src: url("../public/assets/fonts/bricolage-700-593306227576.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }
 @font-face {
   font-family: DM Sans;
-  src: url("../public/assets/fonts/dm-sans-400.ttf") format("truetype");
+  src: url("../public/assets/fonts/dm-sans-400-2ea1bf6e4127.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: DM Sans;
-  src: url("../public/assets/fonts/dm-sans-600.ttf") format("truetype");
+  src: url("../public/assets/fonts/dm-sans-600-fd6f63245e24.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
@@ -28,6 +28,7 @@
   font-synthesis: none;
   background: var(--white);
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 * {
   box-sizing: border-box;
@@ -40,6 +41,8 @@ a {
   text-decoration: none;
 }
 button {
+  appearance: none;
+  border: 0;
   font: inherit;
 }
 button,
@@ -115,9 +118,11 @@ h3,
 .header nav a {
   padding: 12px 0;
 }
-.header nav a:hover {
-  text-decoration: underline;
-  text-underline-offset: 5px;
+@media (hover: hover) and (pointer: fine) {
+  .header nav a:hover {
+    text-decoration: underline;
+    text-underline-offset: 5px;
+  }
 }
 .header-status {
   display: flex;
@@ -192,15 +197,25 @@ svg:not(.brand svg) {
   width: 20px;
   height: 20px;
 }
-.button:hover {
-  transform: translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+  .button:hover {
+    transform: translateY(-2px);
+  }
+  .phone-page:hover .expand-hint {
+    opacity: 1;
+  }
+}
+.button:not(:focus-visible):active {
+  transform: scale(0.98);
 }
 .button-light {
   background: var(--butter);
   color: var(--ink);
 }
-.button-light:hover {
-  background: #f9fbcf;
+@media (hover: hover) and (pointer: fine) {
+  .button-light:hover {
+    background: #f9fbcf;
+  }
 }
 .release-note {
   font-size: 12px;
@@ -333,7 +348,6 @@ svg:not(.brand svg) {
   width: 13px;
   height: 13px;
 }
-.phone-page:hover .expand-hint,
 .phone-page:focus-visible .expand-hint {
   opacity: 1;
 }
@@ -817,8 +831,10 @@ svg:not(.brand svg) {
   color: white;
   background: var(--ink);
 }
-.button-dark:hover {
-  background: var(--blue);
+@media (hover: hover) and (pointer: fine) {
+  .button-dark:hover {
+    background: var(--blue);
+  }
 }
 .next-small {
   font-size: 11px;
@@ -888,6 +904,15 @@ dialog {
   padding: 0;
   overflow: hidden;
 }
+dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dialog-toolbar,
+.reader-modes,
+.dialog-note {
+  flex-shrink: 0;
+}
 dialog::backdrop {
   background: #090e2ed9;
   backdrop-filter: blur(7px);
@@ -912,8 +937,8 @@ dialog::backdrop {
   border: 0;
   color: white;
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
 }
@@ -928,6 +953,7 @@ dialog::backdrop {
   padding: 0 12px 12px;
 }
 .reader-modes button {
+  min-height: 44px;
   border: 0;
   background: transparent;
   color: #b9bac4;
@@ -940,7 +966,8 @@ dialog::backdrop {
   color: var(--ink);
 }
 .dialog-canvas {
-  height: calc(100% - 162px);
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   background: #101115;
   overscroll-behavior: contain;
@@ -1806,5 +1833,24 @@ body:has(dialog[open]) {
   .source-chip .provider-logo {
     width: 26px;
     height: 26px;
+  }
+}
+
+/* Reserve comfortable hit areas without changing the visual labels. */
+.header nav a,
+.footer > a,
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.close-reader:active,
+.reader-modes button:active {
+  opacity: 0.75;
+}
+@media (prefers-reduced-motion: reduce) {
+  .button:not(:focus-visible):active,
+  .button:hover {
+    transform: none;
   }
 }

@@ -64,7 +64,11 @@ The artwork was generated with the built-in imagegen tool. The page uses `public
 
 The landing page uses 512px (151 KB) and 768px (287 KB) WebP versions of the artwork, selected by screen density. Both hero illustrations share the same image URL. The shelf uses a lazy-loaded 256px cover (39 KB). The original 1024px artwork loads only when the reader preview opens; it is retained for detailed reading. These smaller derivatives use WebP quality 82.
 
-Production fonts are separate files rather than embedded in the stylesheet, keeping the render-blocking CSS at about 24 KB instead of 262 KB. The local development bundler may still embed fonts.
+Production uses three WOFF2 fonts (72.7 KB combined, versus 178.8 KB for the TTFs), preloaded with matching anonymous CORS mode. Glyph coverage and horizontal metrics are unchanged. The original TTF files remain as masters; only the WOFF2 files are deployed. Fonts remain separate from the roughly 25 KB stylesheet. The local development bundler may still embed fonts.
+
+Font filenames include the first 12 characters of their SHA-256 content hash. Regenerate their names, CSS references, and preload links together if the font files change. The build generates `_headers` rules with `Cache-Control: public, max-age=31536000, immutable` for versioned fonts, CSS, JavaScript, artwork, provider marks, and favicon assets. HTML and the conventional `/favicon.ico` keep Cloudflare's default revalidation policy, so future releases still appear. The detailed artwork also receives a content-hashed URL during the build.
+
+The reader shows the already loaded hero artwork immediately, then swaps to the detailed page after decoding. If loading fails, the preview stays readable and reopening retries. The dialog keeps focus contained, restores focus to its trigger, supports Escape, and sizes its canvas around the controls. Close and mode controls have 44px hit areas. Custom buttons disable native appearance so Safari preserves their intended colors. Pointer hover effects are gated to suitable devices; reduced motion disables button movement.
 
 The full-size WebP was encoded with `cwebp -q 88 -m 6 -sharp_yuv`. The original PNG is not retained in this repository.
 
@@ -106,3 +110,15 @@ The source chips use the existing Chek mark (`public/assets/logos/mark.svg`) and
 
 - `public/assets/logos/kavita-logo.svg`: [Kareadita/Kavita official app logo](https://github.com/Kareadita/Kavita/blob/f75863cb77c0f6aa26e0794a1848294e63c9d07d/UI/Web/src/assets/images/logo.svg), revision `f75863cb77c0f6aa26e0794a1848294e63c9d07d`. Downloaded from [the revision-pinned raw SVG](https://raw.githubusercontent.com/Kareadita/Kavita/f75863cb77c0f6aa26e0794a1848294e63c9d07d/UI/Web/src/assets/images/logo.svg).
 - `public/assets/logos/komga-logo.svg`: [gotson/komga official web UI logo](https://github.com/gotson/komga/blob/519e352aa894b2fdc80660f1dde21b98cf328e3e/komga-webui/src/assets/logo.svg), revision `519e352aa894b2fdc80660f1dde21b98cf328e3e`. Downloaded from [the revision-pinned raw SVG](https://raw.githubusercontent.com/gotson/komga/519e352aa894b2fdc80660f1dde21b98cf328e3e/komga-webui/src/assets/logo.svg).
+
+### Performance and interaction verification (2026-10-11)
+
+- WOFF2 conversion preserved each font's character map and horizontal metrics.
+- Live fonts, CSS, and versioned artwork return one-year immutable browser-cache headers; HTML retains revalidation. Browser network inspection observed cached font reuse on reload.
+- Production layouts checked at 320, 390, 768, and 1440px without horizontal overflow.
+- Reader page/scroll modes, Escape dismissal, focus restoration, and full artwork loading verified locally and in macOS Safari against the live site.
+- Blocking the detailed artwork request preserved a readable preview and showed a retry message; reopening retried the request.
+- Reduced-motion inspection confirmed no transform or transition on hovered/pressed actions.
+- Build, typecheck, lint, formatting, and whitespace checks passed. No test files were added.
+
+These checks do not measure font-swap timing on a physical iPhone or guarantee zero fallback-font frames on a first visit.
