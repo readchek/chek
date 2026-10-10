@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun --hot --env-file=.env src/index.ts",
     "start": "bun --env-file=.env src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bun check"
   },
   "dependencies": {
     "@effect/platform-bun": "^4.0.0",
