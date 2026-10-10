@@ -9,7 +9,11 @@
       content="Chek is the ground-up successor to Chibi Manga: an e-reader for your books and comics, wherever you keep them. Local files or your choice of library server. iOS first."
     />
     <title>Chek — Just one more chapter.</title>
-    <link rel="icon" href="../public/assets/logos/mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="../public/assets/logos/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="../public/assets/logos/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="../public/assets/logos/mark.svg" type="image/svg+xml" sizes="any" />
+    <link rel="apple-touch-icon" href="../public/assets/logos/mark-180.png" sizes="180x180" />
+    <meta name="apple-mobile-web-app-title" content="Chek" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="module" src="./main.ts"></script>
   </head>
@@ -60,13 +64,20 @@
           </div>
           <div class="hero-art">
             <div class="paper-page" aria-hidden="true">
-              <img
-                src="../public/assets/images/last-train.webp"
-                alt=""
-                width="1024"
-                height="1536"
-                fetchpriority="high"
-              />
+              <picture>
+                <source
+                  media="(min-resolution: 1.5dppx)"
+                  srcset="../public/assets/images/last-train-768.webp"
+                />
+                <img
+                  src="../public/assets/images/last-train-512.webp"
+                  alt=""
+                  width="1024"
+                  height="1536"
+                  fetchpriority="high"
+                  decoding="async"
+                />
+              </picture>
               <div class="paper-caption">
                 <span>The last train</span><span>A little further.</span>
               </div>
@@ -106,12 +117,16 @@
                 id="open-reader"
                 aria-label="Open the illustrated reader concept"
               >
-                <img
-                  src="../public/assets/images/last-train.webp"
-                  alt="An original manga page of a courier riding a train through a coastal city"
-                  width="1024"
-                  height="1536"
-                /><span class="expand-hint"
+                <picture>
+                  <source
+                    media="(min-resolution: 1.5dppx)"
+                    srcset="../public/assets/images/last-train-768.webp" />
+                  <img
+                    src="../public/assets/images/last-train-512.webp"
+                    alt="An original manga page of a courier riding a train through a coastal city"
+                    width="1024"
+                    height="1536" /></picture
+                ><span class="expand-hint"
                   ><svg viewBox="0 0 20 20" aria-hidden="true">
                     <path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" />
                   </svg>
@@ -191,9 +206,14 @@
               </div>
               <div class="shelf-books" aria-hidden="true">
                 <div class="book book-train">
-                  <img src="../public/assets/images/last-train.webp" alt="" loading="lazy" /><span
-                    >THE<br />LAST<br />TRAIN</span
-                  >
+                  <img
+                    src="../public/assets/images/last-train-256.webp"
+                    alt=""
+                    width="256"
+                    height="384"
+                    loading="lazy"
+                    decoding="async"
+                  /><span>THE<br />LAST<br />TRAIN</span>
                 </div>
                 <div class="book book-orbit">
                   <svg viewBox="0 0 100 150">
@@ -321,7 +341,7 @@
         aria-label="Manga artwork. Choose scroll mode to scroll through the page."
       >
         <img
-          src="../public/assets/images/last-train.webp"
+          data-src="/assets/images/last-train.webp"
           alt="A courier stands on a train above a detailed coastal city. Below, a close-up of their face and train tracks leading to mountains."
           width="1024"
           height="1536"
@@ -332,13 +352,13 @@
           aria-label="A courier rides a train through a coastal city, followed by a close-up of their face and tracks leading to mountains."
         >
           <div class="strip-panel strip-city">
-            <img src="../public/assets/images/last-train.webp" alt="" />
+            <img data-src="/assets/images/last-train.webp" alt="" />
           </div>
           <div class="strip-panel strip-face">
-            <img src="../public/assets/images/last-train.webp" alt="" />
+            <img data-src="/assets/images/last-train.webp" alt="" />
           </div>
           <div class="strip-panel strip-rails">
-            <img src="../public/assets/images/last-train.webp" alt="" />
+            <img data-src="/assets/images/last-train.webp" alt="" />
           </div>
         </div>
       </div>

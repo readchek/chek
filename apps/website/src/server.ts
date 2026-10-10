@@ -6,6 +6,9 @@ const server = Bun.serve({
   routes: { "/": index },
   async fetch(request) {
     const pathname = new URL(request.url).pathname
+    if (pathname === "/favicon.ico") {
+      return new Response(Bun.file(new URL("../public/assets/logos/favicon.ico", import.meta.url)))
+    }
     if (!/^\/assets\/(?:fonts|logos|images)\/[a-zA-Z0-9._-]+$/.test(pathname)) {
       return new Response("Not found", { status: 404 })
     }

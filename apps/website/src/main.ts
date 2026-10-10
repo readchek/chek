@@ -16,6 +16,10 @@ function setMode(scroll: boolean) {
 
 for (const id of ["open-reader", "open-reader-secondary", "open-reader-hero"]) {
   document.getElementById(id)!.addEventListener("click", () => {
+    for (const image of dialog.querySelectorAll<HTMLImageElement>("img[data-src]")) {
+      image.src = image.dataset.src!
+      delete image.dataset.src
+    }
     setMode(false)
     dialog.showModal()
   })

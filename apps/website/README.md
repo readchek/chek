@@ -62,7 +62,11 @@ The artwork is the main expressive element. There are no automatic reveals or pe
 
 The artwork was generated with the built-in imagegen tool. The page uses `public/assets/images/last-train.webp`: 652 KB instead of 4.23 MB, at the same 1024 × 1536 dimensions (about 85% less data). The other two sample covers and the logo are code-native graphics. Sample titles are fictional, not catalog claims.
 
-The WebP was encoded with `cwebp -q 88 -m 6 -sharp_yuv`. The original PNG is not retained in this repository.
+The landing page uses 512px (151 KB) and 768px (287 KB) WebP versions of the artwork, selected by screen density. Both hero illustrations share the same image URL. The shelf uses a lazy-loaded 256px cover (39 KB). The original 1024px artwork loads only when the reader preview opens; it is retained for detailed reading. These smaller derivatives use WebP quality 82.
+
+Production fonts are separate files rather than embedded in the stylesheet, keeping the render-blocking CSS at about 24 KB instead of 262 KB. The local development bundler may still embed fonts.
+
+The full-size WebP was encoded with `cwebp -q 88 -m 6 -sharp_yuv`. The original PNG is not retained in this repository.
 
 Final generation prompt:
 
@@ -84,6 +88,17 @@ After restructuring, both workspaces passed TypeScript checks. The website build
 A fresh browser load verified the moved assets and reader dialog without console errors.
 
 The reader preview is an interactive concept, not the app or a connected server demo. No deployment or release links were added. Physical iOS/Safari behavior and screen-reader speech were not tested.
+
+## Mark exports and site icons
+
+`public/assets/logos/mark.svg` is the square-cornered master. PNG exports have no baked-in corner radius:
+
+- `mark-180.png`: Apple touch icon, about 1.6 KB.
+- `mark-192.png` and `mark-512.png`: smaller general-purpose exports.
+- `mark-1024.png`: high-resolution export, about 8 KB.
+- `mark-2048.png`: high-resolution export, about 20 KB.
+
+The PNGs are rasterized from the SVG with an optimized 256-color palette. The HTML declares the SVG favicon, a 32px PNG fallback, a multi-size ICO (16/32/48px), and the 180px Apple touch icon. The build also writes `/favicon.ico` for browsers that request that conventional path. Apple applies its own rounded mask.
 
 ## Provider logo provenance
 
