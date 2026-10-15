@@ -1,0 +1,48 @@
+name: ReaderEmbedding
+options:
+  minimumXcodeGenVersion: 2.44.0
+  deploymentTarget:
+    iOS: "27.0"
+packages:
+  ChekReader:
+    path: ../../..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  ReaderEmbedding:
+    type: application
+    platform: iOS
+    sources: [ReaderEmbedding]
+    dependencies:
+      - package: ChekReader
+    info:
+      path: ReaderEmbedding/Info.plist
+      properties:
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: dev.chek.reader.embedding.cbz
+            UTTypeDescription: CBZ comic archive
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [cbz]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.chek.reader.embedding
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Reader Embedding
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+schemes:
+  ReaderEmbedding:
+    build:
+      targets:
+        ReaderEmbedding: all
+    run:
+      config: Debug

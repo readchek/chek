@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
 import WebKit
 
 #if DEBUG
@@ -26,6 +27,8 @@ public final class EPUBReader {
   private var documentToken = ""
   private var isRestoring = true
   private var explicitLoad = false
+  private var appliedTextScale: Double = 1
+  private var scaleOperationID: UUID?
   private var resourceFailure: String?
   private var topInset: CGFloat = 0
   private var bottomInset: CGFloat = 0
@@ -88,6 +91,7 @@ public final class EPUBReader {
 
   func load() async {
     let generation = loadRequestID
+    scaleOperationID = nil
     explicitLoad = true
     loadFailed = false
     failureDescription = nil
@@ -111,10 +115,11 @@ public final class EPUBReader {
       isRestoring = true
       for try await _ in page.load(url) { try Task.checkCancellation() }
       guard generation == loadRequestID else { return }
+      let activatedScale = textScale
       let value = try await page.callJavaScript(
         "return await window.chekReader.activate(token, anchor, scale, top, bottom, fixed);",
         arguments: [
-          "token": documentToken, "anchor": try jsonValue(anchor), "scale": textScale,
+          "token": documentToken, "anchor": try jsonValue(anchor), "scale": activatedScale,
           "top": Double(topInset), "bottom": Double(bottomInset), "fixed": viewport != nil,
         ], contentWorld: .world(name: "ChekReader"))
       guard generation == loadRequestID else { return }
@@ -122,8 +127,10 @@ public final class EPUBReader {
       resumeLocation = nil
       isRestoring = false
       explicitLoad = false
+      appliedTextScale = activatedScale
       acceptLocation(value)
       if let resourceFailure, message == nil { message = resourceFailure }
+      await applyRequestedTextScale()
     } catch is CancellationError {
     } catch {
       if !Task.isCancelled, generation == loadRequestID {
@@ -159,22 +166,39 @@ public final class EPUBReader {
   }
 
   public func setTextScale(_ scale: Double) async {
-    guard scale.isFinite, !isRestoring, !isFixedLayout, let page else { return }
+    guard scale.isFinite else { return }
     let boundedScale = min(2, max(0.75, scale))
-    guard boundedScale != textScale else { return }
+    textScale = boundedScale
+    await applyRequestedTextScale()
+  }
+
+  private func applyRequestedTextScale() async {
+    guard scaleOperationID == nil, !isRestoring, !explicitLoad, !loadFailed,
+      !isFixedLayout, appliedTextScale != textScale, let page
+    else { return }
+    let operationID = UUID()
+    scaleOperationID = operationID
+    defer {
+      if scaleOperationID == operationID { scaleOperationID = nil }
+    }
     let generation = loadRequestID
     let token = documentToken
     _ = await captureLocation()
     guard generation == loadRequestID, token == documentToken, !Task.isCancelled else { return }
-    textScale = boundedScale
     isRestoring = true
     do {
-      let value = try await page.callJavaScript(
-        "return await window.chekReader.setScale(scale);",
-        arguments: ["scale": textScale], contentWorld: .world(name: "ChekReader"))
-      guard generation == loadRequestID, token == documentToken else { return }
+      // A slider can update while WebKit settles fonts. Keep one operation in
+      // flight and apply the newest request before releasing restoration.
+      while appliedTextScale != textScale {
+        let requestedScale = textScale
+        let value = try await page.callJavaScript(
+          "return await window.chekReader.setScale(scale);",
+          arguments: ["scale": requestedScale], contentWorld: .world(name: "ChekReader"))
+        guard generation == loadRequestID, token == documentToken else { return }
+        appliedTextScale = requestedScale
+        acceptLocation(value)
+      }
       isRestoring = false
-      acceptLocation(value)
     } catch {
       guard generation == loadRequestID, token == documentToken else { return }
       isRestoring = false
@@ -351,7 +375,6 @@ public final class EPUBReader {
 }
 
 public struct EPUBReaderView: View {
-  @State private var callbackOwner = UUID()
   private let reader: EPUBReader
   private let onTap: @MainActor () -> Void
   private let onInteraction: @MainActor () -> Void
@@ -388,19 +411,88 @@ public struct EPUBReaderView: View {
         ProgressView(String(localized: "Opening book…", bundle: .module))
       }
     }
-    .onAppear {
-      reader.callbackOwner = callbackOwner
+    .background {
+      ReaderCallbacks(reader: reader, onTap: onTap, onInteraction: onInteraction)
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+    .task(id: reader.loadRequestID) { await reader.load() }
+    .id(ObjectIdentifier(reader))
+  }
+}
+
+// A persistent host can replace callback captures without replacing its reader.
+// Representable updates receive those closures without mutating state in body.
+private struct ReaderCallbacks: UIViewRepresentable {
+  let reader: EPUBReader
+  let onTap: @MainActor () -> Void
+  let onInteraction: @MainActor () -> Void
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeUIView(context: Context) -> CallbackView {
+    let view = CallbackView(coordinator: context.coordinator)
+    update(view)
+    return view
+  }
+
+  func updateUIView(_ view: CallbackView, context: Context) { update(view) }
+
+  static func dismantleUIView(_ view: CallbackView, coordinator: Coordinator) {
+    coordinator.detach()
+  }
+
+  private func update(_ view: CallbackView) {
+    let coordinator = view.coordinator
+    if coordinator.reader !== reader {
+      coordinator.detach()
+      coordinator.reader = reader
+    }
+    coordinator.onTap = onTap
+    coordinator.onInteraction = onInteraction
+    if view.window != nil { coordinator.attach() }
+  }
+
+  @MainActor final class Coordinator {
+    let id = UUID()
+    weak var reader: EPUBReader?
+    var onTap: @MainActor () -> Void = {}
+    var onInteraction: @MainActor () -> Void = {}
+
+    func attach() {
+      guard let reader else { return }
+      reader.callbackOwner = id
       reader.onTap = onTap
       reader.onInteraction = onInteraction
     }
-    .onDisappear {
-      guard reader.callbackOwner == callbackOwner else { return }
+
+    func detach() {
+      guard let reader, reader.callbackOwner == id else { return }
       reader.callbackOwner = nil
       reader.onTap = {}
       reader.onInteraction = {}
     }
-    .task(id: reader.loadRequestID) { await reader.load() }
-    .id(ObjectIdentifier(reader))
+  }
+
+  @MainActor final class CallbackView: UIView {
+    let coordinator: Coordinator
+
+    init(coordinator: Coordinator) {
+      self.coordinator = coordinator
+      super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      if window == nil {
+        coordinator.detach()
+      } else {
+        coordinator.attach()
+      }
+    }
   }
 }
 

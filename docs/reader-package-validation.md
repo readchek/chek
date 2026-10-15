@@ -75,13 +75,27 @@ close; comic scrolling after a simulated memory warning; identical artwork
 position after close/reopen; continuous-to-paged switching and a page 4-to-5
 swipe; and return to automatic mode. Compiler and review checks cover the
 reader-replacement and stale-result branches; those branches were not exercised
-through a dedicated persistent-host UI in this pass.
+through a dedicated persistent-host UI in that initial pass.
+
+The standalone `examples/reader-consumer/ExampleApp` now exercises replacement
+without a host `.id()` reset. On the iOS 27 simulator, replacing a vertical-writing
+EPUB preserved its location and delivered the next tap to the host. Changing the
+host callback then delivered the new callback version. Four rapid text-size
+increases settled at 140% with the document ready. This exposed and corrected an
+appearance-based callback ownership bug; ownership now follows the concrete
+attached view. Text-size requests are serialized and coalesced while WebKit
+settles layout.
+
+The independent consumer also opened a nine-page PNG CBZ, switched from automatic
+paged mode to continuous scrolling, and rendered adjoining pages after a fast
+scroll. Replacing its reader preserved page 8 at 23.1% and the next tap reached
+the host. These checks establish integration behavior, not frame-time results.
 
 ## Release checks still open
 
 - Repeatable device frame-time, loading latency and peak-memory measurements,
   including WebKit processes. Investigate the reported scroll lag end to end.
-- Persistent-host reader replacement and rapid cancellation/retry exercises.
+- Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
 - VoiceOver speech/gestures, maximum Dynamic Type and device lifecycle checks.
 - Define the v1 format-support contract against the unsupported features in the
