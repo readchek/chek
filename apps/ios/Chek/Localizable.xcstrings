@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Library" : {
+      "comment" : "Title of the local books and comics library.",
+      "extractionState" : "manual"
+    },
+    "No books yet" : {
+      "comment" : "Heading when the local library is empty.",
+      "extractionState" : "manual"
+    },
+    "Your local books and comics will appear here." : {
+      "comment" : "Description of the empty local library.",
+      "extractionState" : "manual"
+    }
+  },
+  "version" : "1.0"
+}

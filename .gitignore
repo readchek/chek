@@ -21,3 +21,9 @@ prototypes/
 .cloudflare/
 
 .agents/
+
+# Local Apple build products and per-user Xcode state
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
