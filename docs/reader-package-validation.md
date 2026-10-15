@@ -279,6 +279,10 @@ destination; EPUB exposes logical Previous chapter and Next chapter custom
 actions while preserving WebKit child elements. Both honor navigation opt-out and
 boundaries. The independent consumer and signed device build pass; physical
 VoiceOver speech, focus and action discovery are being checked separately.
+The user verified on the physical iPhone that birds-eye's paged image announces
+the expected comic page label, and that three-finger left/right gestures advance
+and return with the correct page announcements. EPUB paragraph reading and custom
+chapter-action discovery remain pending the separate physical check.
 
 ### Remaining qualification
 
@@ -295,7 +299,7 @@ consumer remains `dev.chek.reader.embedding`.
   to streaming; direct-device scrolling was qualitatively satisfactory.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
-- VoiceOver speech/gestures and abrupt-termination lifecycle checks; maximum Dynamic Type was
+- EPUB VoiceOver text/actions and abrupt-termination lifecycle checks; maximum Dynamic Type was
   checked for the shared failure surface and consumer controls, not every UI path.
 - The v1 format-support contract is now explicit in the embedding guide and package
   README. EPUB roll, spreads, DRM and new codecs remain outside current coverage.
