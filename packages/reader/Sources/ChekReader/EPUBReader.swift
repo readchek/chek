@@ -549,6 +549,36 @@ private struct ReaderWebContent: View {
     WebView(page)
       .webViewBackForwardNavigationGestures(.disabled)
       .webViewLinkPreviews(.disabled)
+      .accessibilityElement(children: .contain)
+      .accessibilityActions {
+        if reader.allowsChapterSwipe, reader.isReadyForInteraction, let index = reader.chapterIndex
+        {
+          if index > 0 {
+            Button {
+              [weak reader] in
+              guard let reader, reader.allowsChapterSwipe, reader.isReadyForInteraction else {
+                return
+              }
+              reader.onInteraction()
+              reader.moveChapter(by: -1)
+            } label: {
+              Text("Previous chapter", bundle: .module)
+            }
+          }
+          if index + 1 < reader.publication.readingOrder.count {
+            Button {
+              [weak reader] in
+              guard let reader, reader.allowsChapterSwipe, reader.isReadyForInteraction else {
+                return
+              }
+              reader.onInteraction()
+              reader.moveChapter(by: 1)
+            } label: {
+              Text("Next chapter", bundle: .module)
+            }
+          }
+        }
+      }
       .webViewOnScrollGeometryChange(
         for: ReaderInsets.self,
         of: {

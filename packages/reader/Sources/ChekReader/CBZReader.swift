@@ -292,6 +292,7 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
   private var previousSize = CGSize.zero
   private var updating = false
   private var pendingProgression = 0.0
+  private var accessibleDestination: String?
   private(set) var pageID: String?
   var onPosition: ((String, Double) -> Void)?
   var onWidth: ((Int, CGFloat) -> Void)?
@@ -337,6 +338,26 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
     onSwipe?(gesture.direction == .left)
   }
 
+  override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+    guard allowsPageSwipe, zoomScale <= 1.01, let reader else {
+      return super.accessibilityScroll(direction)
+    }
+    let delta: Int
+    switch direction {
+    case .left: delta = reader.readingDirection == .leftToRight ? 1 : -1
+    case .right: delta = reader.readingDirection == .leftToRight ? -1 : 1
+    case .next: delta = 1
+    case .previous: delta = -1
+    default: return super.accessibilityScroll(direction)
+    }
+    let destination = reader.currentPageIndex + delta
+    guard reader.publication.pages.indices.contains(destination) else { return false }
+    accessibleDestination = reader.publication.pages[destination].id
+    onInteraction?()
+    reader.movePage(by: delta)
+    return true
+  }
+
   override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
     if gestureRecognizer is UISwipeGestureRecognizer {
       return allowsPageSwipe && zoomScale <= 1.01
@@ -362,6 +383,7 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
     self.reader = reader
     pageID = nil
     pendingProgression = 0
+    accessibleDestination = nil
     releaseImage()
     // A reused representable already has a window and unchanged bounds, so
     // neither lifecycle hook would otherwise send this reader its first width.
@@ -372,6 +394,7 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
   func show(
     _ page: CBZDecodedPage?, pageID: String, progression: Double, pageNumber: Int, pageCount: Int
   ) {
+    if accessibleDestination != pageID { accessibleDestination = nil }
     pageView.accessibilityLabel = String(
       localized: "Comic page \(pageNumber) of \(pageCount)", bundle: .module,
       comment: "Accessible image label: current comic page number followed by total page count.")
@@ -385,6 +408,10 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
     pendingProgression = fraction
     pageView.image = page.map { UIImage(cgImage: $0.image) }
     reflow(progression: fraction, zoom: zoom)
+    if page != nil, accessibleDestination == pageID {
+      accessibleDestination = nil
+      UIAccessibility.post(notification: .pageScrolled, argument: pageView.accessibilityLabel)
+    }
   }
 
   func releaseImage() {

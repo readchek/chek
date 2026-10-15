@@ -242,6 +242,46 @@ personal-team signed Release device build passed. Evidence logs:
 
 ## Release checks still open
 
+### Physical lifecycle and memory follow-up
+
+An Activity Monitor capture on the signed Release demo lasted 272.68 seconds.
+The session counter advanced from 3 to 19: three mixed-layout EPUB replacements,
+two comic opens with three replacements each, and one Moby-Dick open with four
+replacements. The pass included fast comic scrolling, mixed-layout navigation,
+and four explicit closes. Observed settled readers reported Ready and retained
+their saved locations. The final reader remained closed for the idle tail.
+
+The host process's sampled physical footprint started at 25.72 MiB, peaked at
+66.92 MiB during the comic phase, and ended at 27.69 MiB. Samples from seconds
+210–268 ranged from 27.69–27.75 MiB. These results show release after this bounded
+soak, not a leak-free guarantee or a worst-case limit for arbitrary publications.
+The capture includes WebKit processes, but their responsible-process field reports
+launchd, so host footprint must not be presented as total EPUB memory. WebContent
+processes appearing during the EPUB phases peaked individually between 41.42 and
+76.39 MiB; ownership is inferred from timing, not established by that field. No
+WebContent or WebKit GPU process remained in the subsequent process inventory;
+the WebKit networking process remained. Export emitted a dylib-overlap warning
+but completed with the memory tables available.
+
+Evidence: `/tmp/chek-reader-lifecycle-memory.trace`,
+`/tmp/chek-reader-memory-live.xml`, and `/tmp/chek-reader-memory-summary.json`.
+
+The earlier 26.06-second Time Profiler capture was also reviewed. It contained no
+potential-hang rows (250 ms threshold). Sampled running-thread weights were 997 ms
+for the host, 557 ms for WebContent, and 94 ms for WebKit GPU. Symbols were largely
+raw addresses; no actionable package CPU hotspot was established. This older
+capture had no precise gesture markers and does not measure frame rate or input
+latency. Evidence: `/tmp/chek-fast-scroll-analysis.json` and its XML exports.
+
+Accessibility review found missing package-level navigation equivalents. Paged
+CBZ now handles accessibility page-scroll requests and announces the decoded
+destination; EPUB exposes logical Previous chapter and Next chapter custom
+actions while preserving WebKit child elements. Both honor navigation opt-out and
+boundaries. The independent consumer and signed device build pass; physical
+VoiceOver speech, focus and action discovery are being checked separately.
+
+### Remaining qualification
+
 Physical-device setup: the standalone Release demo was signed with the personal
 individual team `KZX5HZ32P9`, installed on iPhone 17 / iOS 27.0.1, and visibly
 rendered in Device Hub. Moby-Dick, birds-eye, and the mixed-layout sample were

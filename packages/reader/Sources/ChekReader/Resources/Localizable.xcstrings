@@ -20,6 +20,14 @@
     "Opening book…" : {
       "comment" : "Progress label while preparing the local publication renderer.",
       "extractionState" : "manual"
+    },
+    "Previous chapter" : {
+      "comment" : "Accessibility action that moves backward in the publication's logical spine order.",
+      "extractionState" : "manual"
+    },
+    "Next chapter" : {
+      "comment" : "Accessibility action that advances in the publication's logical spine order.",
+      "extractionState" : "manual"
     }
   },
   "version" : "1.0"
