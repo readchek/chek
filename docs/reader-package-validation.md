@@ -217,6 +217,13 @@ and two close/reopen cycles preserved that passage. Switching to birds-eye, scro
 to page 11 at 66.5%, closing, and reopening also preserved the final artwork.
 These are short lifecycle checks, not a memory soak or forced cancellation proof.
 
+A subsequent cold-process relaunch (terminate-existing, after backgrounding) reset
+the demo session counter to zero. Reopening each file restored Moby-Dick's same
+near-end chapter 1 passage, birds-eye's page 11 at 66.5% with the same final artwork,
+and the mixed-layout EPUB's third section. All reported Ready. This verifies
+persisted locations across host process replacement after a normal background save;
+it does not establish recovery from an abrupt termination before a save.
+
 The EPUB spine's declared page progression now maps physical chapter gestures:
 right swipe advances RTL books, while LTR/default retain left-swipe advancement.
 Logical spine order and `moveChapter(by:)` are unchanged. The unchanged W3C
@@ -244,10 +251,11 @@ complete device performance or reliability qualification. Chek uses the requeste
 consumer remains `dev.chek.reader.embedding`.
 
 - Repeatable device frame-time, loading latency and peak-memory measurements,
-  including WebKit processes. Investigate the reported scroll lag end to end.
+  including WebKit processes. The reported fast-scroll lag was traced by the user
+  to streaming; direct-device scrolling was qualitatively satisfactory.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
-- VoiceOver speech/gestures and device lifecycle checks; maximum Dynamic Type was
+- VoiceOver speech/gestures and abrupt-termination lifecycle checks; maximum Dynamic Type was
   checked for the shared failure surface and consumer controls, not every UI path.
 - The v1 format-support contract is now explicit in the embedding guide and package
   README. EPUB roll, spreads, DRM and new codecs remain outside current coverage.
