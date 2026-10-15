@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 packages:
   ChekReader:
-    path: ../../packages/reader
+    path: ../..
 settings:
   base:
     SWIFT_VERSION: "6.0"

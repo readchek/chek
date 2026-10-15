@@ -3,6 +3,13 @@
 A Swift package for Chek's local EPUB and comic reader, built around native Apple
 rendering and small archive support. Requires iOS 27 and Swift 6.4 or later.
 
+Add the repository root as a local Swift package and link `ChekReader`. The root
+manifest also supports Git-based installation once its commit is available remotely.
+See [installation and embedding](../../docs/reader-package.md) and the
+[independent consumer](../../examples/reader-consumer/) for integration details.
+The package has no dependency on the Chek app, Bun, or a server. Public release
+licensing and a version tag remain pending; no project source license is declared.
+
 EPUB coverage implemented so far:
 
 | Feature | Current behavior |

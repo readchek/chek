@@ -28,8 +28,8 @@
 		A77BB508D80BCC51A4BBB945 /* ComicReaderScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicReaderScreen.swift; sourceTree = "<group>"; };
 		A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		E1991E714F79299D95CBCFCE /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
+		E6949264DE1BE5BF5F467D1C /* manga */ = {isa = PBXFileReference; lastKnownFileType = folder; name = manga; path = ../..; sourceTree = SOURCE_ROOT; };
 		E9144D6383F83DECA5011ED5 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
-		F76DEF912B870701726ABD4F /* reader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = reader; path = ../../packages/reader; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,7 +64,7 @@
 		6F4300B20984696D96588995 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				F76DEF912B870701726ABD4F /* reader */,
+				E6949264DE1BE5BF5F467D1C /* manga */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -129,7 +129,7 @@
 			mainGroup = 698532BD934D7B3E5D644B70;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				8DAB6575D88669E589AB6C7B /* XCLocalSwiftPackageReference "../../packages/reader" */,
+				D0B1EDF180F6901D34C8AD4D /* XCLocalSwiftPackageReference "../.." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5C5E61A54B37D54526640D2E /* Products */;
@@ -373,9 +373,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		8DAB6575D88669E589AB6C7B /* XCLocalSwiftPackageReference "../../packages/reader" */ = {
+		D0B1EDF180F6901D34C8AD4D /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../packages/reader;
+			relativePath = ../..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
