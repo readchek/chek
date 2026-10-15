@@ -27,6 +27,8 @@ public final class EPUBReader {
   private var resourceFailure: String?
   private var topInset: CGFloat = 0
   private var bottomInset: CGFloat = 0
+  @ObservationIgnored fileprivate var onTap: @MainActor () -> Void = {}
+  @ObservationIgnored fileprivate var onInteraction: @MainActor () -> Void = {}
 
   public var hasMessage: Bool {
     get { message != nil }
@@ -54,6 +56,10 @@ public final class EPUBReader {
 
   public var isFixedLayout: Bool { publication.isFixedLayout(currentHref) }
 
+  /// False while loading/restoring, or when an error replaces the document.
+  /// Consumers should keep an exit control visible until DOM gestures are ready.
+  public var isReadyForInteraction: Bool { !isRestoring && !loadFailed && !explicitLoad }
+
   public func open(_ link: EPUBLink) {
     requestedHref = link.href
     loadRequestID = UUID()
@@ -68,6 +74,7 @@ public final class EPUBReader {
 
   func load() async {
     let generation = loadRequestID
+    explicitLoad = true
     loadFailed = false
     failureDescription = nil
     resourceFailure = nil
@@ -84,7 +91,6 @@ public final class EPUBReader {
       resumeLocation = nil
       documentToken = UUID().uuidString
       isRestoring = true
-      explicitLoad = true
       for try await _ in page.load(url) { try Task.checkCancellation() }
       guard generation == loadRequestID else { return }
       let value = try await page.callJavaScript(
@@ -108,19 +114,6 @@ public final class EPUBReader {
     }
   }
 
-  func observeNavigations() async {
-    guard let page else { return }
-    do {
-      for try await _ in page.navigations { try Task.checkCancellation() }
-    } catch is CancellationError {
-    } catch {
-      if !Task.isCancelled && !explicitLoad {
-        loadFailed = true
-        failureDescription = error.localizedDescription
-      }
-    }
-  }
-
   /// Capture synchronously from the current DOM before close/background saves.
   @discardableResult public func captureLocation() async -> ReadingLocation? {
     guard !isRestoring, let page else { return location }
@@ -132,6 +125,12 @@ public final class EPUBReader {
       if token == documentToken { acceptLocation(value) }
     } catch { if !Task.isCancelled { message = error.localizedDescription } }
     return location
+  }
+
+  fileprivate func navigationFailed(_ error: any Error) {
+    guard !explicitLoad else { return }
+    loadFailed = true
+    failureDescription = error.localizedDescription
   }
 
   public func setTextScale(_ scale: Double) async {
@@ -207,6 +206,26 @@ public final class EPUBReader {
       message.frameInfo.request.url?.host == publication.host,
       let body = message.body as? [String: Any], body["token"] as? String == documentToken
     else { return }
+    if message.name == "readerInteraction", let kind = body["kind"] as? String {
+      switch kind {
+      case "tap": onTap()
+      case "active": onInteraction()
+      case "next":
+        onInteraction()
+        moveChapter(by: 1)
+      case "previous":
+        onInteraction()
+        moveChapter(by: -1)
+      default: break
+      }
+      return
+    }
+    #if DEBUG
+      if let duration = body["captureMilliseconds"] as? Double, duration.isFinite, duration > 8 {
+        Logger(subsystem: "dev.chek.reader", category: "ReadingPerformance").notice(
+          "Semantic capture took \(duration, privacy: .public) ms")
+      }
+    #endif
     acceptLocation(body["location"])
   }
 
@@ -219,6 +238,9 @@ public final class EPUBReader {
     let viewport = try String(contentsOf: scriptURL, encoding: .utf8)
     controller.add(
       ReaderBridge(reader: self), contentWorld: .world(name: "ChekReader"), name: "readingLocation")
+    controller.add(
+      ReaderBridge(reader: self), contentWorld: .world(name: "ChekReader"),
+      name: "readerInteraction")
     controller.addUserScript(
       WKUserScript(
         source: viewport, injectionTime: .atDocumentStart,
@@ -300,8 +322,18 @@ public final class EPUBReader {
 
 public struct EPUBReaderView: View {
   private let reader: EPUBReader
+  private let onTap: @MainActor () -> Void
+  private let onInteraction: @MainActor () -> Void
 
-  public init(reader: EPUBReader) { self.reader = reader }
+  public init(
+    reader: EPUBReader,
+    onTap: @escaping @MainActor () -> Void = {},
+    onInteraction: @escaping @MainActor () -> Void = {}
+  ) {
+    self.reader = reader
+    self.onTap = onTap
+    self.onInteraction = onInteraction
+  }
 
   public var body: some View {
     Group {
@@ -325,6 +357,14 @@ public struct EPUBReaderView: View {
         ProgressView(String(localized: "Opening book…", bundle: .module))
       }
     }
+    .onAppear {
+      reader.onTap = onTap
+      reader.onInteraction = onInteraction
+    }
+    .onDisappear {
+      reader.onTap = {}
+      reader.onInteraction = {}
+    }
     .task(id: reader.loadRequestID) { await reader.load() }
   }
 }
@@ -346,7 +386,14 @@ private struct ReaderWebContent: View {
           Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
         }
       )
-      .task { await reader.observeNavigations() }
+      .task { [page, weak reader] in
+        do {
+          for try await _ in page.navigations { try Task.checkCancellation() }
+        } catch is CancellationError {
+        } catch {
+          if !Task.isCancelled { reader?.navigationFailed(error) }
+        }
+      }
   }
 }
 

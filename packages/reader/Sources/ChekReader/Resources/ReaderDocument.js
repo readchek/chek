@@ -11,6 +11,9 @@
   let scale = 1;
   let operation = 0;
   let fixedLayout = false;
+  let lastPublished = '';
+  let lastInteraction = 0;
+  let touch = null;
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const resourceHref = () => window.location.pathname.slice(1);
@@ -54,20 +57,33 @@
 
   function textAtTop() {
     const y = Math.max(1, Math.min(innerHeight - 1, topInset + 12));
-    for (const x of [24, innerWidth / 2, Math.max(24, innerWidth - 24)]) {
-      const range = document.caretRangeFromPoint?.(x, y);
-      if (range && validText(range.startContainer)) return {node: range.startContainer, offset: range.startOffset};
-    }
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node, visited = 0;
-    while ((node = walker.nextNode()) && ++visited <= 20000) {
-      if (!validText(node)) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      const rect = range.getBoundingClientRect();
-      if (rect.bottom > y && rect.top < innerHeight - bottomInset && rect.width > 0) {
-        return {node, offset: 0};
+    const bottom = Math.max(y, innerHeight - bottomInset - 1);
+    const roots = new Set();
+    for (const sampleY of [y, Math.min(bottom, y + 24), Math.min(bottom, y + 64)]) {
+      for (const x of [24, innerWidth / 2, Math.max(24, innerWidth - 24)]) {
+        const range = document.caretRangeFromPoint?.(x, sampleY);
+        if (range && validText(range.startContainer)) {
+          return {node: range.startContainer, offset: range.startOffset};
+        }
+        const root = document.elementFromPoint(x, sampleY);
+        if (root && root !== document.body && root !== document.documentElement) roots.add(root);
       }
+    }
+    // A blank line or illustration must not trigger a chapter-wide geometry
+    // scan. Search only hit-tested visible subtrees, within one shared budget.
+    const deadline = performance.now() + 4;
+    let visited = 0;
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode()) && ++visited <= 128 && performance.now() < deadline) {
+        if (!validText(node)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        if (rect.bottom > y && rect.top < bottom && rect.width > 0) return {node, offset: 0};
+      }
+      if (visited >= 128 || performance.now() >= deadline) break;
     }
     return null;
   }
@@ -105,10 +121,17 @@
 
   function publish() {
     if (restoring || !token) return null;
+    const started = performance.now();
     const location = capture();
     if (location) {
       lastAnchor = location;
-      window.webkit?.messageHandlers?.readingLocation?.postMessage({token, location});
+      const encoded = JSON.stringify(location);
+      if (encoded !== lastPublished) {
+        lastPublished = encoded;
+        window.webkit?.messageHandlers?.readingLocation?.postMessage({
+          token, location, captureMilliseconds: performance.now() - started
+        });
+      }
     }
     return location;
   }
@@ -194,6 +217,7 @@
       const generation = ++operation;
       restoring = true;
       token = nextToken;
+      lastPublished = '';
       fixedLayout = isFixedLayout;
       document.documentElement.toggleAttribute('data-chek-reader-reflow', !fixedLayout);
       if (fixedLayout) document.querySelector('meta[data-chek-reader-viewport]')?.remove();
@@ -228,7 +252,51 @@
 
   window.addEventListener('scroll', () => {
     clearTimeout(captureTimer);
-    if (!restoring) captureTimer = setTimeout(publish, 250);
+    if (!restoring) {
+      captureTimer = setTimeout(publish, 350);
+      interact('active', true);
+    }
+  }, {passive: true});
+  window.addEventListener('scrollend', () => {
+    clearTimeout(captureTimer);
+    if (!restoring) captureTimer = setTimeout(publish, 80);
+  }, {passive: true});
+
+  function interact(kind, throttled = false) {
+    if (!token || restoring) return;
+    const now = performance.now();
+    if (throttled && now - lastInteraction < 1000) return;
+    lastInteraction = now;
+    window.webkit?.messageHandlers?.readerInteraction?.postMessage({token, kind});
+  }
+
+  const hasSelection = () => !window.getSelection()?.isCollapsed;
+  const interactiveTarget = target => target instanceof Element
+    && target.closest('a,button,input,textarea,select,[contenteditable]');
+  window.addEventListener('touchstart', event => {
+    interact('active');
+    const point = event.touches[0];
+    touch = event.touches.length === 1 && !hasSelection() && !interactiveTarget(event.target)
+      && (window.visualViewport?.scale ?? 1) <= 1.01
+      ? {x: point.clientX, y: point.clientY, time: performance.now()} : null;
+  }, {passive: true});
+  window.addEventListener('touchmove', event => {
+    if (event.touches.length !== 1) touch = null;
+  }, {passive: true});
+  window.addEventListener('touchcancel', () => { touch = null; }, {passive: true});
+  window.addEventListener('touchend', event => {
+    const start = touch;
+    touch = null;
+    if (!start || event.touches.length || hasSelection() || interactiveTarget(event.target)) return;
+    const point = event.changedTouches[0];
+    if (!point) return;
+    const x = point.clientX - start.x, y = point.clientY - start.y;
+    const duration = performance.now() - start.time;
+    if (duration < 350 && Math.hypot(x, y) < 10) interact('tap');
+    else if (duration < 900 && Math.abs(x) >= 70 && Math.abs(x) > Math.abs(y) * 1.5
+      && (window.visualViewport?.scale ?? 1) <= 1.01) {
+      interact(x < 0 ? 'next' : 'previous');
+    }
   }, {passive: true});
   window.addEventListener('resize', () => {
     if (!token || !lastAnchor || fixedLayout) return;
