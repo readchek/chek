@@ -140,7 +140,7 @@ public final class EPUBReader {
       if !Task.isCancelled, generation == loadRequestID {
         explicitLoad = false
         loadFailed = true
-        failureDescription = resourceFailure ?? error.localizedDescription
+        failureDescription = resourceFailure ?? navigationFailureDescription(error)
       }
     }
   }
@@ -166,7 +166,29 @@ public final class EPUBReader {
   fileprivate func navigationFailed(_ error: any Error) {
     guard !explicitLoad else { return }
     loadFailed = true
-    failureDescription = error.localizedDescription
+    failureDescription = navigationFailureDescription(error)
+  }
+
+  private func navigationFailureDescription(_ error: any Error) -> String {
+    guard let navigationError = error as? WebPage.NavigationError else {
+      return error.localizedDescription
+    }
+    switch navigationError {
+    case .failedProvisionalNavigation(let underlying):
+      let details = underlying as NSError
+      return "\(underlying.localizedDescription) (\(details.domain), \(details.code))"
+    case .pageClosed:
+      return String(
+        localized: "The book's web page was closed. Try again to reopen it.", bundle: .module)
+    case .webContentProcessTerminated:
+      return String(
+        localized: "The book's web content process ended. Try again to reload this page.",
+        bundle: .module)
+    case .invalidURL:
+      return String(localized: "The book's page address is invalid.", bundle: .module)
+    @unknown default:
+      return error.localizedDescription
+    }
   }
 
   public func setTextScale(_ scale: Double) async {
@@ -535,7 +557,13 @@ private struct ReaderWebContent: View {
           }
         }
       )
-      .task(id: ObjectIdentifier(page)) { [weak page, weak reader] in
+      // A navigation error ends this sequence, including errors handled by the
+      // explicit load task. Subscribe again when that load becomes ready so
+      // later content-process failures remain observable.
+      .task(
+        id: ReaderNavigationObservationID(
+          page: ObjectIdentifier(page), isReady: reader.isReadyForInteraction)
+      ) { [weak page, weak reader] in
         guard let page else { return }
         do {
           for try await _ in page.navigations { try Task.checkCancellation() }
@@ -609,6 +637,11 @@ private struct PublicationNavigation: WebPage.NavigationDeciding {
 private struct ReaderInsets: Hashable {
   let top: CGFloat
   let bottom: CGFloat
+}
+
+private struct ReaderNavigationObservationID: Hashable {
+  let page: ObjectIdentifier
+  let isReady: Bool
 }
 
 @MainActor private final class ReaderBridge: NSObject, WKScriptMessageHandler {

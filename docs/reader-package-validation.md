@@ -154,14 +154,50 @@ controlled failure without a crash. The consumer moves detailed controls into a
 scrollable sheet at accessibility sizes. The simulator text-size setting was
 restored afterward. VoiceOver speech and gestures remain unverified.
 
+## Physical-device follow-up
+
+Device Hub interaction on iPhone 17 / iOS 27.0.1 confirmed Moby-Dick chapter
+navigation and scrolling. Replacing its reader preserved the visible passage.
+Birds-eye chose continuous mode and reached its final artwork after fast scrolls.
+An initial 90.8% → 66.5% observation included elastic overscroll and does not by
+itself prove replacement drift. Review found that estimated page heights could
+clamp a requested anchor before real dimensions arrived, and that bounce offsets
+could enter saved progress. Restoration now retains the requested anchor until
+target dimensions arrive; the patched device build preserved settled page 11 at
+66.5% with identical artwork after replacement. Bounce-anchor clamping also builds,
+but its final physical check is pending because the phone returned to active use.
+
+A 31.10-second Animation Hitches recording targeted the physical device and
+recorded no entries in its hitches or potential-hangs tables. It contained 486
+ReaderEmbedding update events (median 0.78 ms, p95 1.30 ms, maximum 1.81 ms).
+Matching swap IDs yielded 487 render-stage records (median 4.93 ms, p95 6.24 ms,
+maximum 17.55 ms). These are instrument stage timings, not FPS or input latency.
+The device was in Fair thermal state throughout, Device Hub streaming was active,
+and gesture intervals were not precisely marked. This short run does not settle
+the original lag report. Direct process attachment failed; device-wide recording
+succeeded. WebKit CPU attribution remains inferred from process timing/context.
+
+Evidence: `/tmp/chek-device-epub-hitches.trace` and its XML exports, including
+`/tmp/chek-device-hitches-updates.xml` and `/tmp/chek-device-hitches.xml`.
+
+Mixed-layout navigation initially reported a generic WebPage navigation error.
+Retry loaded the fixed second page; forward to the third reflowable section and
+back to the fixed page then succeeded. Its original cause is not yet established.
+The reader now reports specific WebKit failure cases and resubscribes to navigation
+events after explicit loading becomes ready; a failed event sequence previously
+could leave later process failures unobserved. Page identity and weak captures
+remain intact. The signed Release build passes (`/tmp/chek-device-anchor-final-build.log`),
+as do Swift formatting and diff checks. These changes do not claim to resolve the
+unidentified initial device error; its repeat check remains pending.
+
 ## Release checks still open
 
 Physical-device setup: the standalone Release demo was signed with the personal
 individual team `KZX5HZ32P9`, installed on iPhone 17 / iOS 27.0.1, and visibly
 rendered in Device Hub. Moby-Dick, birds-eye, and the mixed-layout sample were
-copied into its own Documents container. Interactive device measurements are
-still pending; installation and the initial screen do not verify scrolling or
-frame times. Chek uses the requested `run.chibi.manga` identifier; the standalone
+copied into its own Documents container. The focused checks above are not a
+complete device performance or reliability qualification. Chek uses the requested
+`run.chibi.manga` identifier; the standalone
 consumer remains `dev.chek.reader.embedding`.
 
 - Repeatable device frame-time, loading latency and peak-memory measurements,

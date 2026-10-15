@@ -527,6 +527,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
   private var previousSize = CGSize.zero
   private var updating = false
   private var pendingAnchor: Anchor?
+  private var unresolvedAnchor: Anchor?
   private var lastAnchor: Anchor?
   private var lastPublished = 0.0
   var onTap: (() -> Void)?
@@ -576,6 +577,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
     navigationID = reader.navigationRequestID
     pendingAnchor = Anchor(
       index: reader.currentPageIndex, fraction: CGFloat(reader.location.progression))
+    unresolvedAnchor = pendingAnchor
     setNeedsLayout()
   }
 
@@ -602,6 +604,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
     cacheReleaseID = nil
     keepsAdjacentPages = true
     pendingAnchor = nil
+    unresolvedAnchor = nil
     lastAnchor = nil
     lastPublished = 0
     updating = true
@@ -641,8 +644,15 @@ private struct ComicRollCanvas: UIViewRepresentable {
   }
 
   private func anchor() -> Anchor? {
+    // Estimated heights can clamp a restored location near the end of the roll.
+    // Keep its requested fraction until the target image supplies real dimensions.
+    if let unresolvedAnchor { return unresolvedAnchor }
     guard !starts.isEmpty, !pages.isEmpty else { return pendingAnchor }
-    let y = max(0, (contentOffset.y + contentInset.top) / max(1, zoomScale))
+    // Rubber-band motion is visual, not a persistable position past the roll's end.
+    let maximumOffset = max(
+      -contentInset.top, contentSize.height - bounds.height + contentInset.bottom)
+    let offset = min(maximumOffset, max(-contentInset.top, contentOffset.y))
+    let y = max(0, (offset + contentInset.top) / max(1, zoomScale))
     var lower = 0
     var upper = pages.count
     while lower < upper {
@@ -681,7 +691,8 @@ private struct ComicRollCanvas: UIViewRepresentable {
         y: min(
           max(-contentInset.top, y - contentInset.top),
           max(-contentInset.top, contentSize.height - bounds.height + contentInset.bottom)))
-      lastAnchor = anchor
+      if ratios[anchor.index] != nil { unresolvedAnchor = nil }
+      lastAnchor = self.anchor()
     }
   }
 
@@ -883,9 +894,13 @@ private struct ComicRollCanvas: UIViewRepresentable {
 
   func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
 
-  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { onInteraction?() }
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    unresolvedAnchor = nil
+    onInteraction?()
+  }
 
   func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+    unresolvedAnchor = nil
     onInteraction?()
   }
 
