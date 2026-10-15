@@ -29,11 +29,16 @@ result rather than copying intermediate subtree arrays.
 Comic canvases detach old capture providers when replacing readers. Continuous
 mode cancels old requests and resets publication geometry. Page identity lookup
 uses an index. A cache generation prevents suspended reads from repopulating an
-evicted cache. Memory pressure cancels offscreen prefetch and retains intersecting
-pages within the existing five-view and 64 MiB display limits. The decode cache
-has a separate 64 MiB bound. These are not total process memory limits. More than
-five short images visible together can still show placeholders; very large
-images can also exceed the display budget. Prefetch resumes on canvas remount.
+evicted cache. Memory pressure cancels offscreen prefetch. Continuous mode includes
+all intersecting pages, with an explicit error above 256 visible pages, at most two
+pending decode requests, and a separate 64 MiB displayed-bitmap bound. The decode
+cache also has a 64 MiB bound. These are not total process memory limits.
+Resolution follows aggregate page area while retaining at least one decoded pixel
+per zoomed layout point. Actual dimensions constrain the first strip decode before
+bitmap allocation. Offscreen neighbors cannot evict visible images. Pages that
+still exceed the budget fail visibly, with retry controls inside the visible
+intersection. Prefetch resumes on canvas remount. The pathological page-count and
+budget-error branches were code-reviewed, not exercised with generated fixtures.
 
 ## Focused simulator evidence
 
@@ -90,6 +95,17 @@ The independent consumer also opened a nine-page PNG CBZ, switched from automati
 paged mode to continuous scrolling, and rendered adjoining pages after a fast
 scroll. Replacing its reader preserved page 8 at 23.1% and the next tap reached
 the host. These checks establish integration behavior, not frame-time results.
+
+The W3C mixed-layout sample exposed a crash when the same WebPage moved between
+conditional WebView branches. A single stable WebView now changes frame and scale
+across layout modes. Manual forward and reverse navigation through reflowable,
+fixed, and reflowable sections rendered correctly after the fix.
+The four-document SVG spine sample reached its final page. Vertical-rl text
+rendered vertically. The malformed-XHTML sample now reports the XML diagnostic
+through `failureDescription` and displays the native load-failure view, rather
+than marking WebKit's parser-error page ready. On the combined build, birds-eye
+automatically chose continuous mode and remained rendered after fast jumps to
+page 5, followed by a successful close.
 
 ## Release checks still open
 

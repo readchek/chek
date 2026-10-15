@@ -30,6 +30,7 @@ public actor CBZImagePipeline {
   private struct Key: Hashable {
     let pageID: String
     let targetWidth: Int
+    let minimumWidth: Int?
   }
 
   private struct Cached {
@@ -53,13 +54,29 @@ public actor CBZImagePipeline {
   /// width merely to fit a longest-edge thumbnail limit. Call again at a larger
   /// width when zooming, subject to the same pixel and byte limits.
   public func image(for pageID: String, targetWidth: Int) async throws -> CBZDecodedPage {
+    try await image(for: pageID, targetWidth: targetWidth, minimumWidth: nil)
+  }
+
+  /// The roll can spend surplus display-scale resolution on unusually tall
+  /// pages, but must retain at least one pixel per zoomed layout point.
+  func imageForRoll(pageID: String, targetWidth: Int, minimumWidth: Int) async throws
+    -> CBZDecodedPage
+  {
+    try await image(for: pageID, targetWidth: targetWidth, minimumWidth: minimumWidth)
+  }
+
+  private func image(for pageID: String, targetWidth: Int, minimumWidth: Int?) async throws
+    -> CBZDecodedPage
+  {
     try Task.checkCancellation()
-    guard pageIDs.contains(pageID), targetWidth > 0 else {
+    guard pageIDs.contains(pageID), targetWidth > 0,
+      minimumWidth.map({ $0 > 0 && $0 <= min(4096, targetWidth) }) ?? true
+    else {
       throw ReaderError.invalid("The requested comic page or render width is invalid.")
     }
     let boundedWidth = min(4096, targetWidth)
     let bucket = ((boundedWidth + 127) / 128) * 128
-    let key = Key(pageID: pageID, targetWidth: bucket)
+    let key = Key(pageID: pageID, targetWidth: bucket, minimumWidth: minimumWidth)
     if let page = cached(key) { return page }
     try await acquire()
     defer { release() }
@@ -70,7 +87,7 @@ public actor CBZImagePipeline {
     try Task.checkCancellation()
     // Synchronous actor-isolated decoding cannot overlap another decode. Archive
     // reads also remain behind this permit, so waiting requests retain no bytes.
-    let decoded = try decode(data, targetWidth: bucket)
+    let decoded = try decode(data, targetWidth: bucket, minimumWidth: minimumWidth)
     try Task.checkCancellation()
     let cost = decoded.image.bytesPerRow * decoded.image.height
     guard cost <= Self.maximumCacheBytes else {
@@ -136,7 +153,9 @@ public actor CBZImagePipeline {
         cache.first(where: { candidate in
           let page = candidate.value.page
           return candidate.key.pageID == key.pageID
+            && candidate.key.minimumWidth == key.minimumWidth
             && page.image.width >= min(page.sourceWidth, key.targetWidth)
+            && page.image.width <= key.targetWidth
         })?.key
       }
     guard let existingKey, var item = cache[existingKey] else { return nil }
@@ -180,7 +199,7 @@ public actor CBZImagePipeline {
     }
   }
 
-  private func decode(_ data: Data, targetWidth: Int) throws -> CBZDecodedPage {
+  private func decode(_ data: Data, targetWidth: Int, minimumWidth: Int?) throws -> CBZDecodedPage {
     try Task.checkCancellation()
     guard
       let source = CGImageSourceCreateWithData(
@@ -204,7 +223,21 @@ public actor CBZImagePipeline {
     let rotated = (5...8).contains(orientation)
     let width = rotated ? rawHeight.intValue : rawWidth.intValue
     let height = rotated ? rawWidth.intValue : rawHeight.intValue
-    let desiredWidth = min(width, targetWidth)
+    var desiredWidth = min(width, targetWidth)
+    if let minimumWidth {
+      // Dimensions are inspected before the first bitmap allocation. Unknown
+      // strip ratios must not turn a legal page into a permanently failed
+      // placeholder merely because the roll's estimate requested too many
+      // pixels. Preserve the explicit readability floor when lowering quality.
+      let safeWidth = Int(sqrt(Double(Self.maximumDecodedPixels) * Double(width) / Double(height)))
+      if desiredWidth > safeWidth {
+        guard safeWidth >= min(width, minimumWidth) else {
+          throw ReaderError.limit(
+            "This strip is too tall to decode at a readable width within the current image budget.")
+        }
+        desiredWidth = min(desiredWidth, max(min(width, minimumWidth), (safeWidth / 128) * 128))
+      }
+    }
     let desiredHeight = Int(ceil(Double(height) * Double(desiredWidth) / Double(width)))
     guard desiredWidth * desiredHeight <= Self.maximumDecodedPixels else {
       throw ReaderError.limit(

@@ -57,8 +57,9 @@ Comic decodes serialize and cancel obsolete work. The decoded cache is limited t
 per axis / 80 million pixels. These are cache/decode limits, not a claim that total
 app memory stays below 64 MiB: displayed images and ImageIO workspace also consume
 memory. The continuous canvas separately bounds displayed bitmaps to 64 MiB and
-keeps at most five nearby page views/requests. Unknown heights are estimated until
-nearby pages decode; fast jumps can briefly show placeholders.
+includes all visible pages up to an explicit 256-view limit, with at most two
+pending decodes. Shared resolution follows visible page area. Unknown heights
+are estimated until nearby pages decode; fast jumps can briefly show placeholders.
 Unsupported formats and strips that cannot fit a readable decode within
 these limits produce visible errors.
 

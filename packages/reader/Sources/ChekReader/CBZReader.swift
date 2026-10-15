@@ -177,13 +177,21 @@ public final class CBZReader {
     await pipeline.removeAll()
   }
 
-  fileprivate func image(pageID: String, width: Int) async throws -> CBZDecodedPage {
-    try await pipeline.image(for: pageID, targetWidth: width)
+  fileprivate func image(pageID: String, width: Int, minimumWidth: Int) async throws
+    -> CBZDecodedPage
+  {
+    try await pipeline.imageForRoll(pageID: pageID, targetWidth: width, minimumWidth: minimumWidth)
   }
 
   fileprivate func setContinuousReady(_ ready: Bool) {
     guard continuousReady != ready else { return }
     continuousReady = ready
+  }
+
+  fileprivate func failContinuous(_ description: String) {
+    guard failureDescription != description || continuousReady else { return }
+    continuousReady = false
+    failureDescription = description
   }
 }
 
@@ -504,8 +512,9 @@ private struct ComicRollCanvas: UIViewRepresentable {
 
 /// One native scroll surface spans the publication. Unknown page heights are
 /// estimates until that page comes near the viewport; replacing an estimate
-/// preserves the currently visible page and its within-page position. Only five
-/// nearby page views/requests can exist, independent of the archive's page count.
+/// preserves the currently visible page and its within-page position. All
+/// intersecting pages participate; bitmap memory and pending decodes are bounded
+/// separately so short pages are never omitted by a fixed view-count limit.
 @MainActor private final class ComicRollView: UIScrollView, UIScrollViewDelegate {
   private struct Anchor {
     let index: Int
@@ -520,6 +529,8 @@ private struct ComicRollCanvas: UIViewRepresentable {
   private var cells: [Int: ComicRollPage] = [:]
   private var requests: [Int: (id: UUID, task: Task<Void, Never>)] = [:]
   private var navigationID: UUID?
+  private var retryID: UUID?
+  private var renderWidth = 0
   private var cacheReleaseID: UUID?
   private var keepsAdjacentPages = true
   private var previousSize = CGSize.zero
@@ -565,6 +576,11 @@ private struct ComicRollCanvas: UIViewRepresentable {
       keepsAdjacentPages = false
       setNeedsLayout()
     }
+    if retryID != reader.loadRequestID {
+      retryID = reader.loadRequestID
+      for cell in cells.values { cell.prepareRetry() }
+      setNeedsLayout()
+    }
     guard navigationID != reader.navigationRequestID else { return }
     navigationID = reader.navigationRequestID
     pendingAnchor = Anchor(
@@ -590,6 +606,8 @@ private struct ComicRollCanvas: UIViewRepresentable {
     ratios.removeAll()
     starts.removeAll()
     navigationID = nil
+    retryID = nil
+    renderWidth = 0
     cacheReleaseID = nil
     keepsAdjacentPages = true
     pendingAnchor = nil
@@ -688,33 +706,81 @@ private struct ComicRollCanvas: UIViewRepresentable {
       right: max(0, (bounds.width - contentSize.width) / 2))
   }
 
+  private func isPageVisible(_ index: Int) -> Bool {
+    guard starts.indices.contains(index + 1) else { return false }
+    let top = max(0, (contentOffset.y + contentInset.top) / max(1, zoomScale))
+    let bottom = max(top, (contentOffset.y + bounds.height) / max(1, zoomScale))
+    return starts[index + 1] > top && starts[index] < bottom
+  }
+
   private func updateVisiblePages() {
     guard !updating, !isZooming, let anchor = anchor(), let reader else { return }
-    // Include every intersecting page before spending slots on prefetch. Keep
-    // the five-view cap even for unusually short images; more than five images
-    // in one viewport can remain placeholders until they approach its top.
     let bottom = max(0, (contentOffset.y + bounds.height) / max(1, zoomScale))
     var lower = anchor.index
     var upper = anchor.index
-    while upper + 1 < pages.count, upper - lower < 4, starts[upper + 1] < bottom {
+    while upper + 1 < pages.count, starts[upper + 1] < bottom {
       upper += 1
     }
-    if keepsAdjacentPages {
-      if lower > 0, upper - lower < 4 { lower -= 1 }
-      upper = min(pages.count - 1, lower + 4)
+    let visible = Set(lower...upper)
+    if keepsAdjacentPages, visible.count < 5 {
+      if lower > 0 { lower -= 1 }
+      if upper + 1 < pages.count { upper += 1 }
     }
-    let desired = Set(lower...upper)
+    // Bound UIKit/accessibility nodes as well as bitmap bytes. Degenerate
+    // sub-point image strips fail explicitly instead of creating thousands of
+    // page views, or silently dropping the tail of the viewport.
+    guard visible.count <= 256 else {
+      for request in requests.values { request.task.cancel() }
+      requests.removeAll()
+      let generation = reader.navigationRequestID
+      Task { @MainActor [weak reader] in
+        guard reader?.navigationRequestID == generation else { return }
+        reader?.failContinuous(
+          String(
+            localized:
+              "Too many short pages fit in one view. Choose paged mode to read this comic.",
+            bundle: .module))
+      }
+      return
+    }
+    let viewportWidth = min(4096, bounds.width * traitCollection.displayScale * zoomScale)
+    let readableWidth = min(viewportWidth, bounds.width * zoomScale)
+    var desired = Set(lower...upper)
+    var area = desired.reduce(CGFloat.zero) { $0 + (ratios[$1] ?? 3.5) }
+    var budgetWidth = sqrt(CGFloat(CBZImagePipeline.maximumCacheBytes / 8) / max(1, area))
+    if budgetWidth < readableWidth {
+      desired = visible
+      area = desired.reduce(CGFloat.zero) { $0 + (ratios[$1] ?? 3.5) }
+      budgetWidth = sqrt(CGFloat(CBZImagePipeline.maximumCacheBytes / 8) / max(1, area))
+    }
     for index in Array(cells.keys) where !desired.contains(index) {
       cells.removeValue(forKey: index)?.removeFromSuperview()
     }
     for index in Array(requests.keys) where !desired.contains(index) {
       requests.removeValue(forKey: index)?.task.cancel()
     }
-    let width = min(4096, Int(ceil(bounds.width * traitCollection.displayScale * zoomScale)))
+    // Reserve half the retained-image allowance for row-stride rounding and
+    // dimension corrections. Resolution follows the aggregate page area, rather
+    // than letting one neighboring strip evict another visible page's bitmap.
+    // Never reduce below one decoded pixel per zoomed layout point. A page
+    // that cannot fit at that baseline fails visibly rather than becoming
+    // silently unreadable; the retained-byte check below remains authoritative.
+    let width = max(
+      Int(ceil(readableWidth / 128)) * 128,
+      Int(min(viewportWidth, budgetWidth) / 128) * 128)
     guard width > 0 else { return }
+    if renderWidth != width {
+      renderWidth = width
+      for request in requests.values { request.task.cancel() }
+      requests.removeAll()
+    }
+    for cell in cells.values where (cell.imageView.image?.cgImage?.width ?? 0) > width {
+      cell.releaseImage()
+    }
     let priority =
       [anchor.index]
-      + desired.filter { $0 != anchor.index }.sorted {
+      + visible.filter { $0 != anchor.index }.sorted()
+      + desired.subtracting(visible).sorted {
         abs($0 - anchor.index) < abs($1 - anchor.index)
       }
     for index in priority {
@@ -731,8 +797,13 @@ private struct ComicRollCanvas: UIViewRepresentable {
         cells[index] = cell
         canvas.addSubview(cell)
       }
-      guard requests[index] == nil, !cell.failed,
-        !cell.budgetDeferred || index == anchor.index,
+      let visibleTop = max(0, (contentOffset.y + contentInset.top) / max(1, zoomScale))
+      let visibleBottom = max(visibleTop, (contentOffset.y + bounds.height) / max(1, zoomScale))
+      cell.setVisibleInterval(
+        top: max(0, visibleTop - starts[index]),
+        bottom: min(cell.bounds.height, visibleBottom - starts[index]))
+      guard requests.count < 2, requests[index] == nil, !cell.failed,
+        !cell.budgetDeferred || visible.contains(index),
         cell.renderWidth < width && !cell.fullResolution
       else { continue }
       let id = UUID()
@@ -740,22 +811,23 @@ private struct ComicRollCanvas: UIViewRepresentable {
       let request = Task { [weak self, weak reader, weak cell] in
         guard let reader else { return }
         do {
-          let decoded = try await reader.image(pageID: pageID, width: width)
+          let decoded = try await reader.image(
+            pageID: pageID, width: width, minimumWidth: Int(ceil(readableWidth)))
           try Task.checkCancellation()
           guard let self, self.requests[index]?.id == id, let cell else { return }
           let preserved = self.anchor()
           self.requests[index] = nil
+          let ratio = CGFloat(decoded.sourceHeight) / CGFloat(decoded.sourceWidth)
+          let learnedDimensions = self.ratios[index] != ratio
+          if learnedDimensions {
+            self.ratios[index] = ratio
+            self.rebuild(
+              preserving: preserved, restorePosition: index <= (preserved?.index ?? index))
+          }
           // Consumer-held images have their own byte bound. Cache eviction alone
           // cannot release a UIImage still displayed by a page view.
           let cost = decoded.image.bytesPerRow * decoded.image.height
-          if index != preserved?.index,
-            let visible = preserved.flatMap({ self.cells[$0.index] }),
-            visible.imageBytes > CBZImagePipeline.maximumCacheBytes - cost
-          {
-            cell.budgetDeferred = true
-            return
-          }
-          let others = self.cells.keys.filter { $0 != index }.sorted {
+          let others = self.cells.keys.filter { $0 != index && !self.isPageVisible($0) }.sorted {
             abs($0 - (preserved?.index ?? index)) > abs($1 - (preserved?.index ?? index))
           }
           var held = self.cells.values.reduce(0) { $0 + $1.imageBytes } - cell.imageBytes
@@ -764,14 +836,29 @@ private struct ComicRollCanvas: UIViewRepresentable {
             held -= obsolete.imageBytes
             obsolete.releaseImage()
           }
+          guard held <= CBZImagePipeline.maximumCacheBytes - cost else {
+            if learnedDimensions {
+              // Recompute the shared width using the actual dimensions before
+              // deciding that this visible page cannot fit.
+              self.setNeedsLayout()
+              return
+            }
+            if self.isPageVisible(index) {
+              cell.showFailure(
+                String(
+                  localized: "These pages exceed the visible image memory budget.", bundle: .module)
+              ) { [weak self, weak cell] in
+                cell?.prepareRetry()
+                self?.setNeedsLayout()
+              }
+            } else {
+              cell.budgetDeferred = true
+            }
+            self.setNeedsLayout()
+            return
+          }
           cell.show(decoded, requestedWidth: width)
           if index == preserved?.index { reader.setContinuousReady(true) }
-          let ratio = CGFloat(decoded.sourceHeight) / CGFloat(decoded.sourceWidth)
-          if self.ratios[index] != ratio {
-            self.ratios[index] = ratio
-            self.rebuild(
-              preserving: preserved, restorePosition: index <= (preserved?.index ?? index))
-          }
           self.setNeedsLayout()
         } catch is CancellationError {
         } catch {
@@ -779,7 +866,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
           self.requests[index] = nil
           if cell.imageView.image == nil {
             cell.showFailure(error.localizedDescription) { [weak self, weak cell] in
-              cell?.failed = false
+              cell?.prepareRetry()
               self?.setNeedsLayout()
             }
           } else {
@@ -787,6 +874,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
             cell.fullResolution = true
             reader.message = error.localizedDescription
           }
+          self.setNeedsLayout()
         }
       }
       requests[index] = (id, request)
@@ -794,9 +882,11 @@ private struct ComicRollCanvas: UIViewRepresentable {
     let ready = cells[anchor.index]?.imageView.image != nil
     guard ready != reader.isReadyForInteraction else { return }
     let generation = reader.navigationRequestID
-    Task { @MainActor [weak reader] in
-      guard reader?.navigationRequestID == generation else { return }
-      reader?.setContinuousReady(ready)
+    Task { @MainActor [weak self, weak reader] in
+      guard let self, let reader, self.reader === reader,
+        reader.navigationRequestID == generation, let current = self.anchor()
+      else { return }
+      reader.setContinuousReady(self.cells[current.index]?.imageView.image != nil)
     }
   }
 
@@ -840,9 +930,11 @@ private struct ComicRollCanvas: UIViewRepresentable {
     guard force || now - lastPublished >= 0.2 else { return }
     lastPublished = now
     let generation = reader?.navigationRequestID
-    Task { @MainActor [weak reader] in
-      guard reader?.navigationRequestID == generation else { return }
-      reader?.recordPosition(pageID: pageID, progression: fraction, force: force)
+    Task { @MainActor [weak self, weak reader] in
+      guard let self, let reader, self.reader === reader,
+        reader.navigationRequestID == generation
+      else { return }
+      reader.recordPosition(pageID: pageID, progression: fraction, force: force)
     }
   }
 }
@@ -851,6 +943,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
   let imageView = UIImageView()
   private let spinner = UIActivityIndicatorView(style: .medium)
   private let retryButton = UIButton(type: .system)
+  private var visibleInterval: ClosedRange<CGFloat>?
   var renderWidth = 0
   var fullResolution = false
   var failed = false
@@ -877,9 +970,21 @@ private struct ComicRollCanvas: UIViewRepresentable {
   override func layoutSubviews() {
     super.layoutSubviews()
     imageView.frame = bounds
-    spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    let top = visibleInterval?.lowerBound ?? 0
+    let bottom = visibleInterval?.upperBound ?? bounds.height
+    let center = (top + bottom) / 2
+    spinner.center = CGPoint(x: bounds.midX, y: center)
+    let buttonHeight = min(160, max(44, bottom - top - 16))
     retryButton.frame = CGRect(
-      x: 16, y: max(16, bounds.midY - 80), width: max(0, bounds.width - 32), height: 160)
+      x: 16, y: max(top, center - buttonHeight / 2),
+      width: max(0, bounds.width - 32), height: buttonHeight)
+  }
+
+  func setVisibleInterval(top: CGFloat, bottom: CGFloat) {
+    let interval: ClosedRange<CGFloat>? = bottom > top ? top...bottom : nil
+    guard visibleInterval != interval else { return }
+    visibleInterval = interval
+    setNeedsLayout()
   }
 
   func show(_ page: CBZDecodedPage, requestedWidth: Int) {
@@ -898,6 +1003,14 @@ private struct ComicRollCanvas: UIViewRepresentable {
     fullResolution = false
     budgetDeferred = true
     spinner.startAnimating()
+  }
+
+  func prepareRetry() {
+    failed = false
+    fullResolution = false
+    budgetDeferred = false
+    retryButton.isHidden = true
+    if imageView.image == nil { spinner.startAnimating() }
   }
 
   func showFailure(_ message: String, retry: @escaping () -> Void) {

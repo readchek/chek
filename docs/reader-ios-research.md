@@ -76,8 +76,10 @@ CBZ now offers automatic, continuous vertical, and paged modes. Automatic mode
 samples the first content image after the cover and chooses continuous when its
 height/width is at least three; this is a heuristic with an explicit override.
 The roll estimates unknown page heights and corrects them as nearby images load,
-preserving the visible page and fraction. At most five nearby views/requests are
-kept, with separate 64 MiB bounds for displayed images and the decode cache.
+preserving the visible page and fraction. All visible pages participate up to an
+explicit 256-view limit, with at most two pending decodes and separate 64 MiB
+bounds for displayed images and the decode cache. Shared resolution follows page
+area; first-decode dimensions constrain long strips before bitmap allocation.
 Fast jumps into unseen content can show placeholders until decoding finishes.
 Manual checks confirmed cross-image scrolling, close/reopen position restoration,
 tap/idle controls, and direction-aware paged swipes with the birds-eye sample.
