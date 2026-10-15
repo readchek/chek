@@ -51,6 +51,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: run.chibi.manga
+        DEVELOPMENT_TEAM: KZX5HZ32P9
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Chek
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books

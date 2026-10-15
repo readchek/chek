@@ -156,6 +156,14 @@ restored afterward. VoiceOver speech and gestures remain unverified.
 
 ## Release checks still open
 
+Physical-device setup: the standalone Release demo was signed with the personal
+individual team `KZX5HZ32P9`, installed on iPhone 17 / iOS 27.0.1, and visibly
+rendered in Device Hub. Moby-Dick, birds-eye, and the mixed-layout sample were
+copied into its own Documents container. Interactive device measurements are
+still pending; installation and the initial screen do not verify scrolling or
+frame times. Chek uses the requested `run.chibi.manga` identifier; the standalone
+consumer remains `dev.chek.reader.embedding`.
+
 - Repeatable device frame-time, loading latency and peak-memory measurements,
   including WebKit processes. Investigate the reported scroll lag end to end.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.

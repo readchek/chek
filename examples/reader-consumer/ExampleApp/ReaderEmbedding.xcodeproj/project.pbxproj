@@ -98,6 +98,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					A7C7107CA752AC04BA9207A5 = {
+						DevelopmentTeam = KZX5HZ32P9;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = FF0494C8FCA2E46CB46FCC2E /* Build configuration list for PBXProject "ReaderEmbedding" */;
@@ -207,6 +211,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KZX5HZ32P9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ReaderEmbedding/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Reader Embedding";
@@ -287,6 +293,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KZX5HZ32P9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ReaderEmbedding/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Reader Embedding";

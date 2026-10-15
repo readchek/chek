@@ -34,6 +34,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.chek.reader.embedding
+        DEVELOPMENT_TEAM: KZX5HZ32P9
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Reader Embedding
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

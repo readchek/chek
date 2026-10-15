@@ -117,6 +117,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					B6F616D1419720B695C60679 = {
+						DevelopmentTeam = KZX5HZ32P9;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = A910B3FE4C388C423097309A /* Build configuration list for PBXProject "Chek" */;
@@ -175,6 +179,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KZX5HZ32P9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Chek/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chek;
@@ -330,6 +336,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KZX5HZ32P9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Chek/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chek;
