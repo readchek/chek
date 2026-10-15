@@ -3,6 +3,10 @@ import Observation
 import SwiftUI
 import WebKit
 
+#if DEBUG
+  import OSLog
+#endif
+
 @MainActor @Observable
 public final class EPUBReader {
   public let publication: EPUBPublication
@@ -180,6 +184,25 @@ public final class EPUBReader {
   }
 
   fileprivate func receive(_ message: WKScriptMessage) {
+    #if DEBUG
+      if message.name == "contentPolicy" {
+        guard message.frameInfo.isMainFrame,
+          message.frameInfo.request.url?.host == publication.host,
+          let body = message.body as? [String: String],
+          let directive = body["directive"], directive.count <= 80,
+          let disposition = body["disposition"],
+          disposition == "enforce" || disposition == "report",
+          let blocked = body["blocked"], blocked.count <= 4096
+        else { return }
+        let url = URL(string: blocked)
+        let scheme = url?.scheme ?? "inline-or-unknown"
+        let host = url?.host ?? "none"
+        Logger(subsystem: "dev.chek.reader", category: "ContentPolicy").notice(
+          "CSP directive=\(directive, privacy: .public) disposition=\(disposition, privacy: .public) scheme=\(scheme, privacy: .public) host=\(host, privacy: .public)"
+        )
+        return
+      }
+    #endif
     guard !isRestoring, message.frameInfo.isMainFrame,
       message.frameInfo.request.url?.host == publication.host,
       let body = message.body as? [String: Any], body["token"] as? String == documentToken
@@ -200,6 +223,23 @@ public final class EPUBReader {
       WKUserScript(
         source: viewport, injectionTime: .atDocumentStart,
         forMainFrameOnly: true, in: .world(name: "ChekReader")))
+    #if DEBUG
+      controller.add(
+        ReaderBridge(reader: self), contentWorld: .world(name: "ChekReader"), name: "contentPolicy")
+      controller.addUserScript(
+        WKUserScript(
+          source: """
+            document.addEventListener('securitypolicyviolation', event => {
+              window.webkit.messageHandlers.contentPolicy.postMessage({
+                directive: event.effectiveDirective,
+                disposition: event.disposition,
+                blocked: event.blockedURI
+              });
+            });
+            """,
+          injectionTime: .atDocumentStart, forMainFrameOnly: true,
+          in: .world(name: "ChekReader")))
+    #endif
     // Navigation policy does not cover subresources. Block network/file loads in
     // the content process as well as restricting responses with CSP.
     // Content blockers use a restricted regex dialect: alternation is unsupported.

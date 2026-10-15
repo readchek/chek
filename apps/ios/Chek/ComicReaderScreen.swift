@@ -8,8 +8,10 @@ struct ComicReaderScreen: View {
   @State private var progress: ReadingProgressStore
   @State private var showingPages = false
   @State private var closing = false
+  private let progressWarning: String?
 
   init(book: OpenBook, publication: CBZPublication) {
+    progressWarning = book.progressWarning
     _reader = State(
       initialValue: CBZReader(
         publication: publication,
@@ -21,8 +23,13 @@ struct ComicReaderScreen: View {
     @Bindable var reader = reader
     NavigationStack {
       CBZReaderView(reader: reader)
+        .safeAreaInset(edge: .top) {
+          if let progressWarning { ProgressRecoveryNotice(message: progressWarning) }
+        }
         .navigationTitle(reader.publication.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.bar, for: .navigationBar, .bottomBar)
+        .toolbarBackground(.visible, for: .navigationBar, .bottomBar)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
             Button("Close", systemImage: "xmark") {
@@ -105,6 +112,8 @@ private struct ComicPageButton: View {
         Image(systemName: backwards ? "chevron.left" : "chevron.right")
       }
       .labelStyle(.iconOnly)
+      .frame(minWidth: 44, minHeight: 44)
+      .contentShape(.rect)
     }
     .disabled(!reader.publication.pages.indices.contains(reader.currentPageIndex + delta))
   }

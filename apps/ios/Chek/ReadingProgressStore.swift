@@ -9,6 +9,11 @@ nonisolated struct BookReadingProgress: Codable, Sendable {
   var comicDirection: CBZReadingDirection?
 }
 
+nonisolated struct LoadedReadingProgress: Sendable {
+  let progress: BookReadingProgress
+  let warning: String?
+}
+
 @Observable final class ReadingProgressStore {
   private let id: UUID
   private var progress: BookReadingProgress
@@ -59,14 +64,38 @@ actor ReadingProgressDisk {
       .appending(path: id.uuidString + ".json")
   }
 
-  func load(id: UUID) throws -> BookReadingProgress {
+  func load(id: UUID) throws -> LoadedReadingProgress {
     let url = fileURL(id: id)
-    guard FileManager.default.fileExists(atPath: url.path) else { return BookReadingProgress() }
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      return LoadedReadingProgress(progress: BookReadingProgress(), warning: nil)
+    }
     let values = try url.resourceValues(forKeys: [.fileSizeKey])
     guard let size = values.fileSize, size <= 16 * 1024 else {
-      throw ReaderError.invalid("Saved reading progress is too large.")
+      return try preserveDamagedProgress(at: url)
     }
-    return try JSONDecoder().decode(BookReadingProgress.self, from: Data(contentsOf: url))
+    let data = try Data(contentsOf: url)
+    do {
+      let progress = try JSONDecoder().decode(BookReadingProgress.self, from: data)
+      return LoadedReadingProgress(progress: progress, warning: nil)
+    } catch is DecodingError {
+      return try preserveDamagedProgress(at: url)
+    }
+  }
+
+  private func preserveDamagedProgress(at url: URL) throws -> LoadedReadingProgress {
+    let preserved = url.deletingPathExtension().appendingPathExtension(
+      "damaged-" + UUID().uuidString + ".json")
+    do { try FileManager.default.moveItem(at: url, to: preserved) } catch {
+      throw ReaderError.invalid(
+        "Saved reading progress could not be read or preserved. Opening stopped so the existing file stays intact."
+      )
+    }
+    return LoadedReadingProgress(
+      progress: BookReadingProgress(),
+      warning: String(
+        localized:
+          "Saved reading progress could not be read. The previous file was preserved separately. This book starts at the beginning."
+      ))
   }
 
   func save(_ progress: BookReadingProgress, id: UUID) throws {

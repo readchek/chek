@@ -9,8 +9,10 @@ struct BookReaderScreen: View {
   @State private var showingContents = false
   @State private var showingSettings = false
   @State private var closing = false
+  private let progressWarning: String?
 
   init(book: OpenBook, publication: EPUBPublication) {
+    progressWarning = book.progressWarning
     _reader = State(
       initialValue: EPUBReader(
         publication: publication,
@@ -22,8 +24,13 @@ struct BookReaderScreen: View {
     @Bindable var reader = reader
     NavigationStack {
       EPUBReaderView(reader: reader)
+        .safeAreaInset(edge: .top) {
+          if let progressWarning { ProgressRecoveryNotice(message: progressWarning) }
+        }
         .navigationTitle(reader.publication.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.bar, for: .navigationBar, .bottomBar)
+        .toolbarBackground(.visible, for: .navigationBar, .bottomBar)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
             Button("Close", systemImage: "xmark") {

@@ -1,6 +1,10 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Comic page %lld of %lld" : {
+      "comment" : "Accessible image label: current comic page number followed by total page count.",
+      "extractionState" : "manual"
+    },
     "External links are disabled while reading local books." : {
       "comment" : "Explains why an external navigation was blocked by the offline reader.",
       "extractionState" : "manual"

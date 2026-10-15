@@ -27,6 +27,7 @@ struct LibraryView: View {
             } label: {
               LibraryBookRow(title: book.title, author: book.author, format: book.format)
             }
+            .buttonStyle(.plain)
             .disabled(library.isBusy)
           }
         }
@@ -90,7 +91,9 @@ private struct LibraryBookRow: View {
         if !author.isEmpty { Text(author).font(.subheadline).foregroundStyle(.secondary) }
       }
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.vertical, 8)
+    .contentShape(.rect)
     .accessibilityElement(children: .combine)
   }
 }

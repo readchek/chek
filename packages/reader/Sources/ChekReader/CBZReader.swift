@@ -173,7 +173,8 @@ private struct ComicCanvas: UIViewRepresentable {
       return (pageID, view.progression)
     }
     view.show(
-      reader.decodedPage, pageID: reader.currentPage.id, progression: reader.location.progression)
+      reader.decodedPage, pageID: reader.currentPage.id, progression: reader.location.progression,
+      pageNumber: reader.currentPageIndex + 1, pageCount: reader.publication.pages.count)
   }
 
   static func dismantleUIView(_ view: ComicScrollView, coordinator: ()) {
@@ -213,13 +214,17 @@ private struct ComicCanvas: UIViewRepresentable {
     backgroundColor = .systemBackground
     pageView.contentMode = .scaleAspectFit
     pageView.isAccessibilityElement = true
-    pageView.accessibilityLabel = String(localized: "Comic page", bundle: .module)
     addSubview(pageView)
   }
 
   required init?(coder: NSCoder) { nil }
 
-  func show(_ page: CBZDecodedPage?, pageID: String, progression: Double) {
+  func show(
+    _ page: CBZDecodedPage?, pageID: String, progression: Double, pageNumber: Int, pageCount: Int
+  ) {
+    pageView.accessibilityLabel = String(
+      localized: "Comic page \(pageNumber) of \(pageCount)", bundle: .module,
+      comment: "Accessible image label: current comic page number followed by total page count.")
     let changedPage = self.pageID != pageID
     let changedImage = decoded?.image !== page?.image
     guard changedPage || changedImage else { return }

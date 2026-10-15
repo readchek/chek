@@ -1,6 +1,6 @@
 # iOS reader research and decisions
 
-Research date: 15 October 2026.
+Research snapshot: 15 October 2026. Implementation checkpoint: 15 October 2026.
 
 Chek can build its own EPUB and CBZ engine using current Apple primitives without
 adopting another reading engine. The most useful recent developments are native
@@ -8,10 +8,14 @@ SwiftUI WebKit APIs and EPUB 3.4's proposed continuous roll layout for webtoons.
 The harder work remains publication fidelity, durable reading locations, and
 bounded image memory.
 
-This research-only pass used a GPT-6.1 Sol subagent, relevant installed skills,
+The original research-only pass used a GPT-6.1 Sol subagent, relevant installed skills,
 read-only toolchain inspection, and primary web sources. No app implementation,
 dependency installation, build, or simulator session was performed in this pass.
-The [handoff](reader-ios-handoff.md) remains the source of agreed scope.
+The [handoff](reader-ios-handoff.md) remains the source of agreed scope. Development
+was subsequently authorized and implemented with GPT-6.1 Sol agents and independent
+simulator review. The checkpoint below records current choices; later sections
+retain the original research context and proposals rather than claiming every
+investigated capability is implemented.
 
 ## Decisions and proposals
 
@@ -23,17 +27,54 @@ The [handoff](reader-ios-handoff.md) remains the source of agreed scope.
 | Platform primitives  | Agreed in handoff                  | WebKit and UIKit behind a SwiftUI API are allowed.                                                                                                  |
 | Interface            | Agreed in handoff                  | Native Liquid Glass controls and system interface typography; refine interactions in the running app.                                               |
 | Stable EPUB baseline | Research proposal                  | Target EPUB 3.3 compatibility, retain legacy EPUB 2 navigation support, and plan for EPUB 3.4 roll layout. This is not a claim of full conformance. |
-| EPUB presentation    | Research proposal                  | Evaluate native WebView/WebPage first for iOS 26+; use a narrow WKWebView wrapper if measured control needs require it.                             |
-| Parsing dependencies | Research proposal                  | Evaluate ZIPFoundation and start with Foundation XMLParser.                                                                                         |
-| Reading locations    | Research proposal                  | Versioned semantic anchors with progression as fallback; stable entry identity plus within-image position for comics.                               |
-| Storage              | Research proposal                  | App-owned original files, disposable bounded caches, and atomic progress writes.                                                                    |
-| Content policy       | Requirement plus proposed defaults | Treat books as untrusted; disable book scripts and network access by default.                                                                       |
-| Implementation       | Paused                             | This document does not authorize starting development.                                                                                              |
+| EPUB presentation    | Implemented choice                 | iOS 26 minimum; native WebView/WebPage, isolated custom resource scheme, native fixed-page viewport fitting.                                         |
+| Parsing dependencies | Implemented choice                 | ZIPFoundation 0.9.20 pinned; bounded Foundation XMLParser processing.                                                                                |
+| Reading locations    | Implemented choice                 | Version 1 DOM/text anchors and quote context with progression fallback; comic entry identity and within-image position.                              |
+| Storage              | Implemented choice                 | App-owned originals, Codable library records, atomic per-book progress, bounded decoded comic cache.                                                 |
+| Content policy       | Implemented; focused runtime evidence | Publication scripts disabled; script-consent fixture passed. DEBUG logs confirmed enforced CSP violations for remote styles, frames, images and media. Full packet/network capture remains unperformed. |
+| Implementation       | Working local reader               | EPUB/CBZ import, reading, close and resume are implemented; format coverage is incremental, not full conformance.                                    |
 
-Minimum iOS version, final renderer, package name, persistence format, gestures,
-paging defaults, and the exact supported EPUB feature matrix remain open.
+The package is provisionally named `ChekReader`. Gestures and presentation can
+still evolve. See [package coverage](../packages/reader/README.md) and the
+[iOS app guide](../apps/ios/README.md) for current format and resource limits.
 
-## Current tools and API availability
+## Current capability and verification checkpoint
+
+Serve Sim manual checks verified native file import, app-owned library persistence,
+reflowable chapter/TOC reading, original illustrations and local fonts, semantic
+resume after close/relaunch and text-size changes, rotation, fixed-page fitting
+and identity resume, and standard IDPF-obfuscated font rendering against its
+reference image. Comic runtime checks used the JPEG, zero-padded birds-eye sample:
+page jumps, pinch zoom, long-page scrolling, within-page resume, and persisted
+reading direction passed. PNG decoding and the numeric-aware comparator were
+code reviewed and built, without a separate runtime check. Dark appearance,
+larger interface text, Reduce Motion/Transparency,
+rapid comic navigation and a simulated memory warning received focused checks.
+These are spot checks with a small licensed sample set, not broad format or
+accessibility certification.
+
+The remote-resource fixture produced DEBUG OSLog CSP events with
+`disposition=enforce` for `style-src-elem`, `frame-src`, `img-src` and `media-src`
+at HTTPS host `www.w3.org`. This confirms those policy violations were enforced;
+it is not a full packet/network capture. The dark EPUB navigation title and status
+bar were also verified legible over the native bar background.
+
+Malformed or oversized progress now has app-level recovery: preserve the damaged
+file under a unique name, open from the beginning with a visible notice, and fail
+explicitly if preservation fails. Library-load failures remain retryable without
+resetting library data. These recovery branches have compiler/review coverage;
+damaged user progress was not created to exercise them.
+
+Still unverified: real devices, VoiceOver speech/gestures, large stress corpora,
+total peak memory guarantees, and full packet/network capture.
+Unsupported behavior includes synthetic spreads, EPUB roll layout, Adobe font
+obfuscation/DRM, media overlays/audio/video, inline data resources, full EPUB CFI,
+comic OCR/other image codecs, persisted zoom magnification, and continuous
+multi-image comic stacking. Native bars keep controls separate from publisher
+page colors; book typography remains publisher-owned except selective reader
+text sizing.
+
+## Toolchain research snapshot
 
 Local inspection found Xcode 27.0 build 27A266a, Apple Swift 6.4
 (`swiftlang-6.4.0.34.1`), and iOS/iOS Simulator SDK 27.0. Apple's release list
@@ -49,10 +90,8 @@ primary release sources when those labels conflict.
 [Swift 6.4](https://www.swift.org/blog/swift-6.4-released/),
 [Swift 6.4.1](https://forums.swift.org/t/announcing-swift-6-4-1/90029)
 
-iOS 26 is a plausible candidate minimum for native SwiftUI WebKit and Liquid
-Glass. iOS 27 adds useful APIs, but the research found no reader requirement that
-alone warrants making it the minimum. Decide reach versus implementation cost
-before scaffolding the app.
+iOS 26 was selected as the minimum for native SwiftUI WebKit and Liquid Glass.
+The installed iOS 27 SDK is used to build, without raising that deployment target.
 
 ## EPUB standards and recent advances
 
@@ -276,7 +315,7 @@ pass did not obtain or validate a representative CBZ corpus.
 No new automated tests are authorized. Existing validators and manual fixture
 use do not establish app correctness until the actual reader is exercised.
 
-## Recommended sequence when implementation resumes
+## Original recommended implementation sequence
 
 1. Choose the deployment baseline and evaluate native WebPage resource loading,
    DOM anchoring, and the intended scroll behavior with a few representative books.

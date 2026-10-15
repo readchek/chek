@@ -62,6 +62,7 @@ struct OpenBook: Identifiable {
   let id: UUID
   let publication: OpenedPublication
   let progress: BookReadingProgress
+  let progressWarning: String?
 }
 
 @Observable final class LibraryStore {
@@ -70,7 +71,7 @@ struct OpenBook: Identifiable {
   var openBook: OpenBook?
   var message: String?
   private var loaded = false
-  private var loading: Task<[LibraryBook], any Error>?
+  private var loading: (id: UUID, task: Task<[LibraryBook], any Error>)?
 
   var hasMessage: Bool {
     get { message != nil }
@@ -83,9 +84,14 @@ struct OpenBook: Identifiable {
 
   private func ensureLoaded() async throws {
     guard !loaded else { return }
-    if loading == nil { loading = Task { try await LibraryDisk.load() } }
-    guard let loading else { return }
-    let records = try await loading.value
+    if loading == nil { loading = (UUID(), Task { try await LibraryDisk.load() }) }
+    guard let request = loading else { return }
+    let records: [LibraryBook]
+    do { records = try await request.task.value } catch {
+      // An older failed waiter must not clear a newer retry's task.
+      if loading?.id == request.id { loading = nil }
+      throw error
+    }
     if !loaded {
       books = records
       loaded = true
@@ -120,7 +126,8 @@ struct OpenBook: Identifiable {
       try await LibraryDisk.save(updated)
       books = updated
       staged = nil
-      openBook = OpenBook(id: id, publication: publication, progress: BookReadingProgress())
+      openBook = OpenBook(
+        id: id, publication: publication, progress: BookReadingProgress(), progressWarning: nil)
     } catch {
       if let staged { await LibraryDisk.removeStaged(staged) }
       message = error.localizedDescription
@@ -136,7 +143,9 @@ struct OpenBook: Identifiable {
         LibraryDisk.originalURL(id: book.id, format: book.format),
         format: book.format, title: book.title)
       let progress = try await ReadingProgressDisk.shared.load(id: book.id)
-      openBook = OpenBook(id: book.id, publication: publication, progress: progress)
+      openBook = OpenBook(
+        id: book.id, publication: publication, progress: progress.progress,
+        progressWarning: progress.warning)
     } catch { message = error.localizedDescription }
   }
 }

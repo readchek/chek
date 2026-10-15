@@ -10,6 +10,7 @@
 		3995F9B5D5A3C16F378A5FE6 /* ReadingProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B0E3697420FD49D557C207 /* ReadingProgressStore.swift */; };
 		55978989FD81ADE008242BF6 /* BookReaderScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05DCAAFB1E1EA81D7E1E1E33 /* BookReaderScreen.swift */; };
 		58F6A0F235BD97B5B3CA7D4C /* ChekReader in Frameworks */ = {isa = PBXBuildFile; productRef = 11FCB46B40A345263F243828 /* ChekReader */; };
+		78DA7F93AF7C3BE004EF7FA6 /* ProgressRecoveryNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00E0D3AD8C6906EF98256FB /* ProgressRecoveryNotice.swift */; };
 		7DB4C982CA7F221C8915C23B /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9144D6383F83DECA5011ED5 /* LibraryView.swift */; };
 		966CB624EB9543E7F9D8D73F /* ComicReaderScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77BB508D80BCC51A4BBB945 /* ComicReaderScreen.swift */; };
 		AB4A22D8FA4A656354EDBAE7 /* ChekApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBE6ED80AB3AEA5B892E2E5 /* ChekApp.swift */; };
@@ -23,6 +24,7 @@
 		46628E789454202B15A7FA4B /* Chek.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Chek.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EBE6ED80AB3AEA5B892E2E5 /* ChekApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChekApp.swift; sourceTree = "<group>"; };
 		86B0E3697420FD49D557C207 /* ReadingProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressStore.swift; sourceTree = "<group>"; };
+		A00E0D3AD8C6906EF98256FB /* ProgressRecoveryNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRecoveryNotice.swift; sourceTree = "<group>"; };
 		A77BB508D80BCC51A4BBB945 /* ComicReaderScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicReaderScreen.swift; sourceTree = "<group>"; };
 		A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		E1991E714F79299D95CBCFCE /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
@@ -77,6 +79,7 @@
 				E1991E714F79299D95CBCFCE /* LibraryStore.swift */,
 				E9144D6383F83DECA5011ED5 /* LibraryView.swift */,
 				A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */,
+				A00E0D3AD8C6906EF98256FB /* ProgressRecoveryNotice.swift */,
 				86B0E3697420FD49D557C207 /* ReadingProgressStore.swift */,
 			);
 			path = Chek;
@@ -159,6 +162,7 @@
 				966CB624EB9543E7F9D8D73F /* ComicReaderScreen.swift in Sources */,
 				B5FDBEB6150DBF2D67782BB1 /* LibraryStore.swift in Sources */,
 				7DB4C982CA7F221C8915C23B /* LibraryView.swift in Sources */,
+				78DA7F93AF7C3BE004EF7FA6 /* ProgressRecoveryNotice.swift in Sources */,
 				3995F9B5D5A3C16F378A5FE6 /* ReadingProgressStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
