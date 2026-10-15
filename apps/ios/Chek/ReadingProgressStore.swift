@@ -7,6 +7,7 @@ nonisolated struct BookReadingProgress: Codable, Sendable {
   var textScale = 1.0
   var comicLocation: CBZLocation?
   var comicDirection: CBZReadingDirection?
+  var comicReadingMode: CBZReadingMode?
 }
 
 nonisolated struct LoadedReadingProgress: Sendable {
@@ -31,9 +32,12 @@ nonisolated struct LoadedReadingProgress: Sendable {
     scheduleSave()
   }
 
-  func update(comicLocation: CBZLocation, readingDirection: CBZReadingDirection) {
+  func update(
+    comicLocation: CBZLocation, readingDirection: CBZReadingDirection, readingMode: CBZReadingMode
+  ) {
     progress.comicLocation = comicLocation
     progress.comicDirection = readingDirection
+    progress.comicReadingMode = readingMode
     scheduleSave()
   }
 

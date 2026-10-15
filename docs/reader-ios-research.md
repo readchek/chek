@@ -67,11 +67,37 @@ damaged user progress was not created to exercise them.
 
 Still unverified: real devices, VoiceOver speech/gestures, large stress corpora,
 total peak memory guarantees, and full packet/network capture.
+The interaction follow-up adds bounded EPUB anchor capture near visible text,
+horizontal spine/page swipes, floating native glass controls, and a three-second
+idle hide with tap-to-reveal. Loading, failures, sheets, and VoiceOver keep controls
+visible. Hardware-safe EPUB layout remains stable as controls hide.
+
+CBZ now offers automatic, continuous vertical, and paged modes. Automatic mode
+samples the first content image after the cover and chooses continuous when its
+height/width is at least three; this is a heuristic with an explicit override.
+The roll estimates unknown page heights and corrects them as nearby images load,
+preserving the visible page and fraction. At most five nearby views/requests are
+kept, with separate 64 MiB bounds for displayed images and the decode cache.
+Fast jumps into unseen content can show placeholders until decoding finishes.
+Manual checks confirmed cross-image scrolling, close/reopen position restoration,
+tap/idle controls, and direction-aware paged swipes with the birds-eye sample.
+Rotation retained its within-page fraction to rounding precision, and the reader
+remained usable after a simulated memory warning. EPUB chapter swipes and heading
+clearance passed. A semantic system-background tint strengthens glass-label
+contrast when system appearance and publication colors disagree; dark controls
+over a white EPUB were checked after this adjustment. Debug and Release builds pass.
+
+The previous EPUB anchor fallback could scan up to 20,000 text nodes with geometry
+reads. It now samples visible carets and bounds fallback work to 128 nodes and a
+four-millisecond search budget. A short pre-change app CPU sample was mostly idle;
+it did not isolate WebKit or mirror latency. No slow-capture diagnostic above
+eight milliseconds appeared during the focused post-change scroll pass. These
+checks do not establish a frame-rate improvement or resolve every reported lag.
+
 Unsupported behavior includes synthetic spreads, EPUB roll layout, Adobe font
 obfuscation/DRM, media overlays/audio/video, inline data resources, full EPUB CFI,
-comic OCR/other image codecs, persisted zoom magnification, and continuous
-multi-image comic stacking. Native bars keep controls separate from publisher
-page colors; book typography remains publisher-owned except selective reader
+comic OCR/other image codecs, and persisted zoom magnification. Native floating
+glass controls overlay publisher page colors; book typography remains publisher-owned except selective reader
 text sizing.
 
 ## Toolchain research snapshot

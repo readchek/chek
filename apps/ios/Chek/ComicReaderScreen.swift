@@ -4,73 +4,107 @@ import SwiftUI
 struct ComicReaderScreen: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
   @State private var reader: CBZReader
   @State private var progress: ReadingProgressStore
   @State private var showingPages = false
   @State private var closing = false
+  @State private var showingSettings = false
+  @State private var showingRecovery: Bool
+  @State private var chrome = ReaderChrome()
   private let progressWarning: String?
 
   init(book: OpenBook, publication: CBZPublication) {
     progressWarning = book.progressWarning
+    _showingRecovery = State(initialValue: book.progressWarning != nil)
     _reader = State(
       initialValue: CBZReader(
         publication: publication,
-        location: book.progress.comicLocation, direction: book.progress.comicDirection))
+        location: book.progress.comicLocation, direction: book.progress.comicDirection,
+        readingMode: book.progress.comicReadingMode ?? .automatic))
     _progress = State(initialValue: ReadingProgressStore(id: book.id, progress: book.progress))
   }
 
   var body: some View {
     @Bindable var reader = reader
-    NavigationStack {
-      CBZReaderView(reader: reader)
-        .safeAreaInset(edge: .top) {
-          if let progressWarning { ProgressRecoveryNotice(message: progressWarning) }
-        }
-        .navigationTitle(reader.publication.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.bar, for: .navigationBar, .bottomBar)
-        .toolbarBackground(.visible, for: .navigationBar, .bottomBar)
-        .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            Button("Close", systemImage: "xmark") {
-              guard !closing else { return }
-              closing = true
-              Task { if await saveLatest() { dismiss() } else { closing = false } }
+    CBZReaderView(reader: reader, onTap: chrome.toggle, onInteraction: chrome.interacted)
+      .ignoresSafeArea()
+      .overlay {
+        ReaderChromeOverlay(visible: chrome.visible) {
+          VStack(spacing: 8) {
+            ComicReaderHeader(
+              title: reader.publication.title, closing: closing, close: close,
+              pages: { showingPages = true }, settings: { showingSettings = true })
+            if let progressWarning, showingRecovery {
+              ReaderRecoveryNotice(message: progressWarning) { showingRecovery = false }
             }
-            .disabled(closing)
           }
-          ToolbarItem(placement: .topBarTrailing) {
-            Button("Pages", systemImage: "square.grid.2x2") { showingPages = true }
-          }
-          ToolbarItem(placement: .topBarTrailing) { ComicDirectionMenu(reader: reader) }
-          ToolbarItem(placement: .bottomBar) { ComicPageControls(reader: reader) }
+        } bottom: {
+          ComicPageControls(reader: reader, interacted: chrome.interacted)
         }
-        .sheet(isPresented: $showingPages) { ComicPagesSheet(reader: reader) }
-        .onChange(of: reader.location) { updateProgress() }
-        .onChange(of: reader.readingDirection) { updateProgress() }
-        .onChange(of: progress.errorMessage) {
-          if let error = progress.errorMessage { reader.message = error }
-        }
-        .onChange(of: scenePhase) {
-          if scenePhase != .active { Task { _ = await saveLatest() } }
-        }
-        .onDisappear { Task { try? await progress.flush() } }
-        .alert("Reader", isPresented: $reader.hasMessage) {
-          Button("OK", role: .cancel) {}
-        } message: {
-          Text(reader.message ?? "")
-        }
+      }
+      .statusBarHidden()
+      .sheet(isPresented: $showingPages) { ComicPagesSheet(reader: reader) }
+      .sheet(isPresented: $showingSettings) { ComicSettingsSheet(reader: reader) }
+      .onChange(of: reader.location) { updateProgress() }
+      .onChange(of: reader.readingDirection) { updateProgress() }
+      .onChange(of: reader.readingMode) { updateProgress() }
+      .onChange(of: progress.errorMessage) {
+        if let error = progress.errorMessage { reader.message = error }
+      }
+      .onChange(of: scenePhase) {
+        if scenePhase != .active { Task { _ = await saveLatest() } }
+      }
+      .onAppear { refreshChrome() }
+      .onChange(of: showingPages) { refreshChrome() }
+      .onChange(of: showingSettings) { refreshChrome() }
+      .onChange(of: showingRecovery) { refreshChrome() }
+      .onChange(of: voiceOver) { refreshChrome() }
+      .onChange(of: reader.hasMessage) { refreshChrome() }
+      .onChange(of: reader.isReadyForInteraction) { refreshChrome() }
+      .onDisappear {
+        chrome.stop()
+        Task { try? await progress.flush() }
+      }
+      .alert("Reader", isPresented: $reader.hasMessage) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(reader.message ?? "")
+      }
+      .interactiveDismissDisabled()
+  }
+
+  private func refreshChrome() {
+    chrome.setHeld(
+      !reader.isReadyForInteraction || voiceOver || showingPages || showingSettings
+        || showingRecovery || reader.hasMessage
+        || closing)
+  }
+
+  private func close() {
+    guard !closing else { return }
+    closing = true
+    refreshChrome()
+    Task {
+      if await saveLatest() {
+        dismiss()
+      } else {
+        closing = false
+        refreshChrome()
+      }
     }
-    .interactiveDismissDisabled()
   }
 
   private func updateProgress() {
-    progress.update(comicLocation: reader.location, readingDirection: reader.readingDirection)
+    progress.update(
+      comicLocation: reader.location, readingDirection: reader.readingDirection,
+      readingMode: reader.readingMode)
   }
 
   private func saveLatest() async -> Bool {
     progress.update(
-      comicLocation: reader.captureLocation(), readingDirection: reader.readingDirection)
+      comicLocation: reader.captureLocation(), readingDirection: reader.readingDirection,
+      readingMode: reader.readingMode)
     do {
       try await progress.flush()
       return true
@@ -83,27 +117,33 @@ struct ComicReaderScreen: View {
 
 private struct ComicPageControls: View {
   let reader: CBZReader
+  let interacted: () -> Void
 
   var body: some View {
     HStack {
-      ComicPageButton(reader: reader, delta: reader.readingDirection == .leftToRight ? -1 : 1)
-      Spacer()
+      ComicPageButton(
+        reader: reader, delta: reader.readingDirection == .leftToRight ? -1 : 1,
+        interacted: interacted)
       Text("Page \(reader.currentPageIndex + 1) of \(reader.publication.pages.count)")
         .font(.caption).foregroundStyle(.secondary)
-      Spacer()
-      ComicPageButton(reader: reader, delta: reader.readingDirection == .leftToRight ? 1 : -1)
+      ComicPageButton(
+        reader: reader, delta: reader.readingDirection == .leftToRight ? 1 : -1,
+        interacted: interacted)
     }
-    .frame(maxWidth: .infinity)
+    .padding(.horizontal, 8)
+    .modifier(ReaderGlassSurface())
   }
 }
 
 private struct ComicPageButton: View {
   let reader: CBZReader
   let delta: Int
+  let interacted: () -> Void
 
   var body: some View {
     let backwards = (delta < 0) == (reader.readingDirection == .leftToRight)
     Button {
+      interacted()
       reader.movePage(by: delta)
     } label: {
       Label {
@@ -115,38 +155,98 @@ private struct ComicPageButton: View {
       .frame(minWidth: 44, minHeight: 44)
       .contentShape(.rect)
     }
+    .buttonStyle(.plain)
     .disabled(!reader.publication.pages.indices.contains(reader.currentPageIndex + delta))
   }
 }
 
-private struct ComicDirectionMenu: View {
+private struct ComicSettingsSheet: View {
+  @Environment(\.dismiss) private var dismiss
   let reader: CBZReader
 
   var body: some View {
-    Menu {
-      Button {
-        reader.setReadingDirection(.leftToRight)
-      } label: {
-        if reader.readingDirection == .leftToRight {
-          Label("Left to right", systemImage: "checkmark")
-        } else {
-          Text("Left to right")
+    NavigationStack {
+      Form {
+        Section("Reading mode") {
+          ComicModeButton(reader: reader, mode: .automatic, title: "Automatic")
+          ComicModeButton(reader: reader, mode: .continuous, title: "Continuous vertical")
+          ComicModeButton(reader: reader, mode: .paged, title: "Pages")
+          Text(
+            "Automatic joins long strips into one vertical scroll. Pages supports horizontal swipes."
+          )
+          .font(.footnote).foregroundStyle(.secondary)
+        }
+        Section("Page direction") {
+          Button {
+            reader.setReadingDirection(.leftToRight)
+          } label: {
+            if reader.readingDirection == .leftToRight {
+              Label("Left to right", systemImage: "checkmark")
+            } else {
+              Text("Left to right")
+            }
+          }
+          Button {
+            reader.setReadingDirection(.rightToLeft)
+          } label: {
+            if reader.readingDirection == .rightToLeft {
+              Label("Right to left", systemImage: "checkmark")
+            } else {
+              Text("Right to left")
+            }
+          }
         }
       }
-      Button {
-        reader.setReadingDirection(.rightToLeft)
-      } label: {
-        if reader.readingDirection == .rightToLeft {
-          Label("Right to left", systemImage: "checkmark")
-        } else {
-          Text("Right to left")
-        }
+      .navigationTitle("Reading settings")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
-    } label: {
-      Label("Reading direction", systemImage: "arrow.left.arrow.right")
     }
-    .accessibilityValue(
-      reader.readingDirection == .leftToRight ? Text("Left to right") : Text("Right to left"))
+    .presentationDetents([.medium, .large])
+  }
+}
+
+private struct ComicModeButton: View {
+  let reader: CBZReader
+  let mode: CBZReadingMode
+  let title: LocalizedStringKey
+
+  var body: some View {
+    Button {
+      reader.setReadingMode(mode)
+    } label: {
+      HStack {
+        Text(title)
+        Spacer()
+        if reader.readingMode == mode { Image(systemName: "checkmark") }
+      }
+    }
+    .foregroundStyle(.primary)
+  }
+}
+
+private struct ComicReaderHeader: View {
+  let title: String
+  let closing: Bool
+  let close: () -> Void
+  let pages: () -> Void
+  let settings: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ReaderCloseButton(disabled: closing, action: close)
+      Text(title).font(.headline).lineLimit(1)
+        .padding(.horizontal, 12).frame(minHeight: 44)
+        .modifier(ReaderGlassSurface())
+      Spacer(minLength: 0)
+      HStack(spacing: 0) {
+        ReaderIconButton("Pages", systemImage: "square.grid.2x2", action: pages)
+        ReaderIconButton("Reading settings", systemImage: "slider.horizontal.3", action: settings)
+      }
+      .labelStyle(.iconOnly).buttonStyle(.plain)
+      .modifier(ReaderGlassSurface())
+    }
   }
 }
 

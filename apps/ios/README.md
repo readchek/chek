@@ -15,14 +15,18 @@ fonts are decoded on demand after archive integrity checks.
 
 CBZ reading supports single-frame JPEG/PNG pages, numeric-aware archive ordering,
 ComicInfo title/direction hints, native pinch zoom, and vertical scrolling within
-long pages. Native page controls, a page-jump list, and a reading-direction menu
-remain outside the page canvas. Page identity, within-page position, and direction
-resume after reopening; zoom magnification itself is not persisted.
+long pages. Automatic mode joins tall strips into one vertical scroll; settings
+also offer explicit continuous or paged reading. Paged comics support horizontal
+swipes in the selected reading direction. Page identity, within-page position,
+mode, and direction resume after reopening; zoom magnification is not persisted.
+
+Native glass controls float over a stable canvas and hide after three idle seconds.
+Tap the page to reveal or hide them. Controls remain visible during loading,
+errors, sheets, and VoiceOver. EPUB horizontal swipes follow spine order.
 
 This is an early reader slice. Synthetic spreads, continuous EPUB roll layout,
 Adobe font obfuscation, DRM, inline data resources, and audio/video are not
-implemented yet. Comics currently display one image at a time; automatic movement
-between vertically stacked pages is not implemented. Book scripts and
+implemented yet. Book scripts and
 remote resources are disabled. EPUB archives are limited to
 512 MB compressed/declared expanded data, 10,000 entries, and 32 MB per resource.
 Every loaded entry is checked against its actual byte limit, size, and CRC.
@@ -31,7 +35,7 @@ The app stores originals and an atomic `library.json` index in Application Suppo
 Failed imports do not add library records. Imported copies are independent of the
 source file provider. Per-book anchors and text size are stored atomically in
 `Chek/Progress/<book UUID>.json` beside the library index. Comic progress uses
-optional `comicLocation` and `comicDirection` fields; EPUB fields stay unchanged.
+optional `comicLocation`, `comicDirection`, and `comicReadingMode` fields; EPUB fields stay unchanged.
 Library records without a format still open as EPUB, keeping their original IDs
 and copies. Progress is captured
 while scrolling and flushed on close and app inactivity/background transitions.
@@ -52,7 +56,10 @@ Comic decodes serialize and cancel obsolete work. The decoded cache is limited t
 64 MiB, each decoded page to 16 million pixels, and source dimensions to 32,768
 per axis / 80 million pixels. These are cache/decode limits, not a claim that total
 app memory stays below 64 MiB: displayed images and ImageIO workspace also consume
-memory. Unsupported formats and strips that cannot fit a readable decode within
+memory. The continuous canvas separately bounds displayed bitmaps to 64 MiB and
+keeps at most five nearby page views/requests. Unknown heights are estimated until
+nearby pages decode; fast jumps can briefly show placeholders.
+Unsupported formats and strips that cannot fit a readable decode within
 these limits produce visible errors.
 
 Requires Xcode 26 or later and iOS 26 or later. The checked-in Xcode project opens

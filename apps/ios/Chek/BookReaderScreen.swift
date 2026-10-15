@@ -4,15 +4,19 @@ import SwiftUI
 struct BookReaderScreen: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
   @State private var reader: EPUBReader
   @State private var progress: ReadingProgressStore
   @State private var showingContents = false
   @State private var showingSettings = false
   @State private var closing = false
+  @State private var chrome = ReaderChrome()
+  @State private var showingRecovery: Bool
   private let progressWarning: String?
 
   init(book: OpenBook, publication: EPUBPublication) {
     progressWarning = book.progressWarning
+    _showingRecovery = State(initialValue: book.progressWarning != nil)
     _reader = State(
       initialValue: EPUBReader(
         publication: publication,
@@ -22,80 +26,78 @@ struct BookReaderScreen: View {
 
   var body: some View {
     @Bindable var reader = reader
-    NavigationStack {
-      EPUBReaderView(reader: reader)
-        .safeAreaInset(edge: .top) {
-          if let progressWarning { ProgressRecoveryNotice(message: progressWarning) }
-        }
-        .navigationTitle(reader.publication.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.bar, for: .navigationBar, .bottomBar)
-        .toolbarBackground(.visible, for: .navigationBar, .bottomBar)
-        .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            Button("Close", systemImage: "xmark") {
-              guard !closing else { return }
-              closing = true
-              Task {
-                if await saveLatest() { dismiss() } else { closing = false }
-              }
+    EPUBReaderView(reader: reader, onTap: chrome.toggle, onInteraction: chrome.interacted)
+      // Keep the hardware cutout clear independently of chrome visibility.
+      .ignoresSafeArea(edges: .bottom)
+      .overlay {
+        ReaderChromeOverlay(visible: chrome.visible) {
+          VStack(spacing: 8) {
+            BookReaderHeader(
+              reader: reader, closing: closing, close: close,
+              contents: { showingContents = true }, settings: { showingSettings = true })
+            if let progressWarning, showingRecovery {
+              ReaderRecoveryNotice(message: progressWarning) { showingRecovery = false }
             }
-            .disabled(closing)
           }
-          ToolbarItem(placement: .topBarTrailing) {
-            Button("Contents", systemImage: "list.bullet") { showingContents = true }
-          }
-          ToolbarItem(placement: .topBarTrailing) {
-            Button("Text size", systemImage: "textformat.size") { showingSettings = true }
-              .disabled(reader.isFixedLayout)
-          }
-          ToolbarItemGroup(placement: .bottomBar) {
-            Button("Previous chapter", systemImage: "chevron.backward") {
-              reader.moveChapter(by: -1)
-            }
-            .disabled(reader.chapterIndex == nil || reader.chapterIndex == 0)
-            Spacer()
-            if let index = reader.chapterIndex {
-              Group {
-                if reader.isFixedLayout {
-                  Text("Page \(index + 1) of \(reader.publication.readingOrder.count)")
-                } else {
-                  Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
-                }
-              }
-              .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Next chapter", systemImage: "chevron.forward") { reader.moveChapter(by: 1) }
-              .disabled(
-                reader.chapterIndex == nil
-                  || reader.chapterIndex == reader.publication.readingOrder.count - 1)
-          }
+        } bottom: {
+          BookChapterControls(reader: reader, interacted: chrome.interacted)
         }
-        .sheet(isPresented: $showingContents) {
-          ContentsSheet(reader: reader)
-        }
-        .sheet(isPresented: $showingSettings) { TextSettingsSheet(reader: reader) }
-        .onChange(of: reader.location) {
-          progress.update(location: reader.location, textScale: reader.textScale)
-        }
-        .onChange(of: reader.textScale) {
-          progress.update(location: reader.location, textScale: reader.textScale)
-        }
-        .onChange(of: progress.errorMessage) {
-          if let error = progress.errorMessage { reader.message = error }
-        }
-        .onChange(of: scenePhase) {
-          if scenePhase != .active { Task { _ = await saveLatest() } }
-        }
-        .onDisappear { Task { try? await progress.flush() } }
-        .alert("Reader", isPresented: $reader.hasMessage) {
-          Button("OK", role: .cancel) {}
-        } message: {
-          Text(reader.message ?? "")
-        }
+      }
+      .statusBarHidden()
+      .sheet(isPresented: $showingContents) {
+        ContentsSheet(reader: reader)
+      }
+      .sheet(isPresented: $showingSettings) { TextSettingsSheet(reader: reader) }
+      .onChange(of: reader.location) {
+        progress.update(location: reader.location, textScale: reader.textScale)
+      }
+      .onChange(of: reader.textScale) {
+        progress.update(location: reader.location, textScale: reader.textScale)
+      }
+      .onChange(of: progress.errorMessage) {
+        if let error = progress.errorMessage { reader.message = error }
+      }
+      .onChange(of: scenePhase) {
+        if scenePhase != .active { Task { _ = await saveLatest() } }
+      }
+      .onAppear { refreshChrome() }
+      .onChange(of: showingContents) { refreshChrome() }
+      .onChange(of: showingSettings) { refreshChrome() }
+      .onChange(of: showingRecovery) { refreshChrome() }
+      .onChange(of: voiceOver) { refreshChrome() }
+      .onChange(of: reader.hasMessage) { refreshChrome() }
+      .onChange(of: reader.isReadyForInteraction) { refreshChrome() }
+      .onDisappear {
+        chrome.stop()
+        Task { try? await progress.flush() }
+      }
+      .alert("Reader", isPresented: $reader.hasMessage) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(reader.message ?? "")
+      }
+      .interactiveDismissDisabled()
+  }
+
+  private func refreshChrome() {
+    chrome.setHeld(
+      !reader.isReadyForInteraction || voiceOver || showingContents || showingSettings
+        || showingRecovery || reader.hasMessage
+        || closing)
+  }
+
+  private func close() {
+    guard !closing else { return }
+    closing = true
+    refreshChrome()
+    Task {
+      if await saveLatest() {
+        dismiss()
+      } else {
+        closing = false
+        refreshChrome()
+      }
     }
-    .interactiveDismissDisabled()
   }
 
   private func saveLatest() async -> Bool {
@@ -108,6 +110,66 @@ struct BookReaderScreen: View {
       reader.message = error.localizedDescription
       return false
     }
+  }
+}
+
+private struct BookReaderHeader: View {
+  let reader: EPUBReader
+  let closing: Bool
+  let close: () -> Void
+  let contents: () -> Void
+  let settings: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ReaderCloseButton(disabled: closing, action: close)
+      Text(reader.publication.title)
+        .font(.headline).lineLimit(1)
+        .padding(.horizontal, 12).frame(minHeight: 44)
+        .modifier(ReaderGlassSurface())
+      Spacer(minLength: 0)
+      HStack(spacing: 0) {
+        ReaderIconButton("Contents", systemImage: "list.bullet", action: contents)
+        ReaderIconButton("Text size", systemImage: "textformat.size", action: settings)
+          .disabled(reader.isFixedLayout)
+      }
+      .labelStyle(.iconOnly).buttonStyle(.plain)
+      .modifier(ReaderGlassSurface())
+    }
+  }
+}
+
+private struct BookChapterControls: View {
+  let reader: EPUBReader
+  let interacted: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      ReaderIconButton("Previous chapter", systemImage: "chevron.backward") {
+        interacted()
+        reader.moveChapter(by: -1)
+      }
+      .disabled(reader.chapterIndex == nil || reader.chapterIndex == 0)
+      if let index = reader.chapterIndex {
+        if reader.isFixedLayout {
+          Text("Page \(index + 1) of \(reader.publication.readingOrder.count)")
+            .font(.caption)
+        } else {
+          Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
+            .font(.caption)
+        }
+      }
+      ReaderIconButton("Next chapter", systemImage: "chevron.forward") {
+        interacted()
+        reader.moveChapter(by: 1)
+      }
+      .disabled(
+        reader.chapterIndex == nil
+          || reader.chapterIndex == reader.publication.readingOrder.count - 1)
+    }
+    .labelStyle(.iconOnly).buttonStyle(.plain)
+    .padding(.horizontal, 8)
+    .modifier(ReaderGlassSurface())
   }
 }
 
