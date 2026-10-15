@@ -8,9 +8,14 @@ let package = Package(
   products: [
     .library(name: "ChekReader", targets: ["ChekReader"])
   ],
+  dependencies: [
+    .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20")
+  ],
   targets: [
     .target(
       name: "ChekReader",
+      dependencies: ["ZIPFoundation"],
+      resources: [.process("Resources")],
       swiftSettings: [
         .enableUpcomingFeature("NonisolatedNonsendingByDefault")
       ]

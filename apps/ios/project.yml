@@ -24,6 +24,17 @@ targets:
       - Chek
     dependencies:
       - package: ChekReader
+    info:
+      path: Chek/Info.plist
+      properties:
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: EPUB book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.chek.reader

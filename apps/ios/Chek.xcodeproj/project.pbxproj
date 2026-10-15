@@ -7,16 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		55978989FD81ADE008242BF6 /* BookReaderScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05DCAAFB1E1EA81D7E1E1E33 /* BookReaderScreen.swift */; };
 		58F6A0F235BD97B5B3CA7D4C /* ChekReader in Frameworks */ = {isa = PBXBuildFile; productRef = 11FCB46B40A345263F243828 /* ChekReader */; };
 		7DB4C982CA7F221C8915C23B /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9144D6383F83DECA5011ED5 /* LibraryView.swift */; };
 		AB4A22D8FA4A656354EDBAE7 /* ChekApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBE6ED80AB3AEA5B892E2E5 /* ChekApp.swift */; };
+		B5FDBEB6150DBF2D67782BB1 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1991E714F79299D95CBCFCE /* LibraryStore.swift */; };
 		DBBDB440793ED3707ABC5C0C /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		05DCAAFB1E1EA81D7E1E1E33 /* BookReaderScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookReaderScreen.swift; sourceTree = "<group>"; };
+		2C7268BA4C22DC904BAFF350 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		46628E789454202B15A7FA4B /* Chek.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Chek.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EBE6ED80AB3AEA5B892E2E5 /* ChekApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChekApp.swift; sourceTree = "<group>"; };
 		A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		E1991E714F79299D95CBCFCE /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
 		E9144D6383F83DECA5011ED5 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		F76DEF912B870701726ABD4F /* reader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = reader; path = ../../packages/reader; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -61,7 +66,10 @@
 		E61FC8A894F38256A655E0D8 /* Chek */ = {
 			isa = PBXGroup;
 			children = (
+				05DCAAFB1E1EA81D7E1E1E33 /* BookReaderScreen.swift */,
 				4EBE6ED80AB3AEA5B892E2E5 /* ChekApp.swift */,
+				2C7268BA4C22DC904BAFF350 /* Info.plist */,
+				E1991E714F79299D95CBCFCE /* LibraryStore.swift */,
 				E9144D6383F83DECA5011ED5 /* LibraryView.swift */,
 				A9695A4798F08ABDA0B0FDC8 /* Localizable.xcstrings */,
 			);
@@ -140,7 +148,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				55978989FD81ADE008242BF6 /* BookReaderScreen.swift in Sources */,
 				AB4A22D8FA4A656354EDBAE7 /* ChekApp.swift in Sources */,
+				B5FDBEB6150DBF2D67782BB1 /* LibraryStore.swift in Sources */,
 				7DB4C982CA7F221C8915C23B /* LibraryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -154,6 +164,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Chek/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chek;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -308,6 +319,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Chek/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chek;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
