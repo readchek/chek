@@ -43,7 +43,7 @@ struct BookReaderScreen: View {
           BookChapterControls(reader: reader, interacted: chrome.interacted)
         }
       }
-      .statusBarHidden()
+      .toolbarVisibility(.hidden, for: .statusBar)
       .sheet(isPresented: $showingContents) {
         ContentsSheet(reader: reader)
       }
@@ -133,8 +133,7 @@ private struct BookReaderHeader: View {
         ReaderIconButton("Text size", systemImage: "textformat.size", action: settings)
           .disabled(reader.isFixedLayout)
       }
-      .labelStyle(.iconOnly).buttonStyle(.plain)
-      .modifier(ReaderGlassSurface())
+      .labelStyle(.iconOnly)
     }
   }
 }
@@ -154,9 +153,13 @@ private struct BookChapterControls: View {
         if reader.isFixedLayout {
           Text("Page \(index + 1) of \(reader.publication.readingOrder.count)")
             .font(.caption)
+            .padding(.horizontal, 12).frame(minHeight: 44)
+            .modifier(ReaderGlassSurface())
         } else {
           Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
             .font(.caption)
+            .padding(.horizontal, 12).frame(minHeight: 44)
+            .modifier(ReaderGlassSurface())
         }
       }
       ReaderIconButton("Next chapter", systemImage: "chevron.forward") {
@@ -167,9 +170,8 @@ private struct BookChapterControls: View {
         reader.chapterIndex == nil
           || reader.chapterIndex == reader.publication.readingOrder.count - 1)
     }
-    .labelStyle(.iconOnly).buttonStyle(.plain)
+    .labelStyle(.iconOnly)
     .padding(.horizontal, 8)
-    .modifier(ReaderGlassSurface())
   }
 }
 

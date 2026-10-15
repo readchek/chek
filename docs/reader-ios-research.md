@@ -27,7 +27,7 @@ investigated capability is implemented.
 | Platform primitives  | Agreed in handoff                  | WebKit and UIKit behind a SwiftUI API are allowed.                                                                                                  |
 | Interface            | Agreed in handoff                  | Native Liquid Glass controls and system interface typography; refine interactions in the running app.                                               |
 | Stable EPUB baseline | Research proposal                  | Target EPUB 3.3 compatibility, retain legacy EPUB 2 navigation support, and plan for EPUB 3.4 roll layout. This is not a claim of full conformance. |
-| EPUB presentation    | Implemented choice                 | iOS 26 minimum; native WebView/WebPage, isolated custom resource scheme, native fixed-page viewport fitting.                                         |
+| EPUB presentation    | Implemented choice                 | iOS 27 minimum by user decision; native WebView/WebPage, isolated custom resource scheme, native fixed-page viewport fitting.                        |
 | Parsing dependencies | Implemented choice                 | ZIPFoundation 0.9.20 pinned; bounded Foundation XMLParser processing.                                                                                |
 | Reading locations    | Implemented choice                 | Version 1 DOM/text anchors and quote context with progression fallback; comic entry identity and within-image position.                              |
 | Storage              | Implemented choice                 | App-owned originals, Codable library records, atomic per-book progress, bounded decoded comic cache.                                                 |
@@ -83,9 +83,15 @@ Manual checks confirmed cross-image scrolling, close/reopen position restoration
 tap/idle controls, and direction-aware paged swipes with the birds-eye sample.
 Rotation retained its within-page fraction to rounding precision, and the reader
 remained usable after a simulated memory warning. EPUB chapter swipes and heading
-clearance passed. A semantic system-background tint strengthens glass-label
-contrast when system appearance and publication colors disagree; dark controls
-over a white EPUB were checked after this adjustment. Debug and Release builds pass.
+clearance passed. Reader actions now use native glass button styling, with untinted
+regular glass for labels and counters. The earlier opaque tint and forced primary
+button tint were removed so the system can adapt the material and its foreground.
+Glass appears and disappears using native materialization rather than enclosing
+the whole layer in an opacity effect. Native glass also handles accessibility
+material adjustments. Simulator checks confirmed readable controls over white
+EPUB pages and black/white comic art in both light and dark system appearances.
+Text and art remain visibly blurred through the floating surfaces, with no solid
+full-width bars. Tap to show, idle hiding, and close also passed.
 
 The previous EPUB anchor fallback could scan up to 20,000 text nodes with geometry
 reads. It now samples visible carets and bounds fallback work to 128 nodes and a
@@ -116,8 +122,10 @@ primary release sources when those labels conflict.
 [Swift 6.4](https://www.swift.org/blog/swift-6.4-released/),
 [Swift 6.4.1](https://forums.swift.org/t/announcing-swift-6-4-1/90029)
 
-iOS 26 was selected as the minimum for native SwiftUI WebKit and Liquid Glass.
-The installed iOS 27 SDK is used to build, without raising that deployment target.
+iOS 27 is the minimum by the user's current decision. The initial implementation
+used iOS 26 for native SwiftUI WebKit and Liquid Glass; development now targets
+the installed Xcode 27 SDK and native glass controls without a custom opaque tint.
+The package manifest uses Swift tools 6.4 to declare the iOS 27 platform baseline.
 
 ## EPUB standards and recent advances
 

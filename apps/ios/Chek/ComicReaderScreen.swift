@@ -43,7 +43,7 @@ struct ComicReaderScreen: View {
           ComicPageControls(reader: reader, interacted: chrome.interacted)
         }
       }
-      .statusBarHidden()
+      .toolbarVisibility(.hidden, for: .statusBar)
       .sheet(isPresented: $showingPages) { ComicPagesSheet(reader: reader) }
       .sheet(isPresented: $showingSettings) { ComicSettingsSheet(reader: reader) }
       .onChange(of: reader.location) { updateProgress() }
@@ -125,17 +125,20 @@ private struct ComicPageControls: View {
         reader: reader, delta: reader.readingDirection == .leftToRight ? -1 : 1,
         interacted: interacted)
       Text("Page \(reader.currentPageIndex + 1) of \(reader.publication.pages.count)")
-        .font(.caption).foregroundStyle(.secondary)
+        .font(.caption)
+        .padding(.horizontal, 12).frame(minHeight: 44)
+        .modifier(ReaderGlassSurface())
       ComicPageButton(
         reader: reader, delta: reader.readingDirection == .leftToRight ? 1 : -1,
         interacted: interacted)
     }
     .padding(.horizontal, 8)
-    .modifier(ReaderGlassSurface())
   }
 }
 
 private struct ComicPageButton: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Namespace private var glassNamespace
   let reader: CBZReader
   let delta: Int
   let interacted: () -> Void
@@ -155,7 +158,9 @@ private struct ComicPageButton: View {
       .frame(minWidth: 44, minHeight: 44)
       .contentShape(.rect)
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.glass)
+    .glassEffectID(delta, in: glassNamespace)
+    .glassEffectTransition(reduceMotion ? .identity : .materialize)
     .disabled(!reader.publication.pages.indices.contains(reader.currentPageIndex + delta))
   }
 }
@@ -244,8 +249,7 @@ private struct ComicReaderHeader: View {
         ReaderIconButton("Pages", systemImage: "square.grid.2x2", action: pages)
         ReaderIconButton("Reading settings", systemImage: "slider.horizontal.3", action: settings)
       }
-      .labelStyle(.iconOnly).buttonStyle(.plain)
-      .modifier(ReaderGlassSurface())
+      .labelStyle(.iconOnly)
     }
   }
 }

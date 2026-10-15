@@ -2,7 +2,7 @@ name: Chek
 options:
   minimumXcodeGenVersion: 2.44.0
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "27.0"
   createIntermediateGroups: true
 packages:
   ChekReader:

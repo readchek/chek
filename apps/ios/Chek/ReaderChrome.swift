@@ -45,35 +45,29 @@ struct ReaderChromeOverlay<Top: View, Bottom: View>: View {
 
   var body: some View {
     GlassEffectContainer(spacing: 12) {
-      VStack(spacing: 12) {
-        top
-        Spacer(minLength: 0)
-        bottom
+      if visible {
+        VStack(spacing: 12) {
+          top
+          Spacer(minLength: 0)
+          bottom
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .transition(.identity)
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
     }
-    .tint(.primary)
-    .opacity(visible ? 1 : 0)
-    .allowsHitTesting(visible)
-    .accessibilityHidden(!visible)
     .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: visible)
   }
 }
 
 struct ReaderGlassSurface: ViewModifier {
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Namespace private var glassNamespace
 
   func body(content: Content) -> some View {
-    if reduceTransparency {
-      content.background(Color(uiColor: .systemBackground), in: .rect(cornerRadius: 24))
-    } else {
-      // Publisher colors can oppose the system appearance. Anchor the glass tint
-      // to the same semantic surface as primary labels while retaining the material.
-      content.glassEffect(
-        .regular.tint(Color(uiColor: .systemBackground).opacity(0.75)),
-        in: .rect(cornerRadius: 24))
-    }
+    content.glassEffect(.regular, in: .rect(cornerRadius: 24))
+      .glassEffectID("surface", in: glassNamespace)
+      .glassEffectTransition(reduceMotion ? .identity : .materialize)
   }
 }
 
@@ -83,12 +77,13 @@ struct ReaderCloseButton: View {
 
   var body: some View {
     ReaderIconButton("Close", systemImage: "xmark", action: action)
-      .modifier(ReaderGlassSurface())
       .disabled(disabled)
   }
 }
 
 struct ReaderIconButton: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Namespace private var glassNamespace
   let title: LocalizedStringKey
   let systemImage: String
   let action: () -> Void
@@ -106,7 +101,9 @@ struct ReaderIconButton: View {
         .frame(minWidth: 44, minHeight: 44)
         .contentShape(.rect)
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.glass)
+    .glassEffectID(systemImage, in: glassNamespace)
+    .glassEffectTransition(reduceMotion ? .identity : .materialize)
   }
 }
 

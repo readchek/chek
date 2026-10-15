@@ -1,7 +1,7 @@
 # ChekReader
 
 A Swift package for Chek's local EPUB and comic reader, built around native Apple
-rendering and small archive support. Requires iOS 26 and Swift 6.2 or later.
+rendering and small archive support. Requires iOS 27 and Swift 6.4 or later.
 
 EPUB coverage implemented so far:
 

@@ -62,7 +62,7 @@ nearby pages decode; fast jumps can briefly show placeholders.
 Unsupported formats and strips that cannot fit a readable decode within
 these limits produce visible errors.
 
-Requires Xcode 26 or later and iOS 26 or later. The checked-in Xcode project opens
+Requires Xcode 27 or later and iOS 27 or later. The checked-in Xcode project opens
 directly in Xcode. To regenerate it with XcodeGen 2.44 or later:
 
 ```sh
