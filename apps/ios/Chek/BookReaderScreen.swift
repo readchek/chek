@@ -125,10 +125,10 @@ private struct BookReaderHeader: View {
       ReaderCloseButton(disabled: closing, action: close)
       Text(reader.publication.title)
         .font(.headline).lineLimit(1)
-        .padding(.horizontal, 12).frame(minHeight: 44)
+        .padding(.horizontal, 12).frame(height: 44)
         .modifier(ReaderGlassSurface())
       Spacer(minLength: 0)
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         ReaderIconButton("Contents", systemImage: "list.bullet", action: contents)
         ReaderIconButton("Text size", systemImage: "textformat.size", action: settings)
           .disabled(reader.isFixedLayout)
@@ -143,8 +143,8 @@ private struct BookChapterControls: View {
   let interacted: () -> Void
 
   var body: some View {
-    HStack(spacing: 12) {
-      ReaderIconButton("Previous chapter", systemImage: "chevron.backward") {
+    HStack(spacing: 8) {
+      ReaderIconButton("Previous chapter", systemImage: "chevron.backward", glass: false) {
         interacted()
         reader.moveChapter(by: -1)
       }
@@ -153,16 +153,14 @@ private struct BookChapterControls: View {
         if reader.isFixedLayout {
           Text("Page \(index + 1) of \(reader.publication.readingOrder.count)")
             .font(.caption)
-            .padding(.horizontal, 12).frame(minHeight: 44)
-            .modifier(ReaderGlassSurface())
+            .frame(height: 44)
         } else {
           Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
             .font(.caption)
-            .padding(.horizontal, 12).frame(minHeight: 44)
-            .modifier(ReaderGlassSurface())
+            .frame(height: 44)
         }
       }
-      ReaderIconButton("Next chapter", systemImage: "chevron.forward") {
+      ReaderIconButton("Next chapter", systemImage: "chevron.forward", glass: false) {
         interacted()
         reader.moveChapter(by: 1)
       }
@@ -171,7 +169,7 @@ private struct BookChapterControls: View {
           || reader.chapterIndex == reader.publication.readingOrder.count - 1)
     }
     .labelStyle(.iconOnly)
-    .padding(.horizontal, 8)
+    .modifier(ReaderGlassSurface(interactive: true))
   }
 }
 

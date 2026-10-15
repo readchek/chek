@@ -44,7 +44,7 @@ struct ReaderChromeOverlay<Top: View, Bottom: View>: View {
   @ViewBuilder let bottom: Bottom
 
   var body: some View {
-    GlassEffectContainer(spacing: 12) {
+    GlassEffectContainer(spacing: 0) {
       if visible {
         VStack(spacing: 12) {
           top
@@ -63,9 +63,10 @@ struct ReaderChromeOverlay<Top: View, Bottom: View>: View {
 struct ReaderGlassSurface: ViewModifier {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Namespace private var glassNamespace
+  var interactive = false
 
   func body(content: Content) -> some View {
-    content.glassEffect(.regular, in: .rect(cornerRadius: 24))
+    content.glassEffect(.regular.interactive(interactive), in: .rect(cornerRadius: 22))
       .glassEffectID("surface", in: glassNamespace)
       .glassEffectTransition(reduceMotion ? .identity : .materialize)
   }
@@ -83,27 +84,47 @@ struct ReaderCloseButton: View {
 
 struct ReaderIconButton: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
   @Namespace private var glassNamespace
   let title: LocalizedStringKey
   let systemImage: String
   let action: () -> Void
+  let glass: Bool
 
-  init(_ title: LocalizedStringKey, systemImage: String, action: @escaping () -> Void) {
+  init(
+    _ title: LocalizedStringKey, systemImage: String, glass: Bool = true,
+    action: @escaping () -> Void
+  ) {
     self.title = title
     self.systemImage = systemImage
     self.action = action
+    self.glass = glass
   }
 
   var body: some View {
     Button(action: action) {
       Label(title, systemImage: systemImage)
         .labelStyle(.iconOnly)
-        .frame(minWidth: 44, minHeight: 44)
-        .contentShape(.rect)
+        .opacity(isEnabled ? 1 : 0.4)
+        .frame(width: 44, height: 44)
+        .contentShape(.circle)
     }
-    .buttonStyle(.glass)
+    .buttonStyle(.plain)
+    .modifier(ReaderIconSurface(enabled: glass))
     .glassEffectID(systemImage, in: glassNamespace)
     .glassEffectTransition(reduceMotion ? .identity : .materialize)
+  }
+}
+
+private struct ReaderIconSurface: ViewModifier {
+  let enabled: Bool
+
+  func body(content: Content) -> some View {
+    if enabled {
+      content.glassEffect(.regular.interactive(), in: .circle)
+    } else {
+      content
+    }
   }
 }
 
@@ -114,7 +135,7 @@ struct ReaderRecoveryNotice: View {
   var body: some View {
     HStack(alignment: .top) {
       Text(message).font(.callout)
-      ReaderIconButton("Dismiss notice", systemImage: "xmark", action: dismiss)
+      ReaderIconButton("Dismiss notice", systemImage: "xmark", glass: false, action: dismiss)
     }
     .padding(12)
     .modifier(ReaderGlassSurface())

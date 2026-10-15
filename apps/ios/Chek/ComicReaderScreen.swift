@@ -120,25 +120,22 @@ private struct ComicPageControls: View {
   let interacted: () -> Void
 
   var body: some View {
-    HStack {
+    HStack(spacing: 8) {
       ComicPageButton(
         reader: reader, delta: reader.readingDirection == .leftToRight ? -1 : 1,
         interacted: interacted)
       Text("Page \(reader.currentPageIndex + 1) of \(reader.publication.pages.count)")
         .font(.caption)
-        .padding(.horizontal, 12).frame(minHeight: 44)
-        .modifier(ReaderGlassSurface())
+        .frame(height: 44)
       ComicPageButton(
         reader: reader, delta: reader.readingDirection == .leftToRight ? 1 : -1,
         interacted: interacted)
     }
-    .padding(.horizontal, 8)
+    .modifier(ReaderGlassSurface(interactive: true))
   }
 }
 
 private struct ComicPageButton: View {
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Namespace private var glassNamespace
   let reader: CBZReader
   let delta: Int
   let interacted: () -> Void
@@ -155,12 +152,11 @@ private struct ComicPageButton: View {
         Image(systemName: backwards ? "chevron.left" : "chevron.right")
       }
       .labelStyle(.iconOnly)
-      .frame(minWidth: 44, minHeight: 44)
+      .opacity(reader.publication.pages.indices.contains(reader.currentPageIndex + delta) ? 1 : 0.4)
+      .frame(width: 44, height: 44)
       .contentShape(.rect)
     }
-    .buttonStyle(.glass)
-    .glassEffectID(delta, in: glassNamespace)
-    .glassEffectTransition(reduceMotion ? .identity : .materialize)
+    .buttonStyle(.plain)
     .disabled(!reader.publication.pages.indices.contains(reader.currentPageIndex + delta))
   }
 }
@@ -242,10 +238,10 @@ private struct ComicReaderHeader: View {
     HStack(spacing: 8) {
       ReaderCloseButton(disabled: closing, action: close)
       Text(title).font(.headline).lineLimit(1)
-        .padding(.horizontal, 12).frame(minHeight: 44)
+        .padding(.horizontal, 12).frame(height: 44)
         .modifier(ReaderGlassSurface())
       Spacer(minLength: 0)
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         ReaderIconButton("Pages", systemImage: "square.grid.2x2", action: pages)
         ReaderIconButton("Reading settings", systemImage: "slider.horizontal.3", action: settings)
       }

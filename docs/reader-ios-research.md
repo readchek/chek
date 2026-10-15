@@ -83,8 +83,10 @@ Manual checks confirmed cross-image scrolling, close/reopen position restoration
 tap/idle controls, and direction-aware paged swipes with the birds-eye sample.
 Rotation retained its within-page fraction to rounding precision, and the reader
 remained usable after a simulated memory warning. EPUB chapter swipes and heading
-clearance passed. Reader actions now use native glass button styling, with untinted
-regular glass for labels and counters. The earlier opaque tint and forced primary
+clearance passed. Reader actions use explicit 44-point circles with native interactive
+glass; plain button labels avoid additional style padding. Labels and the 44-point
+bottom control capsule use untinted regular glass. The glass container has zero
+merge spacing, with 8-point gaps between independent top controls. The earlier opaque tint and forced primary
 button tint were removed so the system can adapt the material and its foreground.
 Glass appears and disappears using native materialization rather than enclosing
 the whole layer in an opacity effect. Native glass also handles accessibility
