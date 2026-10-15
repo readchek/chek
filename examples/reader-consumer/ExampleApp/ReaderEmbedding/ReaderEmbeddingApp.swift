@@ -54,10 +54,12 @@ private struct EmbeddingView: View {
           }
           .overlay {
             if session.files.isEmpty {
-              ContentUnavailableView(
-                "No publications", systemImage: "folder",
-                description: Text(
-                  "Import an EPUB or CBZ, or copy files into this app’s Documents folder."))
+              ScrollView {
+                ContentUnavailableView(
+                  "No publications", systemImage: "folder",
+                  description: Text(
+                    "Import an EPUB or CBZ, or copy files into this app’s Documents folder."))
+              }
             }
           }
           .navigationTitle("Local files")
@@ -112,14 +114,74 @@ private struct SessionCanvas: View {
           session.lastCallbackVersion = callbackVersion
         })
     case nil:
-      ContentUnavailableView(
-        "Open a publication", systemImage: "book",
-        description: Text("Choose Files or import a local EPUB or CBZ from the Session menu."))
+      GeometryReader { geometry in
+        ScrollView {
+          ContentUnavailableView(
+            "Open a publication", systemImage: "book",
+            description: Text("Choose Files or import a local EPUB or CBZ from the Session menu.")
+          )
+          .frame(minHeight: geometry.size.height)
+        }
+      }
     }
   }
 }
 
 private struct SessionStatus: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @State private var showDetails = false
+  let session: EmbeddingSession
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if dynamicTypeSize.isAccessibilitySize {
+        SessionReadiness(session: session)
+        Button("Reader controls", systemImage: "slider.horizontal.3") { showDetails = true }
+      } else {
+        SessionDetails(session: session)
+      }
+    }
+    .font(.caption)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal)
+    .padding(.vertical, 8)
+    .background(.background)
+    .sheet(isPresented: $showDetails) {
+      NavigationStack {
+        ScrollView {
+          SessionDetails(session: session)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+        }
+        .navigationTitle("Reader controls")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          Button("Done") { showDetails = false }
+        }
+      }
+    }
+  }
+}
+
+private struct SessionReadiness: View {
+  let session: EmbeddingSession
+
+  var body: some View {
+    switch session.reader {
+    case .epub(let reader):
+      Text(
+        reader.failureDescription != nil
+          ? "Failed" : (reader.isReadyForInteraction ? "Ready" : "Loading"))
+    case .cbz(let reader):
+      Text(
+        reader.failureDescription != nil
+          ? "Failed" : (reader.isReadyForInteraction ? "Ready" : "Loading"))
+    case nil: Text(session.isOpening ? "Opening" : "Closed")
+    }
+  }
+}
+
+private struct SessionDetails: View {
   let session: EmbeddingSession
 
   var body: some View {
@@ -133,16 +195,7 @@ private struct SessionStatus: View {
       case .epub(let reader):
         Text(reader.failureDescription ?? (reader.isReadyForInteraction ? "Ready" : "Loading"))
         Text(reader.location?.resourceHref ?? reader.currentHref).lineLimit(1)
-        HStack {
-          Button("Smaller", systemImage: "textformat.size.smaller") {
-            Task { await reader.setTextScale(reader.textScale - 0.1) }
-          }
-          Text(reader.textScale.formatted(.percent.precision(.fractionLength(0))))
-          Button("Larger", systemImage: "textformat.size.larger") {
-            Task { await reader.setTextScale(reader.textScale + 0.1) }
-          }
-        }
-        .buttonStyle(.bordered)
+        TextScaleControls(reader: reader)
       case .cbz(let reader):
         Text(reader.failureDescription ?? (reader.isReadyForInteraction ? "Ready" : "Loading"))
         Text(
@@ -154,11 +207,27 @@ private struct SessionStatus: View {
       if session.isOpening { ProgressView("Opening replacement") }
       if let error = session.error { Text(error).foregroundStyle(.red) }
     }
-    .font(.caption)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal)
-    .padding(.vertical, 8)
-    .background(.background)
+  }
+}
+
+private struct TextScaleControls: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  let reader: EPUBReader
+
+  var body: some View {
+    let layout =
+      dynamicTypeSize.isAccessibilitySize
+      ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+    layout {
+      Button("Smaller", systemImage: "textformat.size.smaller") {
+        Task { await reader.setTextScale(reader.textScale - 0.1) }
+      }
+      Text(reader.textScale.formatted(.percent.precision(.fractionLength(0))))
+      Button("Larger", systemImage: "textformat.size.larger") {
+        Task { await reader.setTextScale(reader.textScale + 0.1) }
+      }
+    }
+    .buttonStyle(.bordered)
   }
 }
 

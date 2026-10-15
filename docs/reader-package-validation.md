@@ -146,13 +146,22 @@ The Release harness and independent public-product consumer both built after
 these changes. The only Release warning was skipped App Intents metadata
 extraction because the app has no App Intents dependency.
 
+At maximum simulator Dynamic Type, the original failure view clipped its
+diagnostic. Both formats now share a scrollable failure surface, and EPUB exposes
+the same native retry action as CBZ. Manual verification reached the complete
+malformed-XHTML diagnostic and Try again button by scrolling; retry returned a
+controlled failure without a crash. The consumer moves detailed controls into a
+scrollable sheet at accessibility sizes. The simulator text-size setting was
+restored afterward. VoiceOver speech and gestures remain unverified.
+
 ## Release checks still open
 
 - Repeatable device frame-time, loading latency and peak-memory measurements,
   including WebKit processes. Investigate the reported scroll lag end to end.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
-- VoiceOver speech/gestures, maximum Dynamic Type and device lifecycle checks.
+- VoiceOver speech/gestures and device lifecycle checks; maximum Dynamic Type was
+  checked for the shared failure surface and consumer controls, not every UI path.
 - Define the v1 format-support contract against the unsupported features in the
   package README. This work does not add EPUB roll, spreads, DRM or new codecs.
 

@@ -396,15 +396,7 @@ public struct EPUBReaderView: View {
   public var body: some View {
     Group {
       if reader.loadFailed {
-        ContentUnavailableView {
-          Label(
-            String(localized: "Page could not load", bundle: .module),
-            systemImage: "exclamationmark.triangle")
-        } description: {
-          Text(
-            reader.failureDescription
-              ?? String(localized: "Close this book and reopen it to try again.", bundle: .module))
-        }
+        ReaderFailureView(message: reader.failureDescription, retry: reader.retry)
       } else if let page = reader.page {
         ReaderPageView(reader: reader, page: page, viewport: reader.fixedViewport)
       } else {
@@ -419,6 +411,34 @@ public struct EPUBReaderView: View {
     }
     .task(id: reader.loadRequestID) { [weak reader] in await reader?.load() }
     .id(ObjectIdentifier(reader))
+  }
+}
+
+struct ReaderFailureView: View {
+  let message: String?
+  let retry: @MainActor () -> Void
+
+  var body: some View {
+    GeometryReader { geometry in
+      ScrollView {
+        ContentUnavailableView {
+          Label(
+            String(localized: "Page could not load", bundle: .module),
+            systemImage: "exclamationmark.triangle")
+        } description: {
+          Text(
+            message
+              ?? String(localized: "Close this book and reopen it to try again.", bundle: .module))
+        } actions: {
+          Button(String(localized: "Try again", bundle: .module), action: retry)
+            .buttonStyle(.glass)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height))
+      }
+      .scrollBounceBehavior(.basedOnSize)
+    }
+    .background(.background)
   }
 }
 

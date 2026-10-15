@@ -217,16 +217,7 @@ public struct CBZReaderView: View {
         ComicCanvas(reader: reader, onTap: onTap, onInteraction: onInteraction)
       }
       if let failure = reader.failureDescription {
-        ContentUnavailableView {
-          Label(
-            String(localized: "Page could not load", bundle: .module),
-            systemImage: "exclamationmark.triangle")
-        } description: {
-          Text(failure)
-        } actions: {
-          Button(String(localized: "Try again", bundle: .module)) { reader.retry() }
-        }
-        .background(.background)
+        ReaderFailureView(message: failure, retry: reader.retry)
       } else if reader.effectiveReadingMode == .paged && reader.decodedPage == nil {
         ProgressView(String(localized: "Opening page…", bundle: .module))
       }
