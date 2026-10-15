@@ -32,7 +32,8 @@ xcodebuild -project examples/reader-consumer/ExampleApp/ReaderEmbedding.xcodepro
 
 The app bundle identifier is `dev.chek.reader.embedding`. Use **Files** to open
 a publication; use the **Session** menu to import, replace, close, change the tap
-callback, or toggle swipe navigation. EPUB text controls change scale. The host
+callback, or toggle swipe navigation. EPUB text controls change scale; the CBZ
+reading-mode menu chooses automatic, paged, or continuous layout. The host
 shows session generation, readiness, location, and the callback used by the last
 tap. These are ordinary embedding controls; the app does not run assertions or
 automated checks. No publications are bundled.

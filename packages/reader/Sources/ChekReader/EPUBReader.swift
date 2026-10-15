@@ -417,7 +417,7 @@ public struct EPUBReaderView: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
-    .task(id: reader.loadRequestID) { await reader.load() }
+    .task(id: reader.loadRequestID) { [weak reader] in await reader?.load() }
     .id(ObjectIdentifier(reader))
   }
 }
@@ -509,11 +509,14 @@ private struct ReaderWebContent: View {
         of: {
           ReaderInsets(top: $0.contentInsets.top, bottom: $0.contentInsets.bottom)
         },
-        action: { _, insets in
-          Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
+        action: { [weak reader] _, insets in
+          Task { [weak reader] in
+            await reader?.setInsets(top: insets.top, bottom: insets.bottom)
+          }
         }
       )
-      .task(id: ObjectIdentifier(page)) { [page, weak reader] in
+      .task(id: ObjectIdentifier(page)) { [weak page, weak reader] in
+        guard let page else { return }
         do {
           for try await _ in page.navigations { try Task.checkCancellation() }
         } catch is CancellationError {

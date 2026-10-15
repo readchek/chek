@@ -38,9 +38,10 @@ then retain its `EPUBReader` or `CBZReader` in SwiftUI state. Render the matchin
 `EPUBReaderView` or `CBZReaderView`. The views contain the reading canvas and
 recoverable loading UI; the host supplies its own surrounding navigation.
 
-See the [independent consumer](../examples/reader-consumer/) for a minimal view
-that imports only the package's public product. It deliberately has no library,
-file importer, account, or dependency on the Chek app.
+See the [independent consumer](../examples/reader-consumer/) for a minimal library
+view and a separate runnable embedding app. Both import only the public reader
+product. The example app demonstrates host-owned import, persistence, callbacks,
+and session replacement without depending on the Chek app.
 
 The host must keep an app-owned source file accessible while its publication is
 open. File picking, security-scoped access, imported copies, publication identity,
