@@ -164,8 +164,10 @@ itself prove replacement drift. Review found that estimated page heights could
 clamp a requested anchor before real dimensions arrived, and that bounce offsets
 could enter saved progress. Restoration now retains the requested anchor until
 target dimensions arrive; the patched device build preserved settled page 11 at
-66.5% with identical artwork after replacement. Bounce-anchor clamping also builds,
-but its final physical check is pending because the phone returned to active use.
+66.5% with identical artwork after replacement. The final signed build also passed
+the physical bounce check: an upward drag beyond the bottom kept reported progress
+at 66.5% during overscroll and after settling. Replacement (session 1 → 2) and
+close/reopen (session 2 → 3) preserved page 11, 66.5%, and the same final artwork.
 
 A 31.10-second Animation Hitches recording targeted the physical device and
 recorded no entries in its hitches or potential-hangs tables. It contained 486
@@ -188,7 +190,23 @@ events after explicit loading becomes ready; a failed event sequence previously
 could leave later process failures unobserved. Page identity and weak captures
 remain intact. The signed Release build passes (`/tmp/chek-device-anchor-final-build.log`),
 as do Swift formatting and diff checks. These changes do not claim to resolve the
-unidentified initial device error; its repeat check remains pending.
+unidentified initial device error. The final physical repeat passed: the saved
+fixed page loaded, reverse navigation reached the first reflowable section, and
+separate forward swipes reached the fixed second page and third reflowable section.
+Reverse navigation from the third section also reached the fixed page. Every
+observed destination reported Ready, with no retry required. This does not prove
+the earlier intermittent error cannot recur.
+
+Device Hub initially stopped delivering screen taps despite a live stream and
+working Home command. Direct phone input worked. Quitting Device Hub with
+“Keep Simulators Running”, reopening it, and starting View Screen restored taps;
+no phone restart or simulator shutdown was needed. The user subsequently checked
+fast scrolling directly on the phone and corrected the apparent lag report:
+scrolling on device was fine, while the stream was lagging. Treat this as a
+qualitative direct-device observation, not a measured frame-rate guarantee.
+A read-only EPUB audit found idle-debounced semantic capture, throttled interaction
+messages, and no per-scroll persistence in the demo; no speculative performance
+change was made in response to the streaming symptom.
 
 ## Release checks still open
 
