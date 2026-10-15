@@ -98,6 +98,26 @@ public actor CBZImagePipeline {
     cacheBytes = 0
   }
 
+  /// Inspect one page without decoding a bitmap. Automatic mode samples the
+  /// first content page after the cover; it is a preference heuristic, not format metadata.
+  public func isLongStrip(pageID: String) async throws -> Bool {
+    try await acquire()
+    defer { release() }
+    let data = try await publication.archive.data(at: pageID)
+    try Task.checkCancellation()
+    guard
+      let source = CGImageSourceCreateWithData(
+        data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+      let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+      width.doubleValue > 0, height.doubleValue > 0
+    else { return false }
+    let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+    let ratio = height.doubleValue / width.doubleValue
+    return (5...8).contains(orientation) ? 1 / ratio >= 3 : ratio >= 3
+  }
+
   private func cached(_ key: Key) -> CBZDecodedPage? {
     let existingKey: Key? =
       if cache[key] != nil {

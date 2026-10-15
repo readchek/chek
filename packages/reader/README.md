@@ -16,7 +16,7 @@ EPUB coverage implemented so far:
 | Preferences | Selective root/body text scale with anchor restoration for reflowable content |
 | Offline policy | Scripts and network resources blocked; app bridge runs in an isolated world |
 | CBZ | Single-frame JPEG/PNG, numeric-aware ordering, ComicInfo title/direction hints |
-| Comic canvas | Native zoom and within-image strip scrolling; stable page/position resume |
+| Comic canvas | Native zoom, paged swipes or continuous vertical strips; stable page/position resume |
 | Comic resources | Serialized on-demand decoding, cancellation, 64 MiB decoded cache |
 
 This is incremental coverage, not a claim of EPUB conformance. Synthetic spreads,
@@ -24,8 +24,10 @@ orientation locking, EPUB 3.4 roll, Adobe obfuscation, DRM, media overlays,
 audio/video, inline data resources, annotations, and full EPUB CFI are not supported.
 Fixed-page pinch zoom state is not persisted. Native codec/font rendering and
 accessibility require verification against representative files and devices.
-Comic page zoom magnification is also not persisted, and pages are not stacked
-into a continuous multi-image strip. Other comic codecs and image OCR are not
+Comic page zoom magnification is also not persisted. Automatic mode uses the first
+content image after the cover: an aspect ratio of at least 3 selects continuous
+scrolling. This is a heuristic; callers can explicitly choose either mode.
+Other comic codecs and image OCR are not
 implemented. The cache limit excludes a consumer's retained images and transient
 ImageIO allocations; each decoded comic page is independently limited to 16
 million pixels and source images to 80 million pixels / 32,768 per axis.

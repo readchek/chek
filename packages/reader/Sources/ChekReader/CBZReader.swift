@@ -9,19 +9,24 @@ public final class CBZReader {
   public private(set) var currentPageIndex: Int
   public private(set) var location: CBZLocation
   public private(set) var readingDirection: CBZReadingDirection
+  public private(set) var readingMode: CBZReadingMode
+  public private(set) var effectiveReadingMode: CBZReadingMode = .paged
   public private(set) var isLoading = false
   public var message: String?
   private(set) var decodedPage: CBZDecodedPage?
   private(set) var failureDescription: String?
   private(set) var loadRequestID = UUID()
   private let pipeline: CBZImagePipeline
+  private var automaticMode: CBZReadingMode?
+  private var continuousReady = false
+  private(set) var navigationRequestID = UUID()
   private var renderWidth = 0
   private var viewportWidth = 0
   @ObservationIgnored fileprivate var positionProvider: (() -> (String, Double)?)?
 
   public init(
     publication: CBZPublication, location: CBZLocation? = nil,
-    direction: CBZReadingDirection? = nil
+    direction: CBZReadingDirection? = nil, readingMode: CBZReadingMode = .automatic
   ) {
     self.publication = publication
     let index = location.flatMap { publication.pageIndex(for: $0) } ?? 0
@@ -30,10 +35,15 @@ public final class CBZReader {
       location.flatMap { publication.pageIndex(for: $0) != nil ? $0 : nil }
       ?? CBZLocation(pageID: publication.pages[index].id)
     readingDirection = direction ?? publication.readingDirection
+    self.readingMode = readingMode
+    effectiveReadingMode = readingMode == .continuous ? .continuous : .paged
     pipeline = CBZImagePipeline(publication: publication)
   }
 
   public var currentPage: CBZPage { publication.pages[currentPageIndex] }
+  public var isReadyForInteraction: Bool {
+    effectiveReadingMode == .continuous ? continuousReady : decodedPage != nil
+  }
 
   public var hasMessage: Bool {
     get { message != nil }
@@ -43,11 +53,13 @@ public final class CBZReader {
   public func openPage(at index: Int) {
     guard publication.pages.indices.contains(index), index != currentPageIndex else { return }
     currentPageIndex = index
+    continuousReady = false
     location = CBZLocation(pageID: publication.pages[index].id)
     decodedPage = nil
     failureDescription = nil
     renderWidth = viewportWidth
     loadRequestID = UUID()
+    navigationRequestID = UUID()
   }
 
   /// Delta follows publication order. The app can place its buttons according to
@@ -59,6 +71,18 @@ public final class CBZReader {
 
   public func setReadingDirection(_ direction: CBZReadingDirection) {
     readingDirection = direction
+  }
+
+  public func setReadingMode(_ mode: CBZReadingMode) {
+    guard mode != readingMode else { return }
+    captureLocation()
+    readingMode = mode
+    effectiveReadingMode = mode == .automatic ? automaticMode ?? .paged : mode
+    decodedPage = nil
+    continuousReady = false
+    failureDescription = nil
+    navigationRequestID = UUID()
+    loadRequestID = UUID()
   }
 
   @discardableResult public func captureLocation() -> CBZLocation {
@@ -84,9 +108,15 @@ public final class CBZReader {
   }
 
   fileprivate func recordPosition(pageID: String, progression: Double, force: Bool = false) {
-    guard pageID == currentPage.id, progression.isFinite else { return }
+    guard progression.isFinite else { return }
+    if pageID != currentPage.id {
+      guard effectiveReadingMode == .continuous,
+        let index = publication.pages.firstIndex(where: { $0.id == pageID })
+      else { return }
+      currentPageIndex = index
+    }
     let fraction = min(1, max(0, progression))
-    if force || abs(location.progression - fraction) >= 0.0005 {
+    if force || location.pageID != pageID || abs(location.progression - fraction) >= 0.0005 {
       location = CBZLocation(pageID: pageID, progression: fraction)
     }
   }
@@ -98,6 +128,15 @@ public final class CBZReader {
     isLoading = true
     defer { if generation == loadRequestID { isLoading = false } }
     do {
+      if readingMode == .automatic, automaticMode == nil {
+        let sample = publication.pages[min(1, publication.pages.count - 1)].id
+        let longStrip = try await pipeline.isLongStrip(pageID: sample)
+        try Task.checkCancellation()
+        guard generation == loadRequestID else { return }
+        automaticMode = longStrip ? .continuous : .paged
+        effectiveReadingMode = automaticMode ?? .paged
+      }
+      guard effectiveReadingMode == .paged else { return }
       let page = try await pipeline.image(for: pageID, targetWidth: renderWidth)
       try Task.checkCancellation()
       guard generation == loadRequestID, currentPage.id == pageID else { return }
@@ -116,16 +155,38 @@ public final class CBZReader {
   }
 
   fileprivate func clearCache() async { await pipeline.removeAll() }
+
+  fileprivate func image(pageID: String, width: Int) async throws -> CBZDecodedPage {
+    try await pipeline.image(for: pageID, targetWidth: width)
+  }
+
+  fileprivate func setContinuousReady(_ ready: Bool) {
+    guard continuousReady != ready else { return }
+    continuousReady = ready
+  }
 }
 
 public struct CBZReaderView: View {
   private let reader: CBZReader
+  private let onTap: () -> Void
+  private let onInteraction: () -> Void
 
-  public init(reader: CBZReader) { self.reader = reader }
+  public init(
+    reader: CBZReader, onTap: @escaping () -> Void = {},
+    onInteraction: @escaping () -> Void = {}
+  ) {
+    self.reader = reader
+    self.onTap = onTap
+    self.onInteraction = onInteraction
+  }
 
   public var body: some View {
     ZStack {
-      ComicCanvas(reader: reader)
+      if reader.effectiveReadingMode == .continuous {
+        ComicRollCanvas(reader: reader, onTap: onTap, onInteraction: onInteraction)
+      } else {
+        ComicCanvas(reader: reader, onTap: onTap, onInteraction: onInteraction)
+      }
       if let failure = reader.failureDescription {
         ContentUnavailableView {
           Label(
@@ -137,7 +198,7 @@ public struct CBZReaderView: View {
           Button(String(localized: "Try again", bundle: .module)) { reader.retry() }
         }
         .background(.background)
-      } else if reader.decodedPage == nil {
+      } else if reader.effectiveReadingMode == .paged && reader.decodedPage == nil {
         ProgressView(String(localized: "Opening page…", bundle: .module))
       }
     }
@@ -152,11 +213,20 @@ public struct CBZReaderView: View {
 
 private struct ComicCanvas: UIViewRepresentable {
   let reader: CBZReader
+  let onTap: () -> Void
+  let onInteraction: () -> Void
 
   func makeUIView(context: Context) -> ComicScrollView { ComicScrollView() }
 
   func updateUIView(_ view: ComicScrollView, context: Context) {
     let pageID = reader.currentPage.id
+    view.onTap = onTap
+    view.onInteraction = onInteraction
+    view.onSwipe = { [weak reader] left in
+      guard let reader else { return }
+      let forward = left == (reader.readingDirection == .leftToRight)
+      reader.movePage(by: forward ? 1 : -1)
+    }
     view.onPosition = { [weak reader] pageID, fraction in
       reader?.recordPosition(pageID: pageID, progression: fraction)
     }
@@ -181,13 +251,18 @@ private struct ComicCanvas: UIViewRepresentable {
     view.delegate = nil
     view.onPosition = nil
     view.onWidth = nil
+    view.onTap = nil
+    view.onInteraction = nil
+    view.onSwipe = nil
     view.releaseImage()
   }
 }
 
 /// UIKit supplies native pinch zoom, pan, deceleration and accessible scrolling.
 /// Only the current image is retained here; pages are never stacked or predecoded.
-@MainActor private final class ComicScrollView: UIScrollView, UIScrollViewDelegate {
+@MainActor
+private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate
+{
   private let pageView = UIImageView()
   private var decoded: CBZDecodedPage?
   private var previousSize = CGSize.zero
@@ -196,6 +271,9 @@ private struct ComicCanvas: UIViewRepresentable {
   private(set) var pageID: String?
   var onPosition: ((String, Double) -> Void)?
   var onWidth: ((Int, CGFloat) -> Void)?
+  var onTap: (() -> Void)?
+  var onInteraction: (() -> Void)?
+  var onSwipe: ((Bool) -> Void)?
 
   var hasImage: Bool { decoded != nil }
   var progression: Double {
@@ -215,6 +293,38 @@ private struct ComicCanvas: UIViewRepresentable {
     pageView.contentMode = .scaleAspectFit
     pageView.isAccessibilityElement = true
     addSubview(pageView)
+    let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+    tap.cancelsTouchesInView = false
+    addGestureRecognizer(tap)
+    for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
+      let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swiped(_:)))
+      swipe.direction = direction
+      swipe.delegate = self
+      addGestureRecognizer(swipe)
+    }
+  }
+
+  @objc private func tapped() { onTap?() }
+
+  @objc private func swiped(_ gesture: UISwipeGestureRecognizer) {
+    guard zoomScale <= 1.01 else { return }
+    onInteraction?()
+    onSwipe?(gesture.direction == .left)
+  }
+
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    if gestureRecognizer is UISwipeGestureRecognizer { return zoomScale <= 1.01 }
+    return super.gestureRecognizerShouldBegin(gestureRecognizer)
+  }
+
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool { gestureRecognizer is UISwipeGestureRecognizer }
+
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { onInteraction?() }
+  func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+    onInteraction?()
   }
 
   required init?(coder: NSCoder) { nil }
@@ -331,5 +441,390 @@ private struct ComicCanvas: UIViewRepresentable {
     guard !updating, hasImage, let pageID else { return }
     pendingProgression = progression
     onPosition?(pageID, progression)
+  }
+}
+
+private struct ComicRollCanvas: UIViewRepresentable {
+  let reader: CBZReader
+  let onTap: () -> Void
+  let onInteraction: () -> Void
+
+  func makeUIView(context: Context) -> ComicRollView { ComicRollView() }
+
+  func updateUIView(_ view: ComicRollView, context: Context) {
+    view.onTap = onTap
+    view.onInteraction = onInteraction
+    view.configure(reader)
+    reader.positionProvider = { [weak view] in view?.readingPosition }
+  }
+
+  static func dismantleUIView(_ view: ComicRollView, coordinator: ()) { view.stop() }
+}
+
+/// One native scroll surface spans the publication. Unknown page heights are
+/// estimates until that page comes near the viewport; replacing an estimate
+/// preserves the currently visible page and its within-page position. Only five
+/// nearby page views/requests can exist, independent of the archive's page count.
+@MainActor private final class ComicRollView: UIScrollView, UIScrollViewDelegate {
+  private struct Anchor {
+    let index: Int
+    let fraction: CGFloat
+  }
+
+  private let canvas = UIView()
+  private weak var reader: CBZReader?
+  private var pages: [CBZPage] = []
+  private var ratios: [Int: CGFloat] = [:]
+  private var starts: [CGFloat] = []
+  private var cells: [Int: ComicRollPage] = [:]
+  private var requests: [Int: (id: UUID, task: Task<Void, Never>)] = [:]
+  private var navigationID: UUID?
+  private var previousSize = CGSize.zero
+  private var updating = false
+  private var pendingAnchor: Anchor?
+  private var lastAnchor: Anchor?
+  private var lastPublished = 0.0
+  var onTap: (() -> Void)?
+  var onInteraction: (() -> Void)?
+
+  var readingPosition: (String, Double)? {
+    guard let anchor = anchor(), pages.indices.contains(anchor.index) else { return nil }
+    return (pages[anchor.index].id, Double(anchor.fraction))
+  }
+
+  init() {
+    super.init(frame: .zero)
+    delegate = self
+    minimumZoomScale = 1
+    maximumZoomScale = 4
+    contentInsetAdjustmentBehavior = .never
+    showsHorizontalScrollIndicator = false
+    backgroundColor = .systemBackground
+    addSubview(canvas)
+    let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+    tap.cancelsTouchesInView = false
+    addGestureRecognizer(tap)
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  func configure(_ reader: CBZReader) {
+    if self.reader == nil {
+      self.reader = reader
+      pages = reader.publication.pages
+    }
+    guard navigationID != reader.navigationRequestID else { return }
+    navigationID = reader.navigationRequestID
+    pendingAnchor = Anchor(
+      index: reader.currentPageIndex, fraction: CGFloat(reader.location.progression))
+    setNeedsLayout()
+  }
+
+  func stop() {
+    for request in requests.values { request.task.cancel() }
+    requests.removeAll()
+    cells.removeAll()
+    for view in canvas.subviews { view.removeFromSuperview() }
+    delegate = nil
+    onTap = nil
+    onInteraction = nil
+  }
+
+  @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+    // A failed page's native retry button owns its touch.
+    if let hit = canvas.hitTest(gesture.location(in: canvas), with: nil), hit is UIControl {
+      return
+    }
+    onTap?()
+  }
+
+  override func layoutSubviews() {
+    guard !updating else {
+      super.layoutSubviews()
+      return
+    }
+    let sizeChanged = bounds.size != previousSize
+    let preserved = pendingAnchor ?? (sizeChanged ? lastAnchor : nil) ?? anchor()
+    updating = true
+    super.layoutSubviews()
+    updating = false
+    guard bounds.width > 0, bounds.height > 0, !pages.isEmpty else { return }
+    if sizeChanged || pendingAnchor != nil || starts.isEmpty {
+      previousSize = bounds.size
+      pendingAnchor = nil
+      rebuild(preserving: preserved)
+    }
+    updateVisiblePages()
+  }
+
+  private func anchor() -> Anchor? {
+    guard !starts.isEmpty, !pages.isEmpty else { return pendingAnchor }
+    let y = max(0, (contentOffset.y + contentInset.top) / max(1, zoomScale))
+    var lower = 0
+    var upper = pages.count
+    while lower < upper {
+      let middle = (lower + upper) / 2
+      if starts[middle + 1] <= y { lower = middle + 1 } else { upper = middle }
+    }
+    let index = min(pages.count - 1, lower)
+    let height = starts[index + 1] - starts[index]
+    return Anchor(index: index, fraction: min(1, max(0, (y - starts[index]) / max(1, height))))
+  }
+
+  private func rebuild(preserving anchor: Anchor?, restorePosition: Bool = true) {
+    guard !updating, bounds.width > 0 else { return }
+    updating = true
+    defer { updating = false }
+    let zoom = zoomScale
+    let xFraction = contentSize.width > 0 ? contentOffset.x / contentSize.width : 0
+    starts = [0]
+    starts.reserveCapacity(pages.count + 1)
+    for index in pages.indices {
+      starts.append(starts[index] + bounds.width * (ratios[index] ?? 3.5))
+    }
+    // Keep UIKit's zoom transform and active pan/deceleration intact while
+    // neighboring dimensions are learned. Only layout the base-sized canvas.
+    canvas.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: starts.last ?? 0)
+    canvas.center = CGPoint(x: canvas.bounds.width * zoom / 2, y: canvas.bounds.height * zoom / 2)
+    for (index, cell) in cells { cell.frame = pageFrame(index) }
+    contentSize = CGSize(width: canvas.bounds.width * zoom, height: canvas.bounds.height * zoom)
+    centerCanvas()
+    if restorePosition, let anchor, pages.indices.contains(anchor.index) {
+      let y =
+        (starts[anchor.index] + (starts[anchor.index + 1] - starts[anchor.index]) * anchor.fraction)
+        * zoom
+      contentOffset = CGPoint(
+        x: min(max(0, xFraction * contentSize.width), max(0, contentSize.width - bounds.width)),
+        y: min(
+          max(-contentInset.top, y - contentInset.top),
+          max(-contentInset.top, contentSize.height - bounds.height + contentInset.bottom)))
+      lastAnchor = anchor
+    }
+  }
+
+  private func pageFrame(_ index: Int) -> CGRect {
+    CGRect(x: 0, y: starts[index], width: bounds.width, height: starts[index + 1] - starts[index])
+  }
+
+  private func centerCanvas() {
+    contentInset = UIEdgeInsets(
+      top: max(0, (bounds.height - contentSize.height) / 2),
+      left: max(0, (bounds.width - contentSize.width) / 2),
+      bottom: max(0, (bounds.height - contentSize.height) / 2),
+      right: max(0, (bounds.width - contentSize.width) / 2))
+  }
+
+  private func updateVisiblePages() {
+    guard !updating, !isZooming, let anchor = anchor(), let reader else { return }
+    // Prioritize the visible page, then its immediate neighbors. A fixed window
+    // also bounds consumer-held bitmaps outside the pipeline's own byte cache.
+    let lower = max(0, anchor.index - 1)
+    let upper = min(pages.count - 1, anchor.index + 3)
+    let desired = Set(lower...upper)
+    for index in Array(cells.keys) where !desired.contains(index) {
+      cells.removeValue(forKey: index)?.removeFromSuperview()
+    }
+    for index in Array(requests.keys) where !desired.contains(index) {
+      requests.removeValue(forKey: index)?.task.cancel()
+    }
+    let width = min(4096, Int(ceil(bounds.width * traitCollection.displayScale * zoomScale)))
+    guard width > 0 else { return }
+    let priority =
+      [anchor.index]
+      + desired.filter { $0 != anchor.index }.sorted {
+        abs($0 - anchor.index) < abs($1 - anchor.index)
+      }
+    for index in priority {
+      let cell: ComicRollPage
+      if let existing = cells[index] {
+        cell = existing
+      } else {
+        cell = ComicRollPage()
+        cell.frame = pageFrame(index)
+        cell.imageView.accessibilityLabel = String(
+          localized: "Comic page \(index + 1) of \(pages.count)", bundle: .module,
+          comment: "Accessible image label: current comic page number followed by total page count."
+        )
+        cells[index] = cell
+        canvas.addSubview(cell)
+      }
+      guard requests[index] == nil, !cell.failed,
+        !cell.budgetDeferred || index == anchor.index,
+        cell.renderWidth < width && !cell.fullResolution
+      else { continue }
+      let id = UUID()
+      let pageID = pages[index].id
+      let request = Task { [weak self, weak reader, weak cell] in
+        guard let reader else { return }
+        do {
+          let decoded = try await reader.image(pageID: pageID, width: width)
+          try Task.checkCancellation()
+          guard let self, self.requests[index]?.id == id, let cell else { return }
+          let preserved = self.anchor()
+          self.requests[index] = nil
+          // Consumer-held images have their own byte bound. Cache eviction alone
+          // cannot release a UIImage still displayed by a page view.
+          let cost = decoded.image.bytesPerRow * decoded.image.height
+          if index != preserved?.index,
+            let visible = preserved.flatMap({ self.cells[$0.index] }),
+            visible.imageBytes > CBZImagePipeline.maximumCacheBytes - cost
+          {
+            cell.budgetDeferred = true
+            return
+          }
+          let others = self.cells.keys.filter { $0 != index }.sorted {
+            abs($0 - (preserved?.index ?? index)) > abs($1 - (preserved?.index ?? index))
+          }
+          var held = self.cells.values.reduce(0) { $0 + $1.imageBytes } - cell.imageBytes
+          for other in others where held > CBZImagePipeline.maximumCacheBytes - cost {
+            guard let obsolete = self.cells[other] else { continue }
+            held -= obsolete.imageBytes
+            obsolete.releaseImage()
+          }
+          cell.show(decoded, requestedWidth: width)
+          if index == preserved?.index { reader.setContinuousReady(true) }
+          let ratio = CGFloat(decoded.sourceHeight) / CGFloat(decoded.sourceWidth)
+          if self.ratios[index] != ratio {
+            self.ratios[index] = ratio
+            self.rebuild(
+              preserving: preserved, restorePosition: index <= (preserved?.index ?? index))
+          }
+          self.setNeedsLayout()
+        } catch is CancellationError {
+        } catch {
+          guard let self, self.requests[index]?.id == id, let cell else { return }
+          self.requests[index] = nil
+          if cell.imageView.image == nil {
+            cell.showFailure(error.localizedDescription) { [weak self, weak cell] in
+              cell?.failed = false
+              self?.setNeedsLayout()
+            }
+          } else {
+            // A zoom request can exceed the budget while its base image remains usable.
+            cell.fullResolution = true
+            reader.message = error.localizedDescription
+          }
+        }
+      }
+      requests[index] = (id, request)
+    }
+    let ready = cells[anchor.index]?.imageView.image != nil
+    guard ready != reader.isReadyForInteraction else { return }
+    let generation = reader.navigationRequestID
+    Task { @MainActor [weak reader] in
+      guard reader?.navigationRequestID == generation else { return }
+      reader?.setContinuousReady(ready)
+    }
+  }
+
+  func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
+
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { onInteraction?() }
+
+  func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+    onInteraction?()
+  }
+
+  func scrollViewDidZoom(_ scrollView: UIScrollView) {
+    guard !updating else { return }
+    centerCanvas()
+    publishPosition()
+  }
+
+  func scrollViewDidEndZooming(
+    _ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat
+  ) {
+    updateVisiblePages()
+    publishPosition(force: true)
+  }
+
+  func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    guard !updating else { return }
+    updateVisiblePages()
+    publishPosition()
+  }
+
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    if !decelerate { publishPosition(force: true) }
+  }
+
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { publishPosition(force: true) }
+
+  private func publishPosition(force: Bool = false) {
+    guard !updating, let (pageID, fraction) = readingPosition else { return }
+    lastAnchor = anchor()
+    let now = ProcessInfo.processInfo.systemUptime
+    guard force || now - lastPublished >= 0.2 else { return }
+    lastPublished = now
+    let generation = reader?.navigationRequestID
+    Task { @MainActor [weak reader] in
+      guard reader?.navigationRequestID == generation else { return }
+      reader?.recordPosition(pageID: pageID, progression: fraction, force: force)
+    }
+  }
+}
+
+@MainActor private final class ComicRollPage: UIView {
+  let imageView = UIImageView()
+  private let spinner = UIActivityIndicatorView(style: .medium)
+  private let retryButton = UIButton(type: .system)
+  var renderWidth = 0
+  var fullResolution = false
+  var failed = false
+  var budgetDeferred = false
+  var imageBytes: Int {
+    guard let image = imageView.image?.cgImage else { return 0 }
+    return image.bytesPerRow * image.height
+  }
+
+  init() {
+    super.init(frame: .zero)
+    imageView.contentMode = .scaleToFill
+    imageView.isAccessibilityElement = true
+    addSubview(imageView)
+    spinner.startAnimating()
+    addSubview(spinner)
+    retryButton.titleLabel?.numberOfLines = 0
+    retryButton.isHidden = true
+    addSubview(retryButton)
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    imageView.frame = bounds
+    spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    retryButton.frame = CGRect(
+      x: 16, y: max(16, bounds.midY - 80), width: max(0, bounds.width - 32), height: 160)
+  }
+
+  func show(_ page: CBZDecodedPage, requestedWidth: Int) {
+    imageView.image = UIImage(cgImage: page.image)
+    renderWidth = requestedWidth
+    fullResolution = page.image.width >= page.sourceWidth
+    failed = false
+    budgetDeferred = false
+    spinner.stopAnimating()
+    retryButton.isHidden = true
+  }
+
+  func releaseImage() {
+    imageView.image = nil
+    renderWidth = 0
+    fullResolution = false
+    budgetDeferred = true
+    spinner.startAnimating()
+  }
+
+  func showFailure(_ message: String, retry: @escaping () -> Void) {
+    failed = true
+    spinner.stopAnimating()
+    retryButton.setTitle(
+      message + "\n" + String(localized: "Try again", bundle: .module), for: .normal)
+    let actionID = UIAction.Identifier("retry-page")
+    retryButton.removeAction(identifiedBy: actionID, for: .touchUpInside)
+    retryButton.addAction(UIAction(identifier: actionID) { _ in retry() }, for: .touchUpInside)
+    retryButton.isHidden = false
   }
 }

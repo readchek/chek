@@ -5,6 +5,12 @@ public enum CBZReadingDirection: String, Codable, Sendable {
   case rightToLeft
 }
 
+public enum CBZReadingMode: String, Codable, Sendable {
+  case automatic
+  case paged
+  case continuous
+}
+
 public struct CBZPage: Identifiable, Hashable, Sendable {
   /// The literal, validated archive entry path is stable across opens.
   public let id: String
