@@ -105,14 +105,18 @@ private struct SessionCanvas: View {
         onTap: {
           session.tapCount += 1
           session.lastCallbackVersion = callbackVersion
-        })
+        }
+      )
+      .modifier(ProgressAutosave(session: session, reader: .epub(reader)))
     case .cbz(let reader):
       CBZReaderView(
         reader: reader,
         onTap: {
           session.tapCount += 1
           session.lastCallbackVersion = callbackVersion
-        })
+        }
+      )
+      .modifier(ProgressAutosave(session: session, reader: .cbz(reader)))
     case nil:
       GeometryReader { geometry in
         ScrollView {
@@ -123,6 +127,20 @@ private struct SessionCanvas: View {
           .frame(minHeight: geometry.size.height)
         }
       }
+    }
+  }
+}
+
+private struct ProgressAutosave: ViewModifier {
+  let session: EmbeddingSession
+  let reader: EmbeddingSession.Reader
+
+  func body(content: Content) -> some View {
+    switch reader {
+    case .epub(let reader):
+      content.onChange(of: reader.location) { session.scheduleAutosave() }
+    case .cbz(let reader):
+      content.onChange(of: reader.location) { session.scheduleAutosave() }
     }
   }
 }

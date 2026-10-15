@@ -288,6 +288,30 @@ publication, control, or accessibility configuration.
 
 ### Remaining qualification
 
+The standalone host now observes captured locations and coalesces persistence to
+one write per second, without extra DOM captures. Open/replace/close cancels
+pending writes; reader identity guards prevent old sessions from overwriting new
+ones, including an EPUB background capture that finishes after replacement.
+On the signed Release iPhone build, the PNG comic advanced from page 5 to page 6
+and was killed with SIGKILL while foregrounded, after autosave had time to settle.
+Relaunch and reopen restored page 6 with the same artwork. A separate foreground
+SIGKILL after navigating Moby-Dick to chapter 2 and scrolling restored the same
+near-end passage. Neither check used a normal close or background save before
+termination. This proves those settled autosaves survived process death; it does
+not guarantee recovery of movement immediately before death or device power loss.
+Build evidence: `/tmp/chek-autosave-build.log` and
+`/tmp/chek-autosave-device-build.log`.
+
+Additional physical samples passed focused checks: the unchanged W3C unclosed
+XHTML fixture displayed its explicit XML failure and retained usable file controls
+after repeated retries; switching to the obfuscated-font fixture rendered its font
+matching the embedded reference. The nine-page PNG comic rendered pages 1–6,
+accepted rapid forward/reverse page changes, and reopened at page 5 after closing
+following navigation. These UI exercises do not prove cancellation at every
+internal decode suspension point. Sending a device memory warning failed with
+NSPOSIXErrorDomain code 2 (No such file or directory), so no physical memory-warning
+pass is claimed; earlier simulator memory-warning evidence remains separate.
+
 Physical-device setup: the standalone Release demo was signed with the personal
 individual team `KZX5HZ32P9`, installed on iPhone 17 / iOS 27.0.1, and visibly
 rendered in Device Hub. Moby-Dick, birds-eye, and the mixed-layout sample were
@@ -301,8 +325,9 @@ consumer remains `dev.chek.reader.embedding`.
   to streaming; direct-device scrolling was qualitatively satisfactory.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
-- Abrupt-termination lifecycle checks; maximum Dynamic Type was
-  checked for the shared failure surface and consumer controls, not every UI path.
+- Broader termination timing and device memory-pressure checks; settled foreground
+  autosave recovery passed for EPUB and CBZ. Maximum Dynamic Type was checked for
+  the shared failure surface and consumer controls, not every UI path.
 - The v1 format-support contract is now explicit in the embedding guide and package
   README. EPUB roll, spreads, DRM and new codecs remain outside current coverage.
 

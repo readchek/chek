@@ -29,6 +29,7 @@ final class EmbeddingSession {
     }
   }
   @ObservationIgnored private var operation: Task<Void, Never>?
+  @ObservationIgnored private var autosave: Task<Void, Never>?
   @ObservationIgnored private var request = UUID()
   @ObservationIgnored private var currentURL: URL?
 
@@ -85,6 +86,7 @@ final class EmbeddingSession {
   }
 
   func close() {
+    cancelAutosave()
     operation?.cancel()
     let token = UUID()
     request = token
@@ -103,7 +105,33 @@ final class EmbeddingSession {
 
   func save() async { await save(reader, url: currentURL) }
 
+  /// Coalesce progress updates without asking the canvas to capture again.
+  /// A fixed interval also saves during a continuous comic scroll.
+  func scheduleAutosave() {
+    guard autosave == nil, let reader, let url = currentURL else { return }
+    autosave = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(1))
+      } catch { return }
+      guard !Task.isCancelled, let self else { return }
+      autosave = nil
+      switch (reader, self.reader) {
+      case (.epub(let previous), .epub(let current)) where previous === current:
+        persist(previous.location, url: url)
+      case (.cbz(let previous), .cbz(let current)) where previous === current:
+        persist(previous.location, url: url)
+      default: break
+      }
+    }
+  }
+
+  private func cancelAutosave() {
+    autosave?.cancel()
+    autosave = nil
+  }
+
   private func begin(_ open: @escaping @MainActor () async throws -> (Reader, URL)) {
+    cancelAutosave()
     operation?.cancel()
     let token = UUID()
     request = token
@@ -155,13 +183,21 @@ final class EmbeddingSession {
 
   private func save(_ reader: Reader?, url: URL?) async {
     guard let url else { return }
-    let encoded: Data?
     switch reader {
     case .epub(let reader):
-      encoded = await reader.captureLocation().flatMap { try? JSONEncoder().encode($0) }
-    case .cbz(let reader): encoded = try? JSONEncoder().encode(reader.captureLocation())
+      let location = await reader.captureLocation()
+      // Background capture can finish after a replacement has been mounted.
+      guard case .epub(let current) = self.reader, current === reader, currentURL == url else {
+        return
+      }
+      persist(location, url: url)
+    case .cbz(let reader): persist(reader.captureLocation(), url: url)
     case nil: return
     }
+  }
+
+  private func persist<Location: Encodable>(_ location: Location?, url: URL) {
+    let encoded = location.flatMap { try? JSONEncoder().encode($0) }
     if let encoded { UserDefaults.standard.set(encoded, forKey: url.lastPathComponent) }
   }
 

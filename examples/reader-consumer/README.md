@@ -20,7 +20,9 @@ and persistence contract, supported deployment target, and distribution status.
 
 `ExampleApp` is a separate runnable host using only the public reader product.
 It imports app-owned copies, opens EPUB/CBZ files from Documents, and saves
-locations on replacement, close, and background. It deliberately keeps the same
+locations during reading (coalesced to once per second), on replacement, close,
+and background. Autosave uses the reader’s captured location without requesting
+another DOM capture. It deliberately keeps the same
 canvas view mounted when replacing a reader session of the same format.
 
 ```sh
