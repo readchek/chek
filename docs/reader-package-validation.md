@@ -277,12 +277,14 @@ Accessibility review found missing package-level navigation equivalents. Paged
 CBZ now handles accessibility page-scroll requests and announces the decoded
 destination; EPUB exposes logical Previous chapter and Next chapter custom
 actions while preserving WebKit child elements. Both honor navigation opt-out and
-boundaries. The independent consumer and signed device build pass; physical
-VoiceOver speech, focus and action discovery are being checked separately.
+boundaries. The independent consumer and signed device build pass.
 The user verified on the physical iPhone that birds-eye's paged image announces
 the expected comic page label, and that three-finger left/right gestures advance
-and return with the correct page announcements. EPUB paragraph reading and custom
-chapter-action discovery remain pending the separate physical check.
+and return with the correct page announcements. In the separate Moby-Dick check,
+the user also confirmed individual paragraph reading and discovery/activation of
+both Next chapter and Previous chapter actions, with readable text after navigation.
+These focused physical VoiceOver checks passed; they are not an audit of every
+publication, control, or accessibility configuration.
 
 ### Remaining qualification
 
@@ -299,7 +301,7 @@ consumer remains `dev.chek.reader.embedding`.
   to streaming; direct-device scrolling was qualitatively satisfactory.
 - Rapid cancellation/retry exercises beyond the verified reader replacements.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
-- EPUB VoiceOver text/actions and abrupt-termination lifecycle checks; maximum Dynamic Type was
+- Abrupt-termination lifecycle checks; maximum Dynamic Type was
   checked for the shared failure surface and consumer controls, not every UI path.
 - The v1 format-support contract is now explicit in the embedding guide and package
   README. EPUB roll, spreads, DRM and new codecs remain outside current coverage.
