@@ -41,10 +41,6 @@ actor ArchiveStore {
     guard visited == count else {
       throw ReaderError.invalid("The ZIP directory is incomplete or uses unsupported encryption.")
     }
-    guard entries["META-INF/encryption.xml"] == nil else {
-      throw ReaderError.unsupported(
-        "Encrypted EPUB resources and obfuscated fonts are not supported yet.")
-    }
     self.archive = archive
     self.entries = entries
   }
@@ -69,6 +65,8 @@ actor ArchiveStore {
   }
 
   func contains(_ path: String) -> Bool { entries[path] != nil }
+
+  func paths() -> [String] { entries.keys.sorted() }
 
   static func checkImage(_ data: Data, mediaType: String) throws {
     // A manifest MIME label is untrusted: sniff raster data regardless of its label.
@@ -124,7 +122,7 @@ private enum ZIPEnvelope {
     defer { try? handle.close() }
     let size = try handle.seekToEnd()
     guard size >= 22, size <= ArchiveStore.maximumFileBytes else {
-      throw ReaderError.limit("The EPUB must be at most 512 MB.")
+      throw ReaderError.limit("The archive must be at most 512 MB.")
     }
     let tailSize = min(Int(size), 65_557)
     try handle.seek(toOffset: size - UInt64(tailSize))
@@ -148,7 +146,7 @@ private enum ZIPEnvelope {
       length <= 4 * 1024 * 1024, offset + UInt64(length) == size - UInt64(tailSize) + UInt64(end)
     else {
       throw ReaderError.unsupported(
-        "Split, ZIP64, oversized, or malformed EPUB archives are not supported.")
+        "Split, ZIP64, oversized, or malformed archives are not supported.")
     }
     try handle.seek(toOffset: offset)
     let directory = try handle.read(upToCount: length) ?? Data()

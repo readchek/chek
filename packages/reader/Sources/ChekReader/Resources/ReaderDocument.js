@@ -10,6 +10,7 @@
   let baseline = null;
   let scale = 1;
   let operation = 0;
+  let fixedLayout = false;
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const resourceHref = () => window.location.pathname.slice(1);
@@ -22,12 +23,13 @@
       const meta = document.createElementNS('http://www.w3.org/1999/xhtml', 'meta');
       meta.setAttribute('name', 'viewport');
       meta.setAttribute('content', 'width=device-width, initial-scale=1');
+      meta.setAttribute('data-chek-reader-viewport', '');
       document.head.appendChild(meta);
     }
     if (!document.querySelector('style[data-chek-reader-insets]')) {
       const style = document.createElementNS('http://www.w3.org/1999/xhtml', 'style');
       style.setAttribute('data-chek-reader-insets', '');
-      style.textContent = 'html { padding-inline: 1rem; padding-block-end: max(1rem, var(--chek-bottom-inset, 0px)); box-sizing: border-box; }';
+      style.textContent = 'html[data-chek-reader-reflow] { padding-inline: 1rem; padding-block-end: max(1rem, var(--chek-bottom-inset, 0px)); box-sizing: border-box; -webkit-text-size-adjust: 100%; }';
       document.head.appendChild(style);
     }
     return true;
@@ -71,23 +73,34 @@
   }
 
   function capture() {
-    if (!document.body) return null;
-    const point = textAtTop();
-    const span = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+    if (!document.body && !fixedLayout) return null;
+    const point = fixedLayout ? null : textAtTop();
+    const span = fixedLayout ? 0 : Math.max(0, document.documentElement.scrollHeight - innerHeight);
     const location = {
       version: 1, resourceHref: resourceHref(), nodePath: [], textOffset: 0,
       quote: '', prefix: '', suffix: '', progression: span > 0 ? Math.max(0, Math.min(1, scrollY / span)) : 0
     };
     if (point) {
       const text = point.node.data;
-      const offset = Math.min(point.offset, Math.max(0, text.length - 1));
+      let offset = Math.min(point.offset, Math.max(0, text.length - 1));
+      if (isLowSurrogate(text.charCodeAt(offset)) && isHighSurrogate(text.charCodeAt(offset - 1))) offset--;
       location.nodePath = pathTo(point.node);
       location.textOffset = offset;
-      location.quote = text.slice(offset, offset + 64);
-      location.prefix = text.slice(Math.max(0, offset - 32), offset);
-      location.suffix = text.slice(offset + 64, offset + 96);
+      location.quote = scalarSlice(text, offset, offset + 64);
+      location.prefix = scalarSlice(text, Math.max(0, offset - 32), offset);
+      const suffixStart = offset + location.quote.length;
+      location.suffix = scalarSlice(text, suffixStart, suffixStart + 32);
     }
     return location;
+  }
+
+  function isHighSurrogate(value) { return value >= 0xD800 && value <= 0xDBFF; }
+  function isLowSurrogate(value) { return value >= 0xDC00 && value <= 0xDFFF; }
+  function scalarSlice(text, start, end) {
+    end = Math.min(end, text.length);
+    if (isLowSurrogate(text.charCodeAt(start)) && isHighSurrogate(text.charCodeAt(start - 1))) start++;
+    if (isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end))) end--;
+    return text.slice(start, end);
   }
 
   function publish() {
@@ -128,7 +141,7 @@
   }
 
   function scrollToAnchor(anchor) {
-    if (!anchor || anchor.resourceHref !== resourceHref()) return;
+    if (!anchor || fixedLayout || anchor.resourceHref !== resourceHref()) return;
     const point = resolve(anchor);
     if (point) {
       const range = document.createRange();
@@ -142,7 +155,7 @@
 
   async function settled() {
     if (document.fonts) await Promise.race([document.fonts.ready, delay(2500)]);
-    const pending = Array.from(document.images).filter(image => !image.complete).slice(0, 2000);
+    const pending = Array.from(document.images ?? []).filter(image => !image.complete).slice(0, 2000);
     await Promise.race([Promise.all(pending.map(image => new Promise(resolve => {
       image.addEventListener('load', resolve, {once: true});
       image.addEventListener('error', resolve, {once: true});
@@ -171,21 +184,24 @@
   }
 
   function setInsets(top, bottom) {
-    topInset = Math.max(0, Math.min(300, top));
-    bottomInset = Math.max(0, Math.min(300, bottom));
+    topInset = fixedLayout ? 0 : Math.max(0, Math.min(300, top));
+    bottomInset = fixedLayout ? 0 : Math.max(0, Math.min(300, bottom));
     document.documentElement.style.setProperty('--chek-bottom-inset', `${bottomInset}px`);
   }
 
   world.chekReader = {
-    async activate(nextToken, anchor, nextScale, top, bottom) {
+    async activate(nextToken, anchor, nextScale, top, bottom, isFixedLayout) {
       const generation = ++operation;
       restoring = true;
       token = nextToken;
+      fixedLayout = isFixedLayout;
+      document.documentElement.toggleAttribute('data-chek-reader-reflow', !fixedLayout);
+      if (fixedLayout) document.querySelector('meta[data-chek-reader-viewport]')?.remove();
       clearTimeout(captureTimer);
       setInsets(top, bottom);
       await settled();
       if (generation !== operation) return null;
-      applyScale(nextScale);
+      if (!fixedLayout) applyScale(nextScale);
       await frames();
       if (generation !== operation) return null;
       if (anchor) { lastAnchor = anchor; scrollToAnchor(anchor); await frames(); scrollToAnchor(anchor); }
@@ -194,6 +210,7 @@
     },
     capture() { return restoring ? null : publish(); },
     async setScale(nextScale) {
+      if (fixedLayout) return publish();
       const anchor = restoring ? lastAnchor : capture();
       const generation = ++operation;
       restoring = true;
@@ -214,7 +231,7 @@
     if (!restoring) captureTimer = setTimeout(publish, 250);
   }, {passive: true});
   window.addEventListener('resize', () => {
-    if (!token || !lastAnchor) return;
+    if (!token || !lastAnchor || fixedLayout) return;
     const anchor = lastAnchor;
     const generation = ++operation;
     restoring = true;

@@ -17,9 +17,14 @@ public struct EPUBPublication: Sendable {
   public let author: String
   public let readingOrder: [EPUBLink]
   public let tableOfContents: [EPUBLink]
+  public let landmarks: [EPUBLink]
+  public let pageList: [EPUBLink]
   let archive: ArchiveStore
   let resources: [String: EPUBResource]
   let host: String
+  private let fixedResources: Set<String>
+  private let obfuscatedFonts: Set<String>
+  private let fontKey: [UInt8]
 
   /// Opens and validates an EPUB without extracting it into a directory.
   @concurrent public static func open(_ url: URL) async throws -> EPUBPublication {
@@ -46,12 +51,20 @@ public struct EPUBPublication: Sendable {
       throw ReaderError.invalid("The package document has an unsupported namespace.")
     }
     let metadata = package.children.first(where: { $0.name == "metadata" && $0.namespace == opf })
-    if metadata?.descendants("meta").contains(where: {
-      ($0.attributes["property"] == "rendition:layout" && $0.value != "reflowable")
-        || ($0.attributes["name"] == "fixed-layout" && $0.attributes["content"] == "true")
-    }) == true {
+    let legacyFixed =
+      metadata?.children.contains(where: {
+        $0.name == "meta" && $0.attributes["name"] == "fixed-layout"
+          && $0.attributes["content"] == "true"
+      }) == true
+    let globalLayout =
+      metadata?.children.first(where: {
+        $0.name == "meta" && $0.attributes["property"] == "rendition:layout"
+          && $0.attributes["refines"] == nil
+      })?.value ?? (legacyFixed ? "pre-paginated" : "reflowable")
+    guard ["reflowable", "pre-paginated"].contains(globalLayout) else {
       throw ReaderError.unsupported(
-        "Fixed-layout EPUB reading is not supported yet. This book was not imported.")
+        "This EPUB uses an unsupported rendition layout. Continuous roll layout is not supported yet."
+      )
     }
     let host = UUID().uuidString.lowercased()
     let packageURL = try resourceURL(path: path, host: host)
@@ -81,17 +94,27 @@ public struct EPUBPublication: Sendable {
       }
     }
     var order: [EPUBLink] = []
+    var fixedResources: Set<String> = []
     for item in package.descendants("itemref", namespace: opf) {
       guard let id = item.attributes["idref"], let resource = byID[id] else {
         throw ReaderError.invalid("The reading order refers to a missing manifest item.")
       }
-      if item.attributes["properties"]?.split(whereSeparator: \.isWhitespace).contains(where: {
-        $0 == "rendition:layout-pre-paginated" || $0 == "rendition:layout-roll"
-      }) == true {
+      let overrides = (item.attributes["properties"] ?? "").split(whereSeparator: \.isWhitespace)
+        .filter { $0.hasPrefix("rendition:layout-") }
+      guard overrides.count <= 1,
+        overrides.allSatisfy({
+          ["rendition:layout-reflowable", "rendition:layout-pre-paginated"].contains($0)
+        })
+      else {
         throw ReaderError.unsupported(
-          "This EPUB includes fixed-layout pages, which are not supported yet.")
+          "This EPUB has conflicting or unsupported spine layout overrides.")
       }
-      guard ["application/xhtml+xml", "text/html"].contains(resource.mediaType) else {
+      let fixed =
+        overrides.first.map { $0 == "rendition:layout-pre-paginated" }
+        ?? (globalLayout == "pre-paginated")
+      if fixed || resource.mediaType == "image/svg+xml" { fixedResources.insert(resource.path) }
+      guard ["application/xhtml+xml", "text/html", "image/svg+xml"].contains(resource.mediaType)
+      else {
         throw ReaderError.unsupported(
           "This EPUB uses an unsupported spine document type: \(resource.mediaType)")
       }
@@ -105,15 +128,24 @@ public struct EPUBPublication: Sendable {
       throw ReaderError.invalid("The EPUB has no readable spine documents.")
     }
     var toc: [EPUBLink] = []
+    var landmarks: [EPUBLink] = []
+    var pageList: [EPUBLink] = []
     if let navigation {
       let root = try PublicationXML.parse(
         await archive.data(at: navigation.path, maximumBytes: 4 * 1024 * 1024))
       let navURL = try resourceURL(path: navigation.path, host: host)
-      let tocNode = root.descendants("nav", namespace: "http://www.w3.org/1999/xhtml").first(
-        where: {
-          $0.attribute("type")?.split(whereSeparator: \.isWhitespace).contains("toc") == true
-        })
-      if let tocNode { toc = try navigationLinks(tocNode, base: navURL, host: host) }
+      for node in root.descendants("nav", namespace: "http://www.w3.org/1999/xhtml") {
+        let types = (node.attribute("type") ?? "").split(whereSeparator: \.isWhitespace)
+        if types.contains("toc"), toc.isEmpty {
+          toc = try navigationLinks(node, base: navURL, host: host)
+        }
+        if types.contains("landmarks"), landmarks.isEmpty {
+          landmarks = try navigationLinks(node, base: navURL, host: host)
+        }
+        if types.contains("page-list"), pageList.isEmpty {
+          pageList = try navigationLinks(node, base: navURL, host: host)
+        }
+      }
     } else if let ncxID = package.descendants("spine", namespace: opf).first?.attributes["toc"],
       let ncx = byID[ncxID]
     {
@@ -121,12 +153,41 @@ public struct EPUBPublication: Sendable {
         await archive.data(at: ncx.path, maximumBytes: 4 * 1024 * 1024))
       let base = try resourceURL(path: ncx.path, host: host)
       toc = try ncxLinks(root, base: base, host: host)
+      pageList = try ncxLinks(root, base: base, host: host, element: "pageTarget")
     }
-    toc = toc.filter {
-      guard let target = try? resolve("/" + $0.href, relativeTo: packageURL, host: host) else {
-        return false
+    if landmarks.isEmpty,
+      let guide = package.children.first(where: { $0.name == "guide" && $0.namespace == opf })
+    {
+      for reference in guide.children where reference.name == "reference" {
+        if let href = reference.attributes["href"] {
+          let target = try resolve(href, relativeTo: packageURL, host: host)
+          landmarks.append(
+            EPUBLink(
+              title: reference.attributes["title"] ?? reference.attributes["type"] ?? "",
+              href: linkHref(target.url), depth: 0))
+        }
       }
-      return resources[target.path] != nil
+    }
+    func declaredLinks(_ links: [EPUBLink]) throws -> [EPUBLink] {
+      for link in links {
+        let target = try resolve("/" + link.href, relativeTo: packageURL, host: host)
+        guard resources[target.path] != nil else {
+          throw ReaderError.invalid("A navigation link refers to a resource outside the manifest.")
+        }
+      }
+      return links
+    }
+    toc = try declaredLinks(toc)
+    landmarks = try declaredLinks(landmarks)
+    pageList = try declaredLinks(pageList)
+    var obfuscatedFonts: Set<String> = []
+    var fontKey: [UInt8] = []
+    if await archive.contains("META-INF/encryption.xml") {
+      let obfuscation = try FontObfuscation.parse(
+        await archive.data(at: "META-INF/encryption.xml", maximumBytes: 4 * 1024 * 1024),
+        package: package, resources: resources, host: host)
+      obfuscatedFonts = obfuscation.paths
+      fontKey = obfuscation.key
     }
     var labels: [String: String] = [:]
     for link in toc {
@@ -144,8 +205,32 @@ public struct EPUBPublication: Sendable {
       metadata?.descendants("creator", namespace: dc).map(\.value).joined(separator: ", ") ?? ""
     return EPUBPublication(
       title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
-      author: author, readingOrder: order, tableOfContents: toc, archive: archive,
-      resources: resources, host: host)
+      author: author, readingOrder: order, tableOfContents: toc, landmarks: landmarks,
+      pageList: pageList, archive: archive, resources: resources, host: host,
+      fixedResources: fixedResources, obfuscatedFonts: obfuscatedFonts, fontKey: fontKey)
+  }
+
+  func isFixedLayout(_ href: String) -> Bool {
+    guard let url = try? url(for: href) else { return false }
+    return fixedResources.contains(String(url.path.dropFirst()))
+      || resources[String(url.path.dropFirst())]?.mediaType == "image/svg+xml"
+  }
+
+  @concurrent func fixedViewport(for href: String) async throws -> FixedPageViewport? {
+    guard isFixedLayout(href) else { return nil }
+    let url = try url(for: href)
+    let path = String(url.path.dropFirst())
+    guard let resource = resources[path] else {
+      throw ReaderError.invalid("A fixed-layout resource is missing.")
+    }
+    return try FixedPageViewport.parse(
+      await archive.data(at: path, maximumBytes: 4 * 1024 * 1024), mediaType: resource.mediaType)
+  }
+
+  func data(for resource: EPUBResource) async throws -> Data {
+    let data = try await archive.data(at: resource.path)
+    return obfuscatedFonts.contains(resource.path)
+      ? try FontObfuscation.decode(data, key: fontKey) : data
   }
 
   func url(for href: String) throws -> URL {
@@ -213,12 +298,14 @@ public struct EPUBPublication: Sendable {
     return links
   }
 
-  private static func ncxLinks(_ node: XMLNode, base: URL, host: String, depth: Int = 0) throws
+  private static func ncxLinks(
+    _ node: XMLNode, base: URL, host: String, depth: Int = 0, element: String = "navPoint"
+  ) throws
     -> [EPUBLink]
   {
     var links: [EPUBLink] = []
     for child in node.children {
-      if child.name == "navPoint",
+      if child.name == element,
         let src = child.children.first(where: { $0.name == "content" })?.attributes["src"]
       {
         let target = try resolve(src, relativeTo: base, host: host)
@@ -229,7 +316,8 @@ public struct EPUBPublication: Sendable {
             depth: depth))
       }
       links += try ncxLinks(
-        child, base: base, host: host, depth: depth + (child.name == "navPoint" ? 1 : 0))
+        child, base: base, host: host, depth: depth + (child.name == element ? 1 : 0),
+        element: element)
     }
     return links
   }

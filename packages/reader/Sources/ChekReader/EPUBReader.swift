@@ -14,6 +14,7 @@ public final class EPUBReader {
   private(set) var page: WebPage?
   private(set) var loadFailed = false
   private(set) var failureDescription: String?
+  private(set) var fixedViewport: FixedPageViewport?
   private(set) var loadRequestID = UUID()
   private var resumeLocation: ReadingLocation?
   private var documentToken = ""
@@ -47,6 +48,8 @@ public final class EPUBReader {
     return publication.readingOrder.firstIndex(where: { $0.href == path })
   }
 
+  public var isFixedLayout: Bool { publication.isFixedLayout(currentHref) }
+
   public func open(_ link: EPUBLink) {
     requestedHref = link.href
     loadRequestID = UUID()
@@ -66,6 +69,9 @@ public final class EPUBReader {
     resourceFailure = nil
     do {
       if page != nil { _ = await captureLocation() }
+      let viewport = try await publication.fixedViewport(for: requestedHref)
+      guard generation == loadRequestID else { return }
+      fixedViewport = viewport
       if page == nil { page = try await makePage() }
       try Task.checkCancellation()
       guard generation == loadRequestID, let page else { return }
@@ -78,10 +84,10 @@ public final class EPUBReader {
       for try await _ in page.load(url) { try Task.checkCancellation() }
       guard generation == loadRequestID else { return }
       let value = try await page.callJavaScript(
-        "return await window.chekReader.activate(token, anchor, scale, top, bottom);",
+        "return await window.chekReader.activate(token, anchor, scale, top, bottom, fixed);",
         arguments: [
           "token": documentToken, "anchor": try jsonValue(anchor), "scale": textScale,
-          "top": Double(topInset), "bottom": Double(bottomInset),
+          "top": Double(topInset), "bottom": Double(bottomInset), "fixed": viewport != nil,
         ], contentWorld: .world(name: "ChekReader"))
       guard generation == loadRequestID else { return }
       isRestoring = false
@@ -125,7 +131,7 @@ public final class EPUBReader {
   }
 
   public func setTextScale(_ scale: Double) async {
-    guard scale.isFinite, !isRestoring, let page else { return }
+    guard scale.isFinite, !isRestoring, !isFixedLayout, let page else { return }
     _ = await captureLocation()
     let token = documentToken
     textScale = min(2, max(0.75, scale))
@@ -224,7 +230,7 @@ public final class EPUBReader {
           self.message = message
         }
       })
-    return WebPage(
+    let page = WebPage(
       configuration: configuration,
       navigationDecider: PublicationNavigation(
         host: publication.host,
@@ -245,6 +251,10 @@ public final class EPUBReader {
           self?.message = String(
             localized: "External links are disabled while reading local books.", bundle: .module)
         }))
+    #if DEBUG
+      page.isInspectable = true
+    #endif
+    return page
   }
 }
 
@@ -266,24 +276,58 @@ public struct EPUBReaderView: View {
               ?? String(localized: "Close this book and reopen it to try again.", bundle: .module))
         }
       } else if let page = reader.page {
-        WebView(page)
-          .webViewBackForwardNavigationGestures(.disabled)
-          .webViewLinkPreviews(.disabled)
-          .webViewOnScrollGeometryChange(
-            for: ReaderInsets.self,
-            of: {
-              ReaderInsets(top: $0.contentInsets.top, bottom: $0.contentInsets.bottom)
-            },
-            action: { _, insets in
-              Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
-            }
-          )
-          .task { await reader.observeNavigations() }
+        if let viewport = reader.fixedViewport {
+          FixedPageView(reader: reader, page: page, viewport: viewport)
+        } else {
+          ReaderWebContent(reader: reader, page: page)
+        }
       } else {
         ProgressView(String(localized: "Opening book…", bundle: .module))
       }
     }
     .task(id: reader.loadRequestID) { await reader.load() }
+  }
+}
+
+private struct ReaderWebContent: View {
+  let reader: EPUBReader
+  let page: WebPage
+
+  var body: some View {
+    WebView(page)
+      .webViewBackForwardNavigationGestures(.disabled)
+      .webViewLinkPreviews(.disabled)
+      .webViewOnScrollGeometryChange(
+        for: ReaderInsets.self,
+        of: {
+          ReaderInsets(top: $0.contentInsets.top, bottom: $0.contentInsets.bottom)
+        },
+        action: { _, insets in
+          Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
+        }
+      )
+      .task { await reader.observeNavigations() }
+  }
+}
+
+private struct FixedPageView: View {
+  let reader: EPUBReader
+  let page: WebPage
+  let viewport: FixedPageViewport
+
+  var body: some View {
+    GeometryReader { geometry in
+      // NavigationStack already proposes its available reader area. Subtracting
+      // the reported safe areas again shrinks landscape pages twice.
+      let width = max(1, geometry.size.width)
+      let height = max(1, geometry.size.height)
+      let factor = min(width / viewport.width, height / viewport.height)
+      ReaderWebContent(reader: reader, page: page)
+        .frame(width: viewport.width, height: viewport.height)
+        .scaleEffect(factor)
+        .frame(width: width, height: height)
+        .clipped()
+    }
   }
 }
 
@@ -354,7 +398,7 @@ private struct PublicationSchemeHandler: URLSchemeHandler {
           guard let resource = publication.resources[path] else {
             throw ReaderError.invalid("This resource is not declared in the book's manifest.")
           }
-          let data = try await publication.archive.data(at: path)
+          let data = try await publication.data(for: resource)
           try ArchiveStore.checkImage(data, mediaType: resource.mediaType)
           let csp =
             "default-src 'none'; script-src 'none'; connect-src 'none'; style-src 'unsafe-inline' chek-publication:; img-src chek-publication:; font-src chek-publication:; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"

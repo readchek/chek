@@ -7,7 +7,7 @@ public enum ReaderError: LocalizedError, Sendable {
 
   public var errorDescription: String? {
     switch self {
-    case .invalid(let reason): "This EPUB could not be opened. \(reason)"
+    case .invalid(let reason): "This book could not be opened. \(reason)"
     case .unsupported(let reason): reason
     case .limit(let reason): "This book exceeds the current reader limits. \(reason)"
     }

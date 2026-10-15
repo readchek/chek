@@ -18,9 +18,13 @@ final class XMLNode {
   }
 
   var value: String {
+    rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  var rawValue: String {
     var result = ""
     appendValue(to: &result)
-    return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    return result
   }
 
   func appendText(_ text: String) { content.append(.text(text)) }

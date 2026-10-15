@@ -40,6 +40,7 @@ struct BookReaderScreen: View {
           }
           ToolbarItem(placement: .topBarTrailing) {
             Button("Text size", systemImage: "textformat.size") { showingSettings = true }
+              .disabled(reader.isFixedLayout)
           }
           ToolbarItemGroup(placement: .bottomBar) {
             Button("Previous chapter", systemImage: "chevron.backward") {
@@ -48,8 +49,14 @@ struct BookReaderScreen: View {
             .disabled(reader.chapterIndex == nil || reader.chapterIndex == 0)
             Spacer()
             if let index = reader.chapterIndex {
-              Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
-                .font(.caption).foregroundStyle(.secondary)
+              Group {
+                if reader.isFixedLayout {
+                  Text("Page \(index + 1) of \(reader.publication.readingOrder.count)")
+                } else {
+                  Text("Section \(index + 1) of \(reader.publication.readingOrder.count)")
+                }
+              }
+              .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Next chapter", systemImage: "chevron.forward") { reader.moveChapter(by: 1) }
@@ -144,12 +151,18 @@ private struct TextSettingsSheet: View {
 
 private struct ContentsSheet: View {
   @Environment(\.dismiss) private var dismiss
+  @State private var category = ContentsCategory.chapters
   let reader: EPUBReader
 
   var body: some View {
     let links =
-      reader.publication.tableOfContents.isEmpty
-      ? reader.publication.readingOrder : reader.publication.tableOfContents
+      switch category {
+      case .chapters:
+        reader.publication.tableOfContents.isEmpty
+          ? reader.publication.readingOrder : reader.publication.tableOfContents
+      case .pages: reader.publication.pageList
+      case .landmarks: reader.publication.landmarks
+      }
     NavigationStack {
       // The immutable TOC may legally contain repeated hrefs; its positions are stable.
       List(Array(links.enumerated()), id: \.offset) { index, link in
@@ -165,6 +178,19 @@ private struct ContentsSheet: View {
         }
         .foregroundStyle(.primary)
       }
+      .safeAreaInset(edge: .top) {
+        if !reader.publication.pageList.isEmpty || !reader.publication.landmarks.isEmpty {
+          Picker("Navigation", selection: $category) {
+            Text("Chapters").tag(ContentsCategory.chapters)
+            if !reader.publication.pageList.isEmpty { Text("Pages").tag(ContentsCategory.pages) }
+            if !reader.publication.landmarks.isEmpty {
+              Text("Landmarks").tag(ContentsCategory.landmarks)
+            }
+          }
+          .pickerStyle(.segmented)
+          .padding()
+        }
+      }
       .navigationTitle("Contents")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -173,3 +199,5 @@ private struct ContentsSheet: View {
     }
   }
 }
+
+private enum ContentsCategory { case chapters, pages, landmarks }
