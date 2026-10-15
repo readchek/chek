@@ -44,9 +44,17 @@ final class XMLNode {
   }
 
   func descendants(_ name: String, namespace: String? = nil) -> [XMLNode] {
-    children.flatMap { child in
-      let matches = child.name == name && (namespace == nil || child.namespace == namespace)
-      return (matches ? [child] : []) + child.descendants(name, namespace: namespace)
+    var result: [XMLNode] = []
+    appendDescendants(name, namespace: namespace, to: &result)
+    return result
+  }
+
+  private func appendDescendants(_ name: String, namespace: String?, to result: inout [XMLNode]) {
+    for child in children {
+      if child.name == name && (namespace == nil || child.namespace == namespace) {
+        result.append(child)
+      }
+      child.appendDescendants(name, namespace: namespace, to: &result)
     }
   }
 
@@ -63,6 +71,7 @@ final class PublicationXML: NSObject, XMLParserDelegate {
   private var rejected = false
 
   static func parse(_ data: Data) throws -> XMLNode {
+    try Task.checkCancellation()
     guard data.count <= 4 * 1024 * 1024 else { throw ReaderError.limit("XML exceeds 4 MB.") }
     let delegate = PublicationXML()
     let parser = XMLParser(data: data)
@@ -70,7 +79,9 @@ final class PublicationXML: NSObject, XMLParserDelegate {
     parser.shouldResolveExternalEntities = false
     parser.externalEntityResolvingPolicy = .never
     parser.delegate = delegate
-    guard parser.parse(), !delegate.rejected, let root = delegate.root else {
+    let succeeded = parser.parse()
+    try Task.checkCancellation()
+    guard succeeded, !delegate.rejected, let root = delegate.root else {
       throw ReaderError.invalid("Publication XML is malformed, too complex, or declares entities.")
     }
     return root
@@ -81,7 +92,7 @@ final class PublicationXML: NSObject, XMLParserDelegate {
     namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String]
   ) {
     count += 1
-    guard count <= 100_000, stack.count < 128 else {
+    guard !Task.isCancelled, count <= 100_000, stack.count < 128 else {
       reject(parser)
       return
     }
@@ -97,7 +108,7 @@ final class PublicationXML: NSObject, XMLParserDelegate {
 
   func parser(_ parser: XMLParser, foundCharacters string: String) {
     textBytes += string.utf8.count
-    guard textBytes <= 4 * 1024 * 1024 else {
+    guard !Task.isCancelled, textBytes <= 4 * 1024 * 1024 else {
       reject(parser)
       return
     }

@@ -12,7 +12,9 @@ public struct ReadingLocation: Codable, Equatable, Sendable {
   public let suffix: String
   public let progression: Double
 
-  var isValid: Bool {
+  /// Whether this location has a supported version and bounded anchor values.
+  /// Publication-specific resource validation still occurs when a reader opens it.
+  public var isValid: Bool {
     version == 1 && !resourceHref.isEmpty && resourceHref.utf8.count <= 4096
       && nodePath.count <= 128 && nodePath.allSatisfy { (0...1_000_000).contains($0) }
       && (0...32 * 1024 * 1024).contains(textOffset)

@@ -14,7 +14,6 @@
   let lastPublished = '';
   let lastInteraction = 0;
   let touch = null;
-  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const resourceHref = () => window.location.pathname.slice(1);
   const validText = node => node && node.nodeType === Node.TEXT_NODE && /\S/.test(node.data)
@@ -177,12 +176,34 @@
   }
 
   async function settled() {
-    if (document.fonts) await Promise.race([document.fonts.ready, delay(2500)]);
-    const pending = Array.from(document.images ?? []).filter(image => !image.complete).slice(0, 2000);
-    await Promise.race([Promise.all(pending.map(image => new Promise(resolve => {
-      image.addEventListener('load', resolve, {once: true});
-      image.addEventListener('error', resolve, {once: true});
-    }))), delay(2500)]);
+    const cleanup = [];
+    const pending = [];
+    for (const image of document.images ?? []) {
+      if (pending.length >= 2000) break;
+      if (image.complete) continue;
+      pending.push(new Promise(resolve => {
+        const finished = () => { remove(); resolve(); };
+        const remove = () => {
+          image.removeEventListener('load', finished);
+          image.removeEventListener('error', finished);
+        };
+        image.addEventListener('load', finished, {once: true});
+        image.addEventListener('error', finished, {once: true});
+        cleanup.push(remove);
+      }));
+    }
+    // Fonts and images load together. Share a single timeout and release all
+    // event listeners even when an image never completes.
+    let timeout;
+    try {
+      await Promise.race([
+        Promise.all([document.fonts?.ready, ...pending]),
+        new Promise(resolve => { timeout = setTimeout(resolve, 2500); })
+      ]);
+    } finally {
+      clearTimeout(timeout);
+      for (const remove of cleanup) remove();
+    }
     await frames();
   }
 
@@ -228,7 +249,13 @@
       if (!fixedLayout) applyScale(nextScale);
       await frames();
       if (generation !== operation) return null;
-      if (anchor) { lastAnchor = anchor; scrollToAnchor(anchor); await frames(); scrollToAnchor(anchor); }
+      if (anchor) {
+        lastAnchor = anchor;
+        scrollToAnchor(anchor);
+        await frames();
+        if (generation !== operation) return null;
+        scrollToAnchor(anchor);
+      }
       restoring = false;
       return publish();
     },
@@ -244,6 +271,7 @@
       if (generation !== operation) return null;
       scrollToAnchor(anchor);
       await frames();
+      if (generation !== operation) return null;
       restoring = false;
       return publish();
     },
@@ -310,6 +338,7 @@
       if (generation !== operation) return;
       scrollToAnchor(anchor);
       await frames();
+      if (generation !== operation) return;
       restoring = false;
       publish();
     }, 120);

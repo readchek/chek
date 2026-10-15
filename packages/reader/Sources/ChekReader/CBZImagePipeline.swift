@@ -25,6 +25,7 @@ public actor CBZImagePipeline {
   private var clock: UInt64 = 0
   private var decoding = false
   private var waiters: [Waiter] = []
+  private var cacheGeneration: UInt64 = 0
 
   private struct Key: Hashable {
     let pageID: String
@@ -64,6 +65,7 @@ public actor CBZImagePipeline {
     defer { release() }
     try Task.checkCancellation()
     if let page = cached(key) { return page }
+    let generation = cacheGeneration
     let data = try await publication.archive.data(at: pageID)
     try Task.checkCancellation()
     // Synchronous actor-isolated decoding cannot overlap another decode. Archive
@@ -74,6 +76,10 @@ public actor CBZImagePipeline {
     guard cost <= Self.maximumCacheBytes else {
       throw ReaderError.limit("This comic page exceeds the decoded image byte budget.")
     }
+    // A memory warning can clear the cache while the archive read is suspended.
+    // The requesting view may still use its image, but that older request must
+    // not immediately refill the cache that the host just released.
+    guard generation == cacheGeneration else { return decoded }
     // A successful upgrade replaces this page's old bitmap. Keep one retained
     // resolution per page rather than charging every requested width bucket.
     let superseded = cache.keys.filter { $0.pageID == pageID }
@@ -94,6 +100,7 @@ public actor CBZImagePipeline {
   }
 
   public func removeAll() {
+    cacheGeneration &+= 1
     cache.removeAll()
     cacheBytes = 0
   }
@@ -101,6 +108,9 @@ public actor CBZImagePipeline {
   /// Inspect one page without decoding a bitmap. Automatic mode samples the
   /// first content page after the cover; it is a preference heuristic, not format metadata.
   public func isLongStrip(pageID: String) async throws -> Bool {
+    guard pageIDs.contains(pageID) else {
+      throw ReaderError.invalid("The requested comic page is invalid.")
+    }
     try await acquire()
     defer { release() }
     let data = try await publication.archive.data(at: pageID)

@@ -118,6 +118,7 @@ actor ArchiveStore {
 /// encrypted/malformed entry. ZIP64 and split archives are explicit limits for now.
 private enum ZIPEnvelope {
   static func validate(url: URL) throws -> Int {
+    try Task.checkCancellation()
     let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
     let size = try handle.seekToEnd()
@@ -155,6 +156,7 @@ private enum ZIPEnvelope {
     }
     var cursor = 0
     for _ in 0..<count {
+      try Task.checkCancellation()
       guard cursor + 46 <= directory.count, directory.u32(cursor) == 0x0201_4b50 else {
         throw ReaderError.invalid("A ZIP directory entry is malformed.")
       }

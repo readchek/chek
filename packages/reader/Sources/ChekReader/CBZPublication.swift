@@ -39,6 +39,7 @@ public struct CBZPublication: Sendable {
   public let pages: [CBZPage]
   public let readingDirection: CBZReadingDirection
   let archive: ArchiveStore
+  private let pageIndices: [String: Int]
 
   /// Indexes names and optional metadata; page bytes are read only when requested.
   @concurrent public static func open(_ url: URL, fallbackTitle: String? = nil) async throws
@@ -92,11 +93,12 @@ public struct CBZPublication: Sendable {
     }
     return CBZPublication(
       title: title, pages: imagePaths.map { CBZPage(id: $0) }, readingDirection: direction,
-      archive: archive)
+      archive: archive,
+      pageIndices: Dictionary(uniqueKeysWithValues: imagePaths.enumerated().map { ($1, $0) }))
   }
 
   public func pageIndex(for location: CBZLocation) -> Int? {
     guard location.isValid else { return nil }
-    return pages.firstIndex(where: { $0.id == location.pageID })
+    return pageIndices[location.pageID]
   }
 }

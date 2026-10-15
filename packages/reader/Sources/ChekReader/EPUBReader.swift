@@ -16,8 +16,10 @@ public final class EPUBReader {
   public private(set) var textScale: Double
   public var message: String?
   private(set) var page: WebPage?
-  private(set) var loadFailed = false
-  private(set) var failureDescription: String?
+  public private(set) var loadFailed = false
+  public private(set) var failureDescription: String?
+  /// Disable when the host supplies its own chapter navigation gestures.
+  public var allowsChapterSwipe: Bool
   private(set) var fixedViewport: FixedPageViewport?
   private(set) var loadRequestID = UUID()
   private var resumeLocation: ReadingLocation?
@@ -29,15 +31,19 @@ public final class EPUBReader {
   private var bottomInset: CGFloat = 0
   @ObservationIgnored fileprivate var onTap: @MainActor () -> Void = {}
   @ObservationIgnored fileprivate var onInteraction: @MainActor () -> Void = {}
+  @ObservationIgnored fileprivate var callbackOwner: UUID?
 
   public var hasMessage: Bool {
     get { message != nil }
     set { if !newValue { message = nil } }
   }
 
-  public init(publication: EPUBPublication, location: ReadingLocation? = nil, textScale: Double = 1)
-  {
+  public init(
+    publication: EPUBPublication, location: ReadingLocation? = nil, textScale: Double = 1,
+    allowsChapterSwipe: Bool = true
+  ) {
     self.publication = publication
+    self.allowsChapterSwipe = allowsChapterSwipe
     let validLocation = location.flatMap { anchor in
       anchor.isValid && (try? publication.url(for: anchor.resourceHref)) != nil ? anchor : nil
     }
@@ -65,11 +71,19 @@ public final class EPUBReader {
     loadRequestID = UUID()
   }
 
+  /// Retry the requested document, retaining the latest captured position when applicable.
+  public func retry() {
+    resumeLocation = location ?? resumeLocation
+    loadRequestID = UUID()
+  }
+
   public func moveChapter(by delta: Int) {
-    guard let index = chapterIndex, publication.readingOrder.indices.contains(index + delta) else {
+    guard let index = chapterIndex else { return }
+    let (destination, overflow) = index.addingReportingOverflow(delta)
+    guard !overflow, publication.readingOrder.indices.contains(destination) else {
       return
     }
-    open(publication.readingOrder[index + delta])
+    open(publication.readingOrder[destination])
   }
 
   func load() async {
@@ -83,12 +97,16 @@ public final class EPUBReader {
       let viewport = try await publication.fixedViewport(for: requestedHref)
       guard generation == loadRequestID else { return }
       fixedViewport = viewport
-      if page == nil { page = try await makePage() }
+      if page == nil {
+        let preparedPage = try await makePage()
+        try Task.checkCancellation()
+        guard generation == loadRequestID else { return }
+        page = preparedPage
+      }
       try Task.checkCancellation()
       guard generation == loadRequestID, let page else { return }
       let url = try publication.url(for: requestedHref)
       let anchor = resumeLocation
-      resumeLocation = nil
       documentToken = UUID().uuidString
       isRestoring = true
       for try await _ in page.load(url) { try Task.checkCancellation() }
@@ -100,13 +118,15 @@ public final class EPUBReader {
           "top": Double(topInset), "bottom": Double(bottomInset), "fixed": viewport != nil,
         ], contentWorld: .world(name: "ChekReader"))
       guard generation == loadRequestID else { return }
+      try Task.checkCancellation()
+      resumeLocation = nil
       isRestoring = false
       explicitLoad = false
       acceptLocation(value)
       if let resourceFailure, message == nil { message = resourceFailure }
     } catch is CancellationError {
     } catch {
-      if !Task.isCancelled {
+      if !Task.isCancelled, generation == loadRequestID {
         explicitLoad = false
         loadFailed = true
         failureDescription = resourceFailure ?? error.localizedDescription
@@ -118,12 +138,17 @@ public final class EPUBReader {
   @discardableResult public func captureLocation() async -> ReadingLocation? {
     guard !isRestoring, let page else { return location }
     let token = documentToken
+    let generation = loadRequestID
     do {
       let value = try await page.callJavaScript(
         "return window.chekReader.capture();",
         contentWorld: .world(name: "ChekReader"))
-      if token == documentToken { acceptLocation(value) }
-    } catch { if !Task.isCancelled { message = error.localizedDescription } }
+      if token == documentToken, generation == loadRequestID { acceptLocation(value) }
+    } catch {
+      if !Task.isCancelled, token == documentToken, generation == loadRequestID {
+        message = error.localizedDescription
+      }
+    }
     return location
   }
 
@@ -135,19 +160,24 @@ public final class EPUBReader {
 
   public func setTextScale(_ scale: Double) async {
     guard scale.isFinite, !isRestoring, !isFixedLayout, let page else { return }
-    _ = await captureLocation()
+    let boundedScale = min(2, max(0.75, scale))
+    guard boundedScale != textScale else { return }
+    let generation = loadRequestID
     let token = documentToken
-    textScale = min(2, max(0.75, scale))
+    _ = await captureLocation()
+    guard generation == loadRequestID, token == documentToken, !Task.isCancelled else { return }
+    textScale = boundedScale
     isRestoring = true
     do {
       let value = try await page.callJavaScript(
         "return await window.chekReader.setScale(scale);",
         arguments: ["scale": textScale], contentWorld: .world(name: "ChekReader"))
-      guard token == documentToken else { return }
+      guard generation == loadRequestID, token == documentToken else { return }
       isRestoring = false
       acceptLocation(value)
     } catch {
-      if token == documentToken { isRestoring = false }
+      guard generation == loadRequestID, token == documentToken else { return }
+      isRestoring = false
       if !Task.isCancelled { message = error.localizedDescription }
     }
   }
@@ -212,10 +242,10 @@ public final class EPUBReader {
       case "active": onInteraction()
       case "next":
         onInteraction()
-        moveChapter(by: 1)
+        if allowsChapterSwipe { moveChapter(by: 1) }
       case "previous":
         onInteraction()
-        moveChapter(by: -1)
+        if allowsChapterSwipe { moveChapter(by: -1) }
       default: break
       }
       return
@@ -321,6 +351,7 @@ public final class EPUBReader {
 }
 
 public struct EPUBReaderView: View {
+  @State private var callbackOwner = UUID()
   private let reader: EPUBReader
   private let onTap: @MainActor () -> Void
   private let onInteraction: @MainActor () -> Void
@@ -358,14 +389,18 @@ public struct EPUBReaderView: View {
       }
     }
     .onAppear {
+      reader.callbackOwner = callbackOwner
       reader.onTap = onTap
       reader.onInteraction = onInteraction
     }
     .onDisappear {
+      guard reader.callbackOwner == callbackOwner else { return }
+      reader.callbackOwner = nil
       reader.onTap = {}
       reader.onInteraction = {}
     }
     .task(id: reader.loadRequestID) { await reader.load() }
+    .id(ObjectIdentifier(reader))
   }
 }
 
@@ -386,12 +421,12 @@ private struct ReaderWebContent: View {
           Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
         }
       )
-      .task { [page, weak reader] in
+      .task(id: ObjectIdentifier(page)) { [page, weak reader] in
         do {
           for try await _ in page.navigations { try Task.checkCancellation() }
         } catch is CancellationError {
         } catch {
-          if !Task.isCancelled { reader?.navigationFailed(error) }
+          if !Task.isCancelled, reader?.page === page { reader?.navigationFailed(error) }
         }
       }
   }
@@ -486,6 +521,7 @@ private struct PublicationSchemeHandler: URLSchemeHandler {
             throw ReaderError.invalid("This resource is not declared in the book's manifest.")
           }
           let data = try await publication.data(for: resource)
+          try Task.checkCancellation()
           try ArchiveStore.checkImage(data, mediaType: resource.mediaType)
           let csp =
             "default-src 'none'; script-src 'none'; connect-src 'none'; style-src 'unsafe-inline' chek-publication:; img-src chek-publication:; font-src chek-publication:; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
@@ -503,7 +539,9 @@ private struct PublicationSchemeHandler: URLSchemeHandler {
           continuation.yield(.data(data))
           continuation.finish()
         } catch {
-          if !(error is CancellationError) { await onFailure(error.localizedDescription) }
+          if !Task.isCancelled, !(error is CancellationError) {
+            await onFailure(error.localizedDescription)
+          }
           continuation.finish(throwing: error)
         }
       }

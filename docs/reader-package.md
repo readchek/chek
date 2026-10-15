@@ -65,7 +65,14 @@ the host provides another chapter-navigation policy. This does not disable nativ
 scrolling, text selection, or tap/interaction callbacks. Observe `loadFailed` and
 `failureDescription` for host error presentation, and call `retry()` to reload
 after a failed page load. The comic canvas presents its own page-load failure UI
-and also exposes `retry()`.
+and exposes `retry()` and read-only `failureDescription`. Set `allowsPageSwipe`
+to false when the host owns horizontal page gestures; continuous vertical
+scrolling remains available.
+
+Keep one reader instance per mounted canvas. Publications may be opened by
+multiple independent readers, but navigation state and capture callbacks belong
+to a single reading session. Replacing a reader in a persistent SwiftUI host
+detaches the old canvas state and binds the new session.
 
 ## Building independently
 
@@ -91,3 +98,5 @@ interpret it as a license for ChekReader.
 Current format coverage and resource limits are listed in the
 [package README](../packages/reader/README.md). Installation does not imply full
 EPUB conformance, release readiness, or verified performance on every device.
+See the [performance and reliability record](reader-package-validation.md) for
+measured evidence and the remaining release checks.

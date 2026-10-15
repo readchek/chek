@@ -13,8 +13,9 @@ public final class CBZReader {
   public private(set) var effectiveReadingMode: CBZReadingMode = .paged
   public private(set) var isLoading = false
   public var message: String?
+  public var allowsPageSwipe: Bool
   private(set) var decodedPage: CBZDecodedPage?
-  private(set) var failureDescription: String?
+  public private(set) var failureDescription: String?
   private(set) var loadRequestID = UUID()
   private let pipeline: CBZImagePipeline
   private var automaticMode: CBZReadingMode?
@@ -22,13 +23,17 @@ public final class CBZReader {
   private(set) var navigationRequestID = UUID()
   private var renderWidth = 0
   private var viewportWidth = 0
+  private(set) var cacheReleaseID = UUID()
   @ObservationIgnored fileprivate var positionProvider: (() -> (String, Double)?)?
+  @ObservationIgnored private var positionProviderOwner: ObjectIdentifier?
 
   public init(
     publication: CBZPublication, location: CBZLocation? = nil,
-    direction: CBZReadingDirection? = nil, readingMode: CBZReadingMode = .automatic
+    direction: CBZReadingDirection? = nil, readingMode: CBZReadingMode = .automatic,
+    allowsPageSwipe: Bool = true
   ) {
     self.publication = publication
+    self.allowsPageSwipe = allowsPageSwipe
     let index = location.flatMap { publication.pageIndex(for: $0) } ?? 0
     currentPageIndex = index
     self.location =
@@ -92,6 +97,19 @@ public final class CBZReader {
     return location
   }
 
+  fileprivate func setPositionProvider(
+    owner: AnyObject, provider: @escaping () -> (String, Double)?
+  ) {
+    positionProviderOwner = ObjectIdentifier(owner)
+    positionProvider = provider
+  }
+
+  fileprivate func clearPositionProvider(owner: AnyObject) {
+    guard positionProviderOwner == ObjectIdentifier(owner) else { return }
+    positionProviderOwner = nil
+    positionProvider = nil
+  }
+
   public func retry() {
     failureDescription = nil
     loadRequestID = UUID()
@@ -111,7 +129,7 @@ public final class CBZReader {
     guard progression.isFinite else { return }
     if pageID != currentPage.id {
       guard effectiveReadingMode == .continuous,
-        let index = publication.pages.firstIndex(where: { $0.id == pageID })
+        let index = publication.pageIndex(for: CBZLocation(pageID: pageID))
       else { return }
       currentPageIndex = index
     }
@@ -154,7 +172,10 @@ public final class CBZReader {
     }
   }
 
-  fileprivate func clearCache() async { await pipeline.removeAll() }
+  fileprivate func clearCache() async {
+    cacheReleaseID = UUID()
+    await pipeline.removeAll()
+  }
 
   fileprivate func image(pageID: String, width: Int) async throws -> CBZDecodedPage {
     try await pipeline.image(for: pageID, targetWidth: width)
@@ -219,11 +240,13 @@ private struct ComicCanvas: UIViewRepresentable {
   func makeUIView(context: Context) -> ComicScrollView { ComicScrollView() }
 
   func updateUIView(_ view: ComicScrollView, context: Context) {
+    view.bind(reader)
     let pageID = reader.currentPage.id
     view.onTap = onTap
     view.onInteraction = onInteraction
+    view.allowsPageSwipe = reader.allowsPageSwipe
     view.onSwipe = { [weak reader] left in
-      guard let reader else { return }
+      guard let reader, reader.allowsPageSwipe else { return }
       let forward = left == (reader.readingDirection == .leftToRight)
       reader.movePage(by: forward ? 1 : -1)
     }
@@ -238,7 +261,7 @@ private struct ComicCanvas: UIViewRepresentable {
         reader?.requestWidth(viewport: viewport, zoom: zoom)
       }
     }
-    reader.positionProvider = { [weak view] in
+    reader.setPositionProvider(owner: view) { [weak view] in
       guard let view, let pageID = view.pageID, view.hasImage else { return nil }
       return (pageID, view.progression)
     }
@@ -248,6 +271,7 @@ private struct ComicCanvas: UIViewRepresentable {
   }
 
   static func dismantleUIView(_ view: ComicScrollView, coordinator: ()) {
+    view.bind(nil)
     view.delegate = nil
     view.onPosition = nil
     view.onWidth = nil
@@ -265,6 +289,7 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
 {
   private let pageView = UIImageView()
   private var decoded: CBZDecodedPage?
+  private weak var reader: CBZReader?
   private var previousSize = CGSize.zero
   private var updating = false
   private var pendingProgression = 0.0
@@ -274,6 +299,7 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
   var onTap: (() -> Void)?
   var onInteraction: (() -> Void)?
   var onSwipe: ((Bool) -> Void)?
+  var allowsPageSwipe = true
 
   var hasImage: Bool { decoded != nil }
   var progression: Double {
@@ -313,7 +339,9 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
   }
 
   override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-    if gestureRecognizer is UISwipeGestureRecognizer { return zoomScale <= 1.01 }
+    if gestureRecognizer is UISwipeGestureRecognizer {
+      return allowsPageSwipe && zoomScale <= 1.01
+    }
     return super.gestureRecognizerShouldBegin(gestureRecognizer)
   }
 
@@ -328,6 +356,19 @@ private final class ComicScrollView: UIScrollView, UIScrollViewDelegate, UIGestu
   }
 
   required init?(coder: NSCoder) { nil }
+
+  func bind(_ reader: CBZReader?) {
+    guard self.reader !== reader else { return }
+    self.reader?.clearPositionProvider(owner: self)
+    self.reader = reader
+    pageID = nil
+    pendingProgression = 0
+    releaseImage()
+    // A reused representable already has a window and unchanged bounds, so
+    // neither lifecycle hook would otherwise send this reader its first width.
+    previousSize = .zero
+    setNeedsLayout()
+  }
 
   func show(
     _ page: CBZDecodedPage?, pageID: String, progression: Double, pageNumber: Int, pageCount: Int
@@ -455,7 +496,7 @@ private struct ComicRollCanvas: UIViewRepresentable {
     view.onTap = onTap
     view.onInteraction = onInteraction
     view.configure(reader)
-    reader.positionProvider = { [weak view] in view?.readingPosition }
+    reader.setPositionProvider(owner: view) { [weak view] in view?.readingPosition }
   }
 
   static func dismantleUIView(_ view: ComicRollView, coordinator: ()) { view.stop() }
@@ -479,6 +520,8 @@ private struct ComicRollCanvas: UIViewRepresentable {
   private var cells: [Int: ComicRollPage] = [:]
   private var requests: [Int: (id: UUID, task: Task<Void, Never>)] = [:]
   private var navigationID: UUID?
+  private var cacheReleaseID: UUID?
+  private var keepsAdjacentPages = true
   private var previousSize = CGSize.zero
   private var updating = false
   private var pendingAnchor: Anchor?
@@ -509,9 +552,18 @@ private struct ComicRollCanvas: UIViewRepresentable {
   required init?(coder: NSCoder) { nil }
 
   func configure(_ reader: CBZReader) {
-    if self.reader == nil {
+    if self.reader !== reader {
+      resetPublication()
       self.reader = reader
       pages = reader.publication.pages
+      cacheReleaseID = reader.cacheReleaseID
+    }
+    if cacheReleaseID != reader.cacheReleaseID {
+      cacheReleaseID = reader.cacheReleaseID
+      // Cache eviction cannot release images still held by UIImageViews. After
+      // pressure, keep visible pages and cancel offscreen decode work.
+      keepsAdjacentPages = false
+      setNeedsLayout()
     }
     guard navigationID != reader.navigationRequestID else { return }
     navigationID = reader.navigationRequestID
@@ -521,13 +573,35 @@ private struct ComicRollCanvas: UIViewRepresentable {
   }
 
   func stop() {
+    resetPublication()
+    delegate = nil
+    onTap = nil
+    onInteraction = nil
+  }
+
+  private func resetPublication() {
     for request in requests.values { request.task.cancel() }
     requests.removeAll()
     cells.removeAll()
     for view in canvas.subviews { view.removeFromSuperview() }
-    delegate = nil
-    onTap = nil
-    onInteraction = nil
+    reader?.clearPositionProvider(owner: self)
+    reader = nil
+    pages.removeAll()
+    ratios.removeAll()
+    starts.removeAll()
+    navigationID = nil
+    cacheReleaseID = nil
+    keepsAdjacentPages = true
+    pendingAnchor = nil
+    lastAnchor = nil
+    lastPublished = 0
+    updating = true
+    setZoomScale(1, animated: false)
+    canvas.frame = .zero
+    contentSize = .zero
+    contentInset = .zero
+    contentOffset = .zero
+    updating = false
   }
 
   @objc private func tapped(_ gesture: UITapGestureRecognizer) {
@@ -616,10 +690,19 @@ private struct ComicRollCanvas: UIViewRepresentable {
 
   private func updateVisiblePages() {
     guard !updating, !isZooming, let anchor = anchor(), let reader else { return }
-    // Prioritize the visible page, then its immediate neighbors. A fixed window
-    // also bounds consumer-held bitmaps outside the pipeline's own byte cache.
-    let lower = max(0, anchor.index - 1)
-    let upper = min(pages.count - 1, anchor.index + 3)
+    // Include every intersecting page before spending slots on prefetch. Keep
+    // the five-view cap even for unusually short images; more than five images
+    // in one viewport can remain placeholders until they approach its top.
+    let bottom = max(0, (contentOffset.y + bounds.height) / max(1, zoomScale))
+    var lower = anchor.index
+    var upper = anchor.index
+    while upper + 1 < pages.count, upper - lower < 4, starts[upper + 1] < bottom {
+      upper += 1
+    }
+    if keepsAdjacentPages {
+      if lower > 0, upper - lower < 4 { lower -= 1 }
+      upper = min(pages.count - 1, lower + 4)
+    }
     let desired = Set(lower...upper)
     for index in Array(cells.keys) where !desired.contains(index) {
       cells.removeValue(forKey: index)?.removeFromSuperview()
