@@ -50,7 +50,7 @@ targets:
         UIFileSharingEnabled: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.chek.reader
+        PRODUCT_BUNDLE_IDENTIFIER: run.chibi.manga
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Chek
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
