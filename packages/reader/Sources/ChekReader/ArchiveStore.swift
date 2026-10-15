@@ -70,8 +70,17 @@ actor ArchiveStore {
 
   func contains(_ path: String) -> Bool { entries[path] != nil }
 
-  static func checkImage(_ data: Data) throws {
+  static func checkImage(_ data: Data, mediaType: String) throws {
+    // A manifest MIME label is untrusted: sniff raster data regardless of its label.
     guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+      CGImageSourceGetType(source) != nil, CGImageSourceGetCount(source) > 0
+    else {
+      if mediaType.hasPrefix("image/"), mediaType != "image/svg+xml" {
+        throw ReaderError.invalid("A declared image has an unsupported or invalid raster encoding.")
+      }
+      return
+    }
+    guard
       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
       let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
       let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,

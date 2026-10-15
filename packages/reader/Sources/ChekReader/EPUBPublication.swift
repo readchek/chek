@@ -74,7 +74,9 @@ public struct EPUBPublication: Sendable {
       let resource = EPUBResource(path: resolved.path, mediaType: mediaType)
       byID[id] = resource
       resources[resolved.path] = resource
-      if item.attributes["properties"]?.split(separator: " ").contains("nav") == true {
+      if item.attributes["properties"]?.split(whereSeparator: \.isWhitespace).contains("nav")
+        == true
+      {
         navigation = resource
       }
     }
@@ -83,7 +85,7 @@ public struct EPUBPublication: Sendable {
       guard let id = item.attributes["idref"], let resource = byID[id] else {
         throw ReaderError.invalid("The reading order refers to a missing manifest item.")
       }
-      if item.attributes["properties"]?.split(separator: " ").contains(where: {
+      if item.attributes["properties"]?.split(whereSeparator: \.isWhitespace).contains(where: {
         $0 == "rendition:layout-pre-paginated" || $0 == "rendition:layout-roll"
       }) == true {
         throw ReaderError.unsupported(
@@ -109,7 +111,7 @@ public struct EPUBPublication: Sendable {
       let navURL = try resourceURL(path: navigation.path, host: host)
       let tocNode = root.descendants("nav", namespace: "http://www.w3.org/1999/xhtml").first(
         where: {
-          $0.attribute("type")?.split(separator: " ").contains("toc") == true
+          $0.attribute("type")?.split(whereSeparator: \.isWhitespace).contains("toc") == true
         })
       if let tocNode { toc = try navigationLinks(tocNode, base: navURL, host: host) }
     } else if let ncxID = package.descendants("spine", namespace: opf).first?.attributes["toc"],
@@ -126,11 +128,14 @@ public struct EPUBPublication: Sendable {
       }
       return resources[target.path] != nil
     }
+    var labels: [String: String] = [:]
+    for link in toc {
+      let path = link.href.split(separator: "#", maxSplits: 1).first.map(String.init) ?? ""
+      if labels[path] == nil { labels[path] = link.title }
+    }
     order = order.map { link in
       EPUBLink(
-        title: toc.first(where: {
-          $0.href.split(separator: "#", maxSplits: 1).first.map(String.init) == link.href
-        })?.title ?? "",
+        title: labels[link.href] ?? "",
         href: link.href, depth: 0)
     }
     let dc = "http://purl.org/dc/elements/1.1/"
@@ -180,7 +185,14 @@ public struct EPUBPublication: Sendable {
       throw ReaderError.unsupported("Remote or external publication resources are not supported.")
     }
     let path = try ArchiveStore.canonicalPath(String(url.path.dropFirst()))
-    return (path, url)
+    var canonical = URLComponents(
+      url: try resourceURL(path: path, host: host), resolvingAgainstBaseURL: true)
+    canonical?.percentEncodedFragment =
+      URLComponents(url: url, resolvingAgainstBaseURL: true)?.percentEncodedFragment
+    guard let canonicalURL = canonical?.url else {
+      throw ReaderError.invalid("A resource URL could not be normalized.")
+    }
+    return (path, canonicalURL)
   }
 
   private static func navigationLinks(_ node: XMLNode, base: URL, host: String, depth: Int = 0)

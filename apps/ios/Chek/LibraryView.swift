@@ -52,7 +52,7 @@ struct LibraryView: View {
         }
       }
       .fullScreenCover(item: $library.openBook) { book in
-        BookReaderScreen(publication: book.publication)
+        BookReaderScreen(book: book)
       }
       .alert("Book could not open", isPresented: $library.hasMessage) {
         Button("OK", role: .cancel) {}

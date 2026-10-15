@@ -12,6 +12,7 @@ nonisolated struct LibraryBook: Codable, Identifiable, Sendable {
 struct OpenBook: Identifiable {
   let id: UUID
   let publication: EPUBPublication
+  let progress: BookReadingProgress
 }
 
 @Observable final class LibraryStore {
@@ -66,7 +67,7 @@ struct OpenBook: Identifiable {
       try await LibraryDisk.save(updated)
       books = updated
       staged = nil
-      openBook = OpenBook(id: id, publication: publication)
+      openBook = OpenBook(id: id, publication: publication, progress: BookReadingProgress())
     } catch {
       if let staged { await LibraryDisk.removeStaged(staged) }
       message = error.localizedDescription
@@ -79,7 +80,8 @@ struct OpenBook: Identifiable {
     defer { isBusy = false }
     do {
       let publication = try await EPUBPublication.open(LibraryDisk.originalURL(id: book.id))
-      openBook = OpenBook(id: book.id, publication: publication)
+      let progress = try await ReadingProgressDisk.shared.load(id: book.id)
+      openBook = OpenBook(id: book.id, publication: publication, progress: progress)
     } catch { message = error.localizedDescription }
   }
 }

@@ -8,19 +8,38 @@ public final class EPUBReader {
   public let publication: EPUBPublication
   public private(set) var currentHref: String
   public private(set) var requestedHref: String
+  public private(set) var location: ReadingLocation?
+  public private(set) var textScale: Double
   public var message: String?
   private(set) var page: WebPage?
   private(set) var loadFailed = false
+  private(set) var failureDescription: String?
+  private(set) var loadRequestID = UUID()
+  private var resumeLocation: ReadingLocation?
+  private var documentToken = ""
+  private var isRestoring = true
+  private var explicitLoad = false
+  private var resourceFailure: String?
+  private var topInset: CGFloat = 0
+  private var bottomInset: CGFloat = 0
 
   public var hasMessage: Bool {
     get { message != nil }
     set { if !newValue { message = nil } }
   }
 
-  public init(publication: EPUBPublication) {
+  public init(publication: EPUBPublication, location: ReadingLocation? = nil, textScale: Double = 1)
+  {
     self.publication = publication
-    currentHref = publication.readingOrder[0].href
-    requestedHref = publication.readingOrder[0].href
+    let validLocation = location.flatMap { anchor in
+      anchor.isValid && (try? publication.url(for: anchor.resourceHref)) != nil ? anchor : nil
+    }
+    resumeLocation = validLocation
+    self.location = validLocation
+    self.textScale = textScale.isFinite ? min(2, max(0.75, textScale)) : 1
+    let startingHref = validLocation?.resourceHref ?? publication.readingOrder[0].href
+    currentHref = startingHref
+    requestedHref = startingHref
   }
 
   public var chapterIndex: Int? {
@@ -29,8 +48,8 @@ public final class EPUBReader {
   }
 
   public func open(_ link: EPUBLink) {
-    currentHref = link.href
     requestedHref = link.href
+    loadRequestID = UUID()
   }
 
   public func moveChapter(by delta: Int) {
@@ -41,18 +60,40 @@ public final class EPUBReader {
   }
 
   func load() async {
+    let generation = loadRequestID
     loadFailed = false
+    failureDescription = nil
+    resourceFailure = nil
     do {
+      if page != nil { _ = await captureLocation() }
       if page == nil { page = try await makePage() }
       try Task.checkCancellation()
-      guard let page else { return }
+      guard generation == loadRequestID, let page else { return }
       let url = try publication.url(for: requestedHref)
+      let anchor = resumeLocation
+      resumeLocation = nil
+      documentToken = UUID().uuidString
+      isRestoring = true
+      explicitLoad = true
       for try await _ in page.load(url) { try Task.checkCancellation() }
+      guard generation == loadRequestID else { return }
+      let value = try await page.callJavaScript(
+        "return await window.chekReader.activate(token, anchor, scale, top, bottom);",
+        arguments: [
+          "token": documentToken, "anchor": try jsonValue(anchor), "scale": textScale,
+          "top": Double(topInset), "bottom": Double(bottomInset),
+        ], contentWorld: .world(name: "ChekReader"))
+      guard generation == loadRequestID else { return }
+      isRestoring = false
+      explicitLoad = false
+      acceptLocation(value)
+      if let resourceFailure, message == nil { message = resourceFailure }
     } catch is CancellationError {
     } catch {
       if !Task.isCancelled {
+        explicitLoad = false
         loadFailed = true
-        message = error.localizedDescription
+        failureDescription = resourceFailure ?? error.localizedDescription
       }
     }
   }
@@ -63,42 +104,92 @@ public final class EPUBReader {
       for try await _ in page.navigations { try Task.checkCancellation() }
     } catch is CancellationError {
     } catch {
-      if !Task.isCancelled {
+      if !Task.isCancelled && !explicitLoad {
         loadFailed = true
-        message = error.localizedDescription
+        failureDescription = error.localizedDescription
       }
     }
   }
 
+  /// Capture synchronously from the current DOM before close/background saves.
+  @discardableResult public func captureLocation() async -> ReadingLocation? {
+    guard !isRestoring, let page else { return location }
+    let token = documentToken
+    do {
+      let value = try await page.callJavaScript(
+        "return window.chekReader.capture();",
+        contentWorld: .world(name: "ChekReader"))
+      if token == documentToken { acceptLocation(value) }
+    } catch { if !Task.isCancelled { message = error.localizedDescription } }
+    return location
+  }
+
+  public func setTextScale(_ scale: Double) async {
+    guard scale.isFinite, !isRestoring, let page else { return }
+    _ = await captureLocation()
+    let token = documentToken
+    textScale = min(2, max(0.75, scale))
+    isRestoring = true
+    do {
+      let value = try await page.callJavaScript(
+        "return await window.chekReader.setScale(scale);",
+        arguments: ["scale": textScale], contentWorld: .world(name: "ChekReader"))
+      guard token == documentToken else { return }
+      isRestoring = false
+      acceptLocation(value)
+    } catch {
+      if token == documentToken { isRestoring = false }
+      if !Task.isCancelled { message = error.localizedDescription }
+    }
+  }
+
+  func setInsets(top: CGFloat, bottom: CGFloat) async {
+    guard topInset != top || bottomInset != bottom else { return }
+    topInset = top
+    bottomInset = bottom
+    guard let page else { return }
+    _ = try? await page.callJavaScript(
+      "window.chekReader?.setInsets(top, bottom);",
+      arguments: ["top": Double(top), "bottom": Double(bottom)],
+      contentWorld: .world(name: "ChekReader"))
+  }
+
+  private func jsonValue(_ anchor: ReadingLocation?) throws -> Any {
+    guard let anchor else { return NSNull() }
+    return try JSONSerialization.jsonObject(with: JSONEncoder().encode(anchor))
+  }
+
+  private func acceptLocation(_ value: Any?) {
+    guard let value, JSONSerialization.isValidJSONObject(value),
+      let data = try? JSONSerialization.data(withJSONObject: value), data.count <= 16 * 1024,
+      let anchor = try? JSONDecoder().decode(ReadingLocation.self, from: data), anchor.isValid,
+      let url = try? publication.url(for: anchor.resourceHref)
+    else { return }
+    let canonical = EPUBPublication.linkHref(url).split(separator: "#", maxSplits: 1).first.map(
+      String.init)
+    guard canonical == anchor.resourceHref,
+      canonical == currentHref.split(separator: "#", maxSplits: 1).first.map(String.init)
+    else { return }
+    location = anchor
+  }
+
+  fileprivate func receive(_ message: WKScriptMessage) {
+    guard !isRestoring, message.frameInfo.isMainFrame,
+      message.frameInfo.request.url?.host == publication.host,
+      let body = message.body as? [String: Any], body["token"] as? String == documentToken
+    else { return }
+    acceptLocation(body["location"])
+  }
+
   private func makePage() async throws -> WebPage {
     let controller = WKUserContentController()
-    // Supply a device-width viewport for reflowable books that omit one. Leave
-    // authored styles and existing viewport declarations intact.
-    let viewport = #"""
-      (() => {
-        const install = () => {
-          if (!document.head) return false;
-          if (!document.querySelector('meta[name="viewport"]')) {
-            const meta = document.createElementNS('http://www.w3.org/1999/xhtml', 'meta');
-            meta.setAttribute('name', 'viewport');
-            meta.setAttribute('content', 'width=device-width, initial-scale=1');
-            document.head.appendChild(meta);
-          }
-          if (!document.querySelector('style[data-chek-reader-insets]')) {
-            const style = document.createElementNS('http://www.w3.org/1999/xhtml', 'style');
-            style.setAttribute('data-chek-reader-insets', '');
-            style.textContent = 'html { padding-inline: 1rem; box-sizing: border-box; }';
-            document.head.appendChild(style);
-          }
-          return true;
-        };
-        if (!install()) {
-          const observer = new MutationObserver(() => { if (install()) observer.disconnect(); });
-          observer.observe(document, {childList: true, subtree: true});
-          document.addEventListener('DOMContentLoaded', () => { observer.disconnect(); install(); }, {once: true});
-        }
-      })();
-      """#
+    guard let scriptURL = Bundle.module.url(forResource: "ReaderDocument", withExtension: "js")
+    else {
+      throw ReaderError.invalid("The reader document bridge is missing.")
+    }
+    let viewport = try String(contentsOf: scriptURL, encoding: .utf8)
+    controller.add(
+      ReaderBridge(reader: self), contentWorld: .world(name: "ChekReader"), name: "readingLocation")
     controller.addUserScript(
       WKUserScript(
         source: viewport, injectionTime: .atDocumentStart,
@@ -125,13 +216,30 @@ public final class EPUBReader {
     }
     configuration.urlSchemeHandlers[scheme] = PublicationSchemeHandler(
       publication: publication,
-      onFailure: { [weak self] message in if self?.message == nil { self?.message = message } })
+      onFailure: { [weak self] message in
+        guard let self else { return }
+        if self.explicitLoad {
+          self.resourceFailure = message
+        } else if self.message == nil {
+          self.message = message
+        }
+      })
     return WebPage(
       configuration: configuration,
       navigationDecider: PublicationNavigation(
         host: publication.host,
         onNavigation: { [weak self] url in
-          self?.currentHref = EPUBPublication.linkHref(url)
+          guard let self,
+            let canonical = try? self.publication.url(for: EPUBPublication.linkHref(url))
+          else { return }
+          self.currentHref = EPUBPublication.linkHref(canonical)
+        },
+        onLink: { [weak self] url in
+          guard let self,
+            let canonical = try? self.publication.url(for: EPUBPublication.linkHref(url))
+          else { return }
+          self.requestedHref = EPUBPublication.linkHref(canonical)
+          self.loadRequestID = UUID()
         },
         onBlocked: { [weak self] in
           self?.message = String(
@@ -153,24 +261,36 @@ public struct EPUBReaderView: View {
             String(localized: "Page could not load", bundle: .module),
             systemImage: "exclamationmark.triangle")
         } description: {
-          Text(String(localized: "Close this book and reopen it to try again.", bundle: .module))
+          Text(
+            reader.failureDescription
+              ?? String(localized: "Close this book and reopen it to try again.", bundle: .module))
         }
       } else if let page = reader.page {
         WebView(page)
           .webViewBackForwardNavigationGestures(.disabled)
           .webViewLinkPreviews(.disabled)
+          .webViewOnScrollGeometryChange(
+            for: ReaderInsets.self,
+            of: {
+              ReaderInsets(top: $0.contentInsets.top, bottom: $0.contentInsets.bottom)
+            },
+            action: { _, insets in
+              Task { await reader.setInsets(top: insets.top, bottom: insets.bottom) }
+            }
+          )
           .task { await reader.observeNavigations() }
       } else {
         ProgressView(String(localized: "Opening book…", bundle: .module))
       }
     }
-    .task(id: reader.requestedHref) { await reader.load() }
+    .task(id: reader.loadRequestID) { await reader.load() }
   }
 }
 
 private struct PublicationNavigation: WebPage.NavigationDeciding {
   let host: String
   let onNavigation: @MainActor (URL) -> Void
+  let onLink: @MainActor (URL) -> Void
   let onBlocked: @MainActor () -> Void
 
   mutating func decidePolicy(
@@ -185,6 +305,10 @@ private struct PublicationNavigation: WebPage.NavigationDeciding {
       onBlocked()
       return .cancel
     }
+    if action.navigationType == .linkActivated {
+      onLink(url)
+      return .cancel
+    }
     onNavigation(url)
     return .allow
   }
@@ -194,6 +318,23 @@ private struct PublicationNavigation: WebPage.NavigationDeciding {
       response.canShowMimeType
     else { return .cancel }
     return .allow
+  }
+}
+
+private struct ReaderInsets: Hashable {
+  let top: CGFloat
+  let bottom: CGFloat
+}
+
+@MainActor private final class ReaderBridge: NSObject, WKScriptMessageHandler {
+  weak var reader: EPUBReader?
+
+  init(reader: EPUBReader) { self.reader = reader }
+
+  func userContentController(
+    _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+  ) {
+    reader?.receive(message)
   }
 }
 
@@ -214,9 +355,7 @@ private struct PublicationSchemeHandler: URLSchemeHandler {
             throw ReaderError.invalid("This resource is not declared in the book's manifest.")
           }
           let data = try await publication.archive.data(at: path)
-          if resource.mediaType.hasPrefix("image/"), resource.mediaType != "image/svg+xml" {
-            try ArchiveStore.checkImage(data)
-          }
+          try ArchiveStore.checkImage(data, mediaType: resource.mediaType)
           let csp =
             "default-src 'none'; script-src 'none'; connect-src 'none'; style-src 'unsafe-inline' chek-publication:; img-src chek-publication:; font-src chek-publication:; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
           guard
