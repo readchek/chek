@@ -5,6 +5,8 @@ import Observation
 nonisolated struct BookReadingProgress: Codable, Sendable {
   var location: ReadingLocation?
   var textScale = 1.0
+  var comicLocation: CBZLocation?
+  var comicDirection: CBZReadingDirection?
 }
 
 @Observable final class ReadingProgressStore {
@@ -21,6 +23,16 @@ nonisolated struct BookReadingProgress: Codable, Sendable {
   func update(location: ReadingLocation?, textScale: Double) {
     if let location { progress.location = location }
     progress.textScale = textScale
+    scheduleSave()
+  }
+
+  func update(comicLocation: CBZLocation, readingDirection: CBZReadingDirection) {
+    progress.comicLocation = comicLocation
+    progress.comicDirection = readingDirection
+    scheduleSave()
+  }
+
+  private func scheduleSave() {
     pending?.cancel()
     pending = Task {
       do {

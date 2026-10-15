@@ -33,6 +33,19 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - org.idpf.epub-container
+          - CFBundleTypeName: CBZ comic
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.chek.cbz
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: dev.chek.cbz
+            UTTypeDescription: CBZ comic archive
+            UTTypeConformsTo:
+              - public.zip-archive
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbz
         LSSupportsOpeningDocumentsInPlace: true
         UIFileSharingEnabled: true
     settings:

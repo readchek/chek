@@ -7,11 +7,60 @@ nonisolated struct LibraryBook: Codable, Identifiable, Sendable {
   let title: String
   let author: String
   let importedAt: Date
+  let format: PublicationFormat
+
+  private enum CodingKeys: String, CodingKey { case id, title, author, importedAt, format }
+
+  init(id: UUID, title: String, author: String, importedAt: Date, format: PublicationFormat) {
+    self.id = id
+    self.title = title
+    self.author = author
+    self.importedAt = importedAt
+    self.format = format
+  }
+
+  init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    title = try values.decode(String.self, forKey: .title)
+    author = try values.decode(String.self, forKey: .author)
+    importedAt = try values.decode(Date.self, forKey: .importedAt)
+    // Older library records contain EPUBs only. Keep their IDs and original paths.
+    format = try values.decodeIfPresent(PublicationFormat.self, forKey: .format) ?? .epub
+  }
+}
+
+nonisolated enum OpenedPublication: Sendable {
+  case epub(EPUBPublication)
+  case cbz(CBZPublication)
+
+  var title: String {
+    switch self {
+    case .epub(let book): book.title
+    case .cbz(let comic): comic.title
+    }
+  }
+
+  var author: String {
+    switch self {
+    case .epub(let book): book.author
+    case .cbz: ""
+    }
+  }
+
+  static func open(_ url: URL, format: PublicationFormat, title: String) async throws
+    -> OpenedPublication
+  {
+    switch format {
+    case .epub: .epub(try await EPUBPublication.open(url))
+    case .cbz: .cbz(try await CBZPublication.open(url, fallbackTitle: title))
+    }
+  }
 }
 
 struct OpenBook: Identifiable {
   let id: UUID
-  let publication: EPUBPublication
+  let publication: OpenedPublication
   let progress: BookReadingProgress
 }
 
@@ -53,16 +102,20 @@ struct OpenBook: Identifiable {
     var staged: URL?
     do {
       try await ensureLoaded()
-      guard url.isFileURL, url.pathExtension.lowercased() == PublicationFormat.epub.rawValue else {
+      guard url.isFileURL, let format = PublicationFormat(rawValue: url.pathExtension.lowercased())
+      else {
         throw ReaderError.unsupported(
-          "Choose a local EPUB file. Comic import is coming in a later milestone.")
+          "Choose a local EPUB or CBZ file.")
       }
       let id = UUID()
-      let owned = try await LibraryDisk.stage(url, id: id)
+      let owned = try await LibraryDisk.stage(url, id: id, format: format)
       staged = owned
-      let publication = try await EPUBPublication.open(owned)
+      let publication = try await OpenedPublication.open(
+        owned, format: format,
+        title: url.deletingPathExtension().lastPathComponent)
       let record = LibraryBook(
-        id: id, title: publication.title, author: publication.author, importedAt: Date())
+        id: id, title: publication.title, author: publication.author, importedAt: Date(),
+        format: format)
       let updated = books + [record]
       try await LibraryDisk.save(updated)
       books = updated
@@ -79,7 +132,9 @@ struct OpenBook: Identifiable {
     isBusy = true
     defer { isBusy = false }
     do {
-      let publication = try await EPUBPublication.open(LibraryDisk.originalURL(id: book.id))
+      let publication = try await OpenedPublication.open(
+        LibraryDisk.originalURL(id: book.id, format: book.format),
+        format: book.format, title: book.title)
       let progress = try await ReadingProgressDisk.shared.load(id: book.id)
       openBook = OpenBook(id: book.id, publication: publication, progress: progress)
     } catch { message = error.localizedDescription }
@@ -91,9 +146,9 @@ private nonisolated enum LibraryDisk {
     URL.applicationSupportDirectory.appending(path: "Chek", directoryHint: .isDirectory)
   }
 
-  static func originalURL(id: UUID) -> URL {
+  static func originalURL(id: UUID, format: PublicationFormat) -> URL {
     directory.appending(path: "Originals", directoryHint: .isDirectory).appending(
-      path: id.uuidString + ".epub")
+      path: id.uuidString + "." + format.rawValue)
   }
 
   @concurrent static func load() async throws -> [LibraryBook] {
@@ -112,10 +167,12 @@ private nonisolated enum LibraryDisk {
     try? FileManager.default.removeItem(at: url)
   }
 
-  @concurrent static func stage(_ source: URL, id: UUID) async throws -> URL {
+  @concurrent static func stage(_ source: URL, id: UUID, format: PublicationFormat) async throws
+    -> URL
+  {
     let scoped = source.startAccessingSecurityScopedResource()
     defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-    let destination = originalURL(id: id)
+    let destination = originalURL(id: id, format: format)
     try FileManager.default.createDirectory(
       at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
     var coordinationError: NSError?
@@ -127,7 +184,7 @@ private nonisolated enum LibraryDisk {
       do {
         let values = try input.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true else {
-          throw ReaderError.invalid("Choose a regular EPUB file.")
+          throw ReaderError.invalid("Choose a regular book or comic file.")
         }
         let reader = try FileHandle(forReadingFrom: input)
         defer { try? reader.close() }
@@ -141,7 +198,7 @@ private nonisolated enum LibraryDisk {
           try Task.checkCancellation()
           bytes += chunk.count
           guard bytes <= 512 * 1024 * 1024 else {
-            throw ReaderError.limit("The EPUB exceeds 512 MB.")
+            throw ReaderError.limit("The book exceeds 512 MB.")
           }
           try writer.write(contentsOf: chunk)
         }

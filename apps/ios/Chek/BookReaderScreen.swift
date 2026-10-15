@@ -10,10 +10,10 @@ struct BookReaderScreen: View {
   @State private var showingSettings = false
   @State private var closing = false
 
-  init(book: OpenBook) {
+  init(book: OpenBook, publication: EPUBPublication) {
     _reader = State(
       initialValue: EPUBReader(
-        publication: book.publication,
+        publication: publication,
         location: book.progress.location, textScale: book.progress.textScale))
     _progress = State(initialValue: ReadingProgressStore(id: book.id, progress: book.progress))
   }

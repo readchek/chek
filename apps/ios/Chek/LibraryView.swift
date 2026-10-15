@@ -14,7 +14,7 @@ struct LibraryView: View {
           ContentUnavailableView {
             Label("No books yet", systemImage: "books.vertical")
           } description: {
-            Text("Import an EPUB from Files to start reading.")
+            Text("Import an EPUB or CBZ from Files to start reading.")
           } actions: {
             Button("Import book", systemImage: "plus") { importing = true }
               .buttonStyle(.glassProminent)
@@ -25,7 +25,7 @@ struct LibraryView: View {
             Button {
               Task { await library.open(book) }
             } label: {
-              LibraryBookRow(title: book.title, author: book.author)
+              LibraryBookRow(title: book.title, author: book.author, format: book.format)
             }
             .disabled(library.isBusy)
           }
@@ -45,14 +45,23 @@ struct LibraryView: View {
             .background(.regularMaterial, in: .rect(cornerRadius: 16))
         }
       }
-      .fileImporter(isPresented: $importing, allowedContentTypes: [.epub]) { result in
+      .fileImporter(
+        isPresented: $importing,
+        allowedContentTypes: [
+          .epub, .chekComic,
+          UTType(filenameExtension: "cbz") ?? .chekComic,
+        ]
+      ) { result in
         switch result {
         case .success(let url): Task { await library.importBook(url) }
         case .failure(let error): library.message = error.localizedDescription
         }
       }
       .fullScreenCover(item: $library.openBook) { book in
-        BookReaderScreen(book: book)
+        switch book.publication {
+        case .epub(let publication): BookReaderScreen(book: book, publication: publication)
+        case .cbz(let publication): ComicReaderScreen(book: book, publication: publication)
+        }
       }
       .alert("Book could not open", isPresented: $library.hasMessage) {
         Button("OK", role: .cancel) {}
@@ -68,10 +77,11 @@ struct LibraryView: View {
 private struct LibraryBookRow: View {
   let title: String
   let author: String
+  let format: PublicationFormat
 
   var body: some View {
     HStack(spacing: 16) {
-      Image(systemName: "book.closed")
+      Image(systemName: format == .cbz ? "photo.on.rectangle" : "book.closed")
         .font(.title2)
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
@@ -83,4 +93,8 @@ private struct LibraryBookRow: View {
     .padding(.vertical, 8)
     .accessibilityElement(children: .combine)
   }
+}
+
+extension UTType {
+  static let chekComic = UTType(importedAs: "dev.chek.cbz", conformingTo: .zip)
 }
