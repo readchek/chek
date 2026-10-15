@@ -51,12 +51,12 @@ Two 15-second Time Profiler captures each included four alternating vertical
 drags in Moby-Dick chapter 8. These are single exploratory runs, not repeatable
 benchmark distributions: gesture timing and starting offsets were not identical.
 
-| Observation | Baseline | Hardened |
-| --- | ---: | ---: |
-| CPU sample rows (1 ms nominal weight) | 183 | 131 |
-| Main-thread sample weight | 153 ms | 107 ms |
-| App physical footprint after flow | 30.6 MB | 30.3 MB |
-| App peak footprint reported by vmmap | 32.3 MB | 32.0 MB |
+| Observation                           | Baseline | Hardened |
+| ------------------------------------- | -------: | -------: |
+| CPU sample rows (1 ms nominal weight) |      183 |      131 |
+| Main-thread sample weight             |   153 ms |   107 ms |
+| App physical footprint after flow     |  30.6 MB |  30.3 MB |
+| App peak footprint reported by vmmap  |  32.3 MB |  32.0 MB |
 
 Do not interpret these differences as a measured speedup. The trace attaches
 only to the host app, excluding WebKit content/render processes and mirror costs.
@@ -208,6 +208,31 @@ A read-only EPUB audit found idle-debounced semantic capture, throttled interact
 messages, and no per-scroll persistence in the demo; no speculative performance
 change was made in response to the streaming symptom.
 
+The next physical session returned to Moby-Dick with a reported WebKit content
+process termination. Try again restored chapter 1 and Ready without restarting
+the host. The prior position at the time of termination was not observed, so this
+does not establish termination-time position recovery. After a session replacement,
+scrolling reached a distinct passage near the chapter end. Background/foreground
+and two close/reopen cycles preserved that passage. Switching to birds-eye, scrolling
+to page 11 at 66.5%, closing, and reopening also preserved the final artwork.
+These are short lifecycle checks, not a memory soak or forced cancellation proof.
+
+The EPUB spine's declared page progression now maps physical chapter gestures:
+right swipe advances RTL books, while LTR/default retain left-swipe advancement.
+Logical spine order and `moveChapter(by:)` are unchanged. The unchanged W3C
+`pkg-spine-progression_rtl` fixture (revision
+`54092b4233253e9aac80e93ec4782b380b4b3403`, W3C Software and Document License)
+was packaged locally for manual use. On iPhone 17, right swipe moved content 001
+to 002, and left swipe returned to 001. Turning off Reader swipe navigation kept
+001 unchanged after a right swipe. After restoring swipes, the default-direction
+mixed-layout sample moved 003 → 002 with a right swipe and 002 → 003 with a left
+swipe. All destinations reported Ready. This checks chapter navigation, not
+synthetic page spreads or CSS writing-mode conformance.
+
+The independent consumer compiled for both simulator architectures, and the
+personal-team signed Release device build passed. Evidence logs:
+`/tmp/chek-rtl-package-build.log` and `/tmp/chek-rtl-device-build.log`.
+
 ## Release checks still open
 
 Physical-device setup: the standalone Release demo was signed with the personal
@@ -224,8 +249,8 @@ consumer remains `dev.chek.reader.embedding`.
 - Larger legal EPUB/CBZ corpus, malformed input and repeated open/close soak runs.
 - VoiceOver speech/gestures and device lifecycle checks; maximum Dynamic Type was
   checked for the shared failure surface and consumer controls, not every UI path.
-- Define the v1 format-support contract against the unsupported features in the
-  package README. This work does not add EPUB roll, spreads, DRM or new codecs.
+- The v1 format-support contract is now explicit in the embedding guide and package
+  README. EPUB roll, spreads, DRM and new codecs remain outside current coverage.
 
 The package is internally installable and hardened, not certified feature-complete
 or ready for a public release.

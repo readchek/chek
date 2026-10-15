@@ -51,9 +51,15 @@ not copy it into reader-owned storage.
 Pass a saved `ReadingLocation` or `CBZLocation` to the reader initializer. Observe
 `location` during reading and encode it with `JSONEncoder`. Before close or
 background persistence, call `captureLocation()`; the EPUB version is asynchronous.
+Capture while the canvas is still mounted, then remove it. A reader retained by
+the host retains session resources; release the reader and publication when the
+session ends. There is no separate public `close()` operation.
 Store preferences alongside the location, including comic direction and mode.
 Validate decoded locations with `isValid` before use. The host decides how to
 recover from invalid or incompatible persisted data.
+Locations carry resource/page identity, not a book identifier or content hash.
+Persist them under the host's publication identity and do not reuse them across
+different books or editions. EPUB anchors use Chek's schema rather than EPUB CFI.
 
 Use the reader's public navigation and preference methods for host controls.
 `onTap` and `onInteraction` on each canvas let the host control chrome visibility.
@@ -74,6 +80,44 @@ Keep one reader instance per mounted canvas. Publications may be opened by
 multiple independent readers, but navigation state and capture callbacks belong
 to a single reading session. Replacing a reader in a persistent SwiftUI host
 detaches the old canvas state and binds the new session.
+
+Both reader classes are main-actor observable state. Their canvas views start
+loading when mounted; creating a reader alone does not render or activate it.
+Publication opening and comic image work run asynchronously outside the UI path.
+The package also exposes `CBZImagePipeline` for a host-owned comic canvas; there
+is no equivalent public EPUB resource or DOM interface. `EPUBReader.open(_:)`
+accepts links supplied by the publication's reading order or navigation arrays.
+External links are blocked, with no public host callback for opening them.
+`EPUBPublication.pageProgressionDirection` exposes the spine's `ltr`, `rtl` or
+`default` declaration. The canvas maps right swipes to the next chapter for `rtl`;
+left swipes advance otherwise. Missing direction is `default`, for which this
+reader chooses left-to-right gestures. `moveChapter(by:)` always follows logical
+spine order. Hosts can disable chapter swipes and supply their own policy.
+The mapping follows the [EPUB spine direction contract](https://www.w3.org/TR/epub-33/#sec-spine-elem);
+RTL forward/reverse gestures and gesture opt-out were verified on iPhone 17 with
+the W3C RTL sample; default-direction navigation was also rechecked.
+
+## Format contract
+
+The v1 format boundary is local, unencrypted EPUB and JPEG/PNG CBZ within the
+[documented resource limits](../packages/reader/README.md). EPUB reflows one spine
+document at a time, or fits one fixed XHTML/SVG page. CBZ supports paged reading
+and continuous vertical strips. This does not promise every EPUB feature or every
+file accepted by another reader.
+
+Selected reflowable, fixed, mixed-layout, SVG-spine, vertical-writing and
+IDPF-obfuscated-font EPUBs have runtime evidence. JPEG and PNG comics have runtime
+evidence for reading, navigation and replacement. Those samples do not establish
+broad rendering fidelity, full accessibility, malformed-input coverage, or device
+performance guarantees. See the validation record for the exact exercised flows.
+
+EPUB roll, synthetic spreads, DRM/Adobe obfuscation, media playback/overlays,
+inline data resources, annotations, full EPUB CFI and other comic codecs remain
+outside current coverage. Publication scripting and remote resources are disabled
+by policy. Unsupported layouts and spine document types fail explicitly; blocked
+resources and other unimplemented EPUB features do not all cause an open-time
+rejection. Hosts should surface reader failures and avoid claiming full EPUB
+conformance from a successful open.
 
 ## Building independently
 

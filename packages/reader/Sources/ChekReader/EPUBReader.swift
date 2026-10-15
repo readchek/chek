@@ -80,6 +80,7 @@ public final class EPUBReader {
     loadRequestID = UUID()
   }
 
+  /// Delta follows logical spine order, independently of physical swipe direction.
   public func moveChapter(by delta: Int) {
     guard let index = chapterIndex else { return }
     let (destination, overflow) = index.addingReportingOverflow(delta)
@@ -290,12 +291,14 @@ public final class EPUBReader {
       switch kind {
       case "tap": onTap()
       case "active": onInteraction()
-      case "next":
+      case "swipeLeft", "swipeRight":
         onInteraction()
-        if allowsChapterSwipe { moveChapter(by: 1) }
-      case "previous":
-        onInteraction()
-        if allowsChapterSwipe { moveChapter(by: -1) }
+        if allowsChapterSwipe {
+          let leftToRightDelta = kind == "swipeLeft" ? 1 : -1
+          moveChapter(
+            by: publication.pageProgressionDirection == .rightToLeft
+              ? -leftToRightDelta : leftToRightDelta)
+        }
       default: break
       }
       return

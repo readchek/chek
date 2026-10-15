@@ -1,5 +1,11 @@
 import Foundation
 
+public enum EPUBPageProgressionDirection: String, Sendable {
+  case leftToRight = "ltr"
+  case rightToLeft = "rtl"
+  case `default` = "default"
+}
+
 public struct EPUBLink: Identifiable, Hashable, Sendable {
   public var id: String { href }
   public let title: String
@@ -19,6 +25,9 @@ public struct EPUBPublication: Sendable {
   public let tableOfContents: [EPUBLink]
   public let landmarks: [EPUBLink]
   public let pageList: [EPUBLink]
+  /// The spine's declared progression, or default when unspecified.
+  /// The reader uses left-to-right chapter gestures for default progression.
+  public let pageProgressionDirection: EPUBPageProgressionDirection
   let archive: ArchiveStore
   let resources: [String: EPUBResource]
   let host: String
@@ -92,6 +101,13 @@ public struct EPUBPublication: Sendable {
       {
         navigation = resource
       }
+    }
+    let spine = package.children.first(where: { $0.name == "spine" && $0.namespace == opf })
+    guard
+      let pageProgressionDirection = EPUBPageProgressionDirection(
+        rawValue: spine?.attributes["page-progression-direction"] ?? "default")
+    else {
+      throw ReaderError.invalid("The EPUB spine declares an invalid page progression direction.")
     }
     var order: [EPUBLink] = []
     var fixedResources: Set<String> = []
@@ -206,7 +222,8 @@ public struct EPUBPublication: Sendable {
     return EPUBPublication(
       title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
       author: author, readingOrder: order, tableOfContents: toc, landmarks: landmarks,
-      pageList: pageList, archive: archive, resources: resources, host: host,
+      pageList: pageList, pageProgressionDirection: pageProgressionDirection,
+      archive: archive, resources: resources, host: host,
       fixedResources: fixedResources, obfuscatedFonts: obfuscatedFonts, fontKey: fontKey)
   }
 

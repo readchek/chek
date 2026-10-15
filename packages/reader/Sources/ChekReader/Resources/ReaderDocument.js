@@ -350,7 +350,7 @@
     if (duration < 350 && Math.hypot(x, y) < 10) interact('tap');
     else if (duration < 900 && Math.abs(x) >= 70 && Math.abs(x) > Math.abs(y) * 1.5
       && (window.visualViewport?.scale ?? 1) <= 1.01) {
-      interact(x < 0 ? 'next' : 'previous');
+      interact(x < 0 ? 'swipeLeft' : 'swipeRight');
     }
   }, {passive: true});
   window.addEventListener('resize', () => {
