@@ -19,3 +19,5 @@ prototypes/
 
 # Cloudflare deployment artifacts
 .cloudflare/
+
+.agents/
