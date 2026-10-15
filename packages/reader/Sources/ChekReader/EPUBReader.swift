@@ -124,6 +124,10 @@ public final class EPUBReader {
         ], contentWorld: .world(name: "ChekReader"))
       guard generation == loadRequestID else { return }
       try Task.checkCancellation()
+      if let failure = (value as? [String: Any])?["documentError"] as? String {
+        throw ReaderError.invalid(
+          "The publication document is malformed XML. \(failure.prefix(2048))")
+      }
       resumeLocation = nil
       isRestoring = false
       explicitLoad = false
@@ -402,11 +406,7 @@ public struct EPUBReaderView: View {
               ?? String(localized: "Close this book and reopen it to try again.", bundle: .module))
         }
       } else if let page = reader.page {
-        if let viewport = reader.fixedViewport {
-          FixedPageView(reader: reader, page: page, viewport: viewport)
-        } else {
-          ReaderWebContent(reader: reader, page: page)
-        }
+        ReaderPageView(reader: reader, page: page, viewport: reader.fixedViewport)
       } else {
         ProgressView(String(localized: "Opening book…", bundle: .module))
       }
@@ -524,10 +524,10 @@ private struct ReaderWebContent: View {
   }
 }
 
-private struct FixedPageView: View {
+private struct ReaderPageView: View {
   let reader: EPUBReader
   let page: WebPage
-  let viewport: FixedPageViewport
+  let viewport: FixedPageViewport?
 
   var body: some View {
     GeometryReader { geometry in
@@ -535,9 +535,13 @@ private struct FixedPageView: View {
       // the reported safe areas again shrinks landscape pages twice.
       let width = max(1, geometry.size.width)
       let height = max(1, geometry.size.height)
-      let factor = min(width / viewport.width, height / viewport.height)
+      let contentWidth = viewport?.width ?? width
+      let contentHeight = viewport?.height ?? height
+      let factor = min(width / contentWidth, height / contentHeight)
+      // A WebPage may attach to only one WebView. Keep that view's identity
+      // stable when a mixed-layout spine switches between reflow and fixed.
       ReaderWebContent(reader: reader, page: page)
-        .frame(width: viewport.width, height: viewport.height)
+        .frame(width: contentWidth, height: contentHeight)
         .scaleEffect(factor)
         .frame(width: width, height: height)
         .clipped()

@@ -233,8 +233,35 @@
     document.documentElement.style.setProperty('--chek-bottom-inset', `${bottomInset}px`);
   }
 
+  function documentError() {
+    if (!['application/xhtml+xml', 'image/svg+xml', 'application/xml', 'text/xml'].includes(document.contentType)) return null;
+    // WebKit's XMLErrors inserts this exact report before the root's first
+    // child (or in a generated body for missing/SVG roots). An authored element
+    // merely named parsererror elsewhere in a book is not a parse failure.
+    // https://github.com/WebKit/WebKit/blob/main/Source/WebCore/xml/XMLErrors.cpp
+    const xhtml = 'http://www.w3.org/1999/xhtml';
+    for (const parent of [document.documentElement, document.body]) {
+      const report = parent?.firstChild;
+      if (!(report instanceof Element) || report.localName !== 'parsererror'
+        || report.namespaceURI !== xhtml || report.style.display !== 'block'
+        || report.style.whiteSpace !== 'pre') continue;
+      const children = Array.from(report.children);
+      if (children.length !== 3 || children.some(child => child.namespaceURI !== xhtml)
+        || children[0].localName !== 'h3' || children[1].localName !== 'div'
+        || children[2].localName !== 'h3'
+        || children[0].textContent !== 'This page contains the following errors:'
+        || children[2].textContent !== 'Below is a rendering of the page up to the first error.'
+        || children[1].style.fontFamily !== 'monospace'
+        || children[1].style.fontSize !== '12px') continue;
+      return children[1].textContent.slice(0, 2048);
+    }
+    return null;
+  }
+
   world.chekReader = {
     async activate(nextToken, anchor, nextScale, top, bottom, isFixedLayout) {
+      const failure = documentError();
+      if (failure !== null) return {documentError: failure};
       const generation = ++operation;
       restoring = true;
       token = nextToken;
