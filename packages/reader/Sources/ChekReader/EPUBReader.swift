@@ -1,8 +1,17 @@
 import Foundation
 import Observation
 import SwiftUI
-import UIKit
 import WebKit
+
+#if os(macOS)
+  import AppKit
+  private typealias CallbackPlatformView = NSView
+  private typealias CallbackRepresentable = NSViewRepresentable
+#else
+  import UIKit
+  private typealias CallbackPlatformView = UIView
+  private typealias CallbackRepresentable = UIViewRepresentable
+#endif
 
 #if DEBUG
   import OSLog
@@ -17,16 +26,16 @@ public final class EPUBReader {
   public private(set) var textScale: Double
   public var message: String?
   private(set) var page: WebPage?
-  public private(set) var loadFailed = false
-  public private(set) var failureDescription: String?
+  public private(set) var phase: ReaderPhase = .idle
+  public var loadFailed: Bool { phase.failureDescription != nil }
+  public var failureDescription: String? { phase.failureDescription }
   /// Disable when the host supplies its own chapter navigation gestures.
   public var allowsChapterSwipe: Bool
   private(set) var fixedViewport: FixedPageViewport?
   private(set) var loadRequestID = UUID()
   private var resumeLocation: ReadingLocation?
   private var documentToken = ""
-  private var isRestoring = true
-  private var explicitLoad = false
+  private var loadOperationID: UUID?
   private var appliedTextScale: Double = 1
   private var scaleOperationID: UUID?
   private var resourceFailure: String?
@@ -67,22 +76,30 @@ public final class EPUBReader {
 
   /// False while loading/restoring, or when an error replaces the document.
   /// Consumers should keep an exit control visible until DOM gestures are ready.
-  public var isReadyForInteraction: Bool { !isRestoring && !loadFailed && !explicitLoad }
+  public var isReadyForInteraction: Bool { phase == .ready }
 
   public func open(_ link: EPUBLink) {
     requestedHref = link.href
+    phase = .loading
     loadRequestID = UUID()
   }
 
   /// Retry the requested document, retaining the latest captured position when applicable.
   public func retry() {
     resumeLocation = location ?? resumeLocation
+    phase = .loading
     loadRequestID = UUID()
   }
 
   /// Delta follows logical spine order, independently of physical swipe direction.
   public func moveChapter(by delta: Int) {
-    guard let index = chapterIndex else { return }
+    // Relative requests accumulate from the latest target while loading, so
+    // rapid button presses have the same result as settled presses.
+    let href = phase == .ready ? currentHref : requestedHref
+    let path = href.split(separator: "#", maxSplits: 1).first.map(String.init)
+    guard let index = publication.readingOrder.firstIndex(where: { $0.href == path }) else {
+      return
+    }
     let (destination, overflow) = index.addingReportingOverflow(delta)
     guard !overflow, publication.readingOrder.indices.contains(destination) else {
       return
@@ -91,31 +108,43 @@ public final class EPUBReader {
   }
 
   func load() async {
+    guard !Task.isCancelled else { return }
     let generation = loadRequestID
+    let operationID = UUID()
+    loadOperationID = operationID
+    defer {
+      // A remount can start a fresh task for the same request. An older task
+      // must not clear its replacement's lifecycle when cancellation unwinds.
+      if loadOperationID == operationID {
+        loadOperationID = nil
+        if Task.isCancelled, generation == loadRequestID {
+          documentToken = ""
+          phase = .idle
+        }
+      }
+    }
     scaleOperationID = nil
-    explicitLoad = true
-    loadFailed = false
-    failureDescription = nil
+    phase = .loading
     resourceFailure = nil
     do {
       if page != nil { _ = await captureLocation() }
       let viewport = try await publication.fixedViewport(for: requestedHref)
-      guard generation == loadRequestID else { return }
+      guard generation == loadRequestID, loadOperationID == operationID else { return }
       fixedViewport = viewport
       if page == nil {
         let preparedPage = try await makePage()
         try Task.checkCancellation()
-        guard generation == loadRequestID else { return }
+        guard generation == loadRequestID, loadOperationID == operationID else { return }
         page = preparedPage
       }
       try Task.checkCancellation()
-      guard generation == loadRequestID, let page else { return }
+      guard generation == loadRequestID, loadOperationID == operationID, let page else { return }
       let url = try publication.url(for: requestedHref)
       let anchor = resumeLocation
       documentToken = UUID().uuidString
-      isRestoring = true
+      phase = .restoring
       for try await _ in page.load(url) { try Task.checkCancellation() }
-      guard generation == loadRequestID else { return }
+      guard generation == loadRequestID, loadOperationID == operationID else { return }
       let activatedScale = textScale
       let value = try await page.callJavaScript(
         "return await window.chekReader.activate(token, anchor, scale, top, bottom, fixed);",
@@ -123,32 +152,34 @@ public final class EPUBReader {
           "token": documentToken, "anchor": try jsonValue(anchor), "scale": activatedScale,
           "top": Double(topInset), "bottom": Double(bottomInset), "fixed": viewport != nil,
         ], contentWorld: .world(name: "ChekReader"))
-      guard generation == loadRequestID else { return }
+      guard generation == loadRequestID, loadOperationID == operationID else { return }
       try Task.checkCancellation()
       if let failure = (value as? [String: Any])?["documentError"] as? String {
         throw ReaderError.invalid(
           "The publication document is malformed XML. \(failure.prefix(2048))")
       }
       resumeLocation = nil
-      isRestoring = false
-      explicitLoad = false
+      loadOperationID = nil
+      phase = .ready
       appliedTextScale = activatedScale
       acceptLocation(value)
       if let resourceFailure, message == nil { message = resourceFailure }
       await applyRequestedTextScale()
     } catch is CancellationError {
     } catch {
-      if !Task.isCancelled, generation == loadRequestID {
-        explicitLoad = false
-        loadFailed = true
-        failureDescription = resourceFailure ?? navigationFailureDescription(error)
+      if !Task.isCancelled, generation == loadRequestID, loadOperationID == operationID {
+        phase = .failed(resourceFailure ?? navigationFailureDescription(error))
       }
     }
   }
 
   /// Capture synchronously from the current DOM before close/background saves.
   @discardableResult public func captureLocation() async -> ReadingLocation? {
-    guard !isRestoring, let page else { return location }
+    // Preparing a new request may still capture the previous active document.
+    // Navigation/activation and failed documents cannot supply stable anchors.
+    guard phase == .ready || phase == .loading, !documentToken.isEmpty, let page else {
+      return location
+    }
     let token = documentToken
     let generation = loadRequestID
     do {
@@ -165,9 +196,12 @@ public final class EPUBReader {
   }
 
   fileprivate func navigationFailed(_ error: any Error) {
-    guard !explicitLoad else { return }
-    loadFailed = true
-    failureDescription = navigationFailureDescription(error)
+    // An old observer may finish after a new request has been queued but before
+    // its task starts. Only the active document may transition to failed.
+    guard loadOperationID == nil,
+      phase == .ready || (phase == .restoring && scaleOperationID != nil)
+    else { return }
+    phase = .failed(navigationFailureDescription(error))
   }
 
   private func navigationFailureDescription(_ error: any Error) -> String {
@@ -200,7 +234,7 @@ public final class EPUBReader {
   }
 
   private func applyRequestedTextScale() async {
-    guard scaleOperationID == nil, !isRestoring, !explicitLoad, !loadFailed,
+    guard scaleOperationID == nil, phase == .ready,
       !isFixedLayout, appliedTextScale != textScale, let page
     else { return }
     let operationID = UUID()
@@ -211,8 +245,10 @@ public final class EPUBReader {
     let generation = loadRequestID
     let token = documentToken
     _ = await captureLocation()
-    guard generation == loadRequestID, token == documentToken, !Task.isCancelled else { return }
-    isRestoring = true
+    guard generation == loadRequestID, token == documentToken, phase == .ready,
+      !Task.isCancelled
+    else { return }
+    phase = .restoring
     do {
       // A slider can update while WebKit settles fonts. Keep one operation in
       // flight and apply the newest request before releasing restoration.
@@ -221,14 +257,18 @@ public final class EPUBReader {
         let value = try await page.callJavaScript(
           "return await window.chekReader.setScale(scale);",
           arguments: ["scale": requestedScale], contentWorld: .world(name: "ChekReader"))
-        guard generation == loadRequestID, token == documentToken else { return }
+        guard generation == loadRequestID, token == documentToken, phase == .restoring else {
+          return
+        }
         appliedTextScale = requestedScale
         acceptLocation(value)
       }
-      isRestoring = false
+      phase = .ready
     } catch {
-      guard generation == loadRequestID, token == documentToken else { return }
-      isRestoring = false
+      guard generation == loadRequestID, token == documentToken, phase == .restoring else {
+        return
+      }
+      phase = .ready
       if !Task.isCancelled { message = error.localizedDescription }
     }
   }
@@ -283,7 +323,7 @@ public final class EPUBReader {
         return
       }
     #endif
-    guard !isRestoring, message.frameInfo.isMainFrame,
+    guard phase == .ready, message.frameInfo.isMainFrame,
       message.frameInfo.request.url?.host == publication.host,
       let body = message.body as? [String: Any], body["token"] as? String == documentToken
     else { return }
@@ -361,7 +401,9 @@ public final class EPUBReader {
     configuration.userContentController = controller
     configuration.defaultNavigationPreferences.allowsContentJavaScript = false
     configuration.allowsAirPlayForMediaPlayback = false
-    configuration.dataDetectorTypes = []
+    #if os(iOS)
+      configuration.dataDetectorTypes = []
+    #endif
     guard let scheme = URLScheme("chek-publication") else {
       throw ReaderError.invalid("The publication resource scheme could not be prepared.")
     }
@@ -369,7 +411,7 @@ public final class EPUBReader {
       publication: publication,
       onFailure: { [weak self] message in
         guard let self else { return }
-        if self.explicitLoad {
+        if self.loadOperationID != nil {
           self.resourceFailure = message
         } else if self.message == nil {
           self.message = message
@@ -469,24 +511,38 @@ struct ReaderFailureView: View {
 
 // A persistent host can replace callback captures without replacing its reader.
 // Representable updates receive those closures without mutating state in body.
-private struct ReaderCallbacks: UIViewRepresentable {
+private struct ReaderCallbacks: CallbackRepresentable {
   let reader: EPUBReader
   let onTap: @MainActor () -> Void
   let onInteraction: @MainActor () -> Void
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
-  func makeUIView(context: Context) -> CallbackView {
-    let view = CallbackView(coordinator: context.coordinator)
-    update(view)
-    return view
-  }
+  #if os(macOS)
+    func makeNSView(context: Context) -> CallbackView {
+      let view = CallbackView(coordinator: context.coordinator)
+      update(view)
+      return view
+    }
 
-  func updateUIView(_ view: CallbackView, context: Context) { update(view) }
+    func updateNSView(_ view: CallbackView, context: Context) { update(view) }
 
-  static func dismantleUIView(_ view: CallbackView, coordinator: Coordinator) {
-    coordinator.detach()
-  }
+    static func dismantleNSView(_ view: CallbackView, coordinator: Coordinator) {
+      coordinator.detach()
+    }
+  #else
+    func makeUIView(context: Context) -> CallbackView {
+      let view = CallbackView(coordinator: context.coordinator)
+      update(view)
+      return view
+    }
+
+    func updateUIView(_ view: CallbackView, context: Context) { update(view) }
+
+    static func dismantleUIView(_ view: CallbackView, coordinator: Coordinator) {
+      coordinator.detach()
+    }
+  #endif
 
   private func update(_ view: CallbackView) {
     let coordinator = view.coordinator
@@ -520,7 +576,7 @@ private struct ReaderCallbacks: UIViewRepresentable {
     }
   }
 
-  @MainActor final class CallbackView: UIView {
+  @MainActor final class CallbackView: CallbackPlatformView {
     let coordinator: Coordinator
 
     init(coordinator: Coordinator) {
@@ -530,8 +586,19 @@ private struct ReaderCallbacks: UIViewRepresentable {
 
     required init?(coder: NSCoder) { nil }
 
-    override func didMoveToWindow() {
-      super.didMoveToWindow()
+    #if os(macOS)
+      override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateAttachment()
+      }
+    #else
+      override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateAttachment()
+      }
+    #endif
+
+    private func updateAttachment() {
       if window == nil {
         coordinator.detach()
       } else {

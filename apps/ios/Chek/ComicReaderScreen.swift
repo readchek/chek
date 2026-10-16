@@ -43,7 +43,9 @@ struct ComicReaderScreen: View {
           ComicPageControls(reader: reader, interacted: chrome.interacted)
         }
       }
-      .toolbarVisibility(.hidden, for: .statusBar)
+      #if os(iOS)
+        .toolbarVisibility(.hidden, for: .statusBar)
+      #endif
       .sheet(isPresented: $showingPages) { ComicPagesSheet(reader: reader) }
       .sheet(isPresented: $showingSettings) { ComicSettingsSheet(reader: reader) }
       .onChange(of: reader.location) { updateProgress() }
@@ -199,12 +201,18 @@ private struct ComicSettingsSheet: View {
         }
       }
       .navigationTitle("Reading settings")
-      .navigationBarTitleDisplayMode(.inline)
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
     }
-    .presentationDetents([.medium, .large])
+    #if os(iOS)
+      .presentationDetents([.medium, .large])
+    #else
+      .frame(minWidth: 400, minHeight: 360)
+    #endif
   }
 }
 
@@ -274,10 +282,15 @@ private struct ComicPagesSheet: View {
         .onAppear { scroll.scrollTo(reader.currentPage.id, anchor: .center) }
       }
       .navigationTitle("Pages")
-      .navigationBarTitleDisplayMode(.inline)
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
     }
+    #if os(macOS)
+      .frame(minWidth: 480, minHeight: 360)
+    #endif
   }
 }

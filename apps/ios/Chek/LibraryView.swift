@@ -35,9 +35,23 @@ struct LibraryView: View {
       .navigationTitle("Library")
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
-          Button("Import book", systemImage: "plus") { importing = true }
-            .disabled(library.isBusy)
+          Button {
+            importing = true
+          } label: {
+            Label("Import book", systemImage: "plus")
+              .labelStyle(.iconOnly)
+              #if os(macOS)
+                .frame(width: 32, height: 32)
+              #else
+                .frame(width: 44, height: 44)
+              #endif
+              .contentShape(.circle)
+              .glassEffect(.regular.interactive(), in: .circle)
+          }
+          .buttonStyle(.plain)
+          .disabled(library.isBusy)
         }
+        .sharedBackgroundVisibility(.hidden)
       }
       .overlay {
         if library.isBusy {
@@ -58,12 +72,13 @@ struct LibraryView: View {
         case .failure(let error): library.message = error.localizedDescription
         }
       }
-      .fullScreenCover(item: $library.openBook) { book in
-        switch book.publication {
-        case .epub(let publication): BookReaderScreen(book: book, publication: publication)
-        case .cbz(let publication): ComicReaderScreen(book: book, publication: publication)
+      #if os(macOS)
+        .sheet(item: $library.openBook) { book in
+          OpenBookCanvas(book: book).frame(minWidth: 640, minHeight: 480)
         }
-      }
+      #else
+        .fullScreenCover(item: $library.openBook) { book in OpenBookCanvas(book: book) }
+      #endif
       .alert("Book could not open", isPresented: $library.hasMessage) {
         Button("OK", role: .cancel) {}
       } message: {
@@ -71,6 +86,17 @@ struct LibraryView: View {
       }
       .task { await library.load() }
       .onOpenURL { url in Task { await library.importBook(url) } }
+    }
+  }
+}
+
+private struct OpenBookCanvas: View {
+  let book: OpenBook
+
+  var body: some View {
+    switch book.publication {
+    case .epub(let publication): BookReaderScreen(book: book, publication: publication)
+    case .cbz(let publication): ComicReaderScreen(book: book, publication: publication)
     }
   }
 }

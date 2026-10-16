@@ -3,6 +3,7 @@ options:
   minimumXcodeGenVersion: 2.44.0
   deploymentTarget:
     iOS: "27.0"
+    macOS: "27.0"
   createIntermediateGroups: true
 packages:
   ChekReader:
@@ -62,11 +63,54 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_EMIT_LOC_STRINGS: YES
+  ChekMac:
+    type: application
+    platform: macOS
+    sources:
+      - Chek
+    dependencies:
+      - package: ChekReader
+    info:
+      path: ChekMac-Info.plist
+      properties:
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: EPUB book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [org.idpf.epub-container]
+          - CFBundleTypeName: CBZ comic
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [dev.chek.cbz]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: dev.chek.cbz
+            UTTypeDescription: CBZ comic archive
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [cbz]
+    settings:
+      base:
+        PRODUCT_NAME: ChekMac
+        PRODUCT_BUNDLE_IDENTIFIER: run.chibi.manga.mac
+        DEVELOPMENT_TEAM: KZX5HZ32P9
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Chek
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
+        SWIFT_EMIT_LOC_STRINGS: YES
 schemes:
   Chek:
     build:
       targets:
         Chek: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  ChekMac:
+    build:
+      targets:
+        ChekMac: all
     run:
       config: Debug
     archive:

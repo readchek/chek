@@ -1,4 +1,4 @@
-# Chek for iOS
+# Chek for iOS and macOS
 
 Chek's native iOS app consumes the local `ChekReader` Swift package. The current
 app imports local EPUB and CBZ files, retains owned copies, and reads reflowable chapters
@@ -63,7 +63,10 @@ are estimated until nearby pages decode; fast jumps can briefly show placeholder
 Unsupported formats and strips that cannot fit a readable decode within
 these limits produce visible errors.
 
-Requires Xcode 27 or later and iOS 27 or later. The checked-in Xcode project opens
+Targets iOS/iPadOS 27 and native macOS 27. The Mac target shares the app and reader
+sources, with platform-specific presentation and rendering. Apple Silicon is the
+local Mac build target; Intel, watchOS, and tvOS compatibility is not claimed.
+The checked-in Xcode project opens
 directly in Xcode. To regenerate it with XcodeGen 2.44 or later:
 
 ```sh
@@ -80,3 +83,13 @@ xcodebuild -project apps/ios/Chek.xcodeproj -scheme Chek \
 
 Use Serve Sim with an explicit simulator device for interactive verification.
 Device signing uses your own Apple development team configured in Xcode.
+
+Build and run the native Mac app without a connected phone:
+
+```sh
+READER_MAC_SCHEME=ChekMac ./script/build_and_run.sh
+```
+
+The script defaults to the independent reader embedding demo. Mac app bundles
+use separate identifiers (`run.chibi.manga.mac` and
+`dev.chek.reader.embedding.mac`) so their local data remains separate from iOS.

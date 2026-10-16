@@ -1,8 +1,19 @@
 # Installing and embedding ChekReader
 
-ChekReader is an iOS 27 Swift package built with Swift 6.4. Its only external
+ChekReader is an iOS 27 and macOS 27 Swift package built with Swift 6.4. Its only external
 dependency is ZIPFoundation 0.9.20. Bun, the API, website, and Chek app are not
 dependencies of the reader product.
+
+iPhone and iPad share the UIKit comic adapter; native macOS uses AppKit. EPUB
+uses SwiftUI WebKit on both platforms. Parsing, resource policies, image decoding,
+navigation models, and saved locations are shared. macOS support means a native
+SwiftPM consumer, not a requirement to run the iPad app through compatibility mode.
+The current desktop build targets Apple Silicon. This is not a claim of support
+for every Darwin platform or an Intel/Apple Silicon universal binary.
+
+An iPhone connection is not required for development: use iOS Simulator for
+iPhone/iPad behavior or `./script/build_and_run.sh` for the native Mac embedding
+app. Device-specific touch, memory, and performance qualification remains separate.
 
 ## Installation
 
@@ -96,6 +107,37 @@ spine order. Hosts can disable chapter swipes and supply their own policy.
 The mapping follows the [EPUB spine direction contract](https://www.w3.org/TR/epub-33/#sec-spine-elem);
 RTL forward/reverse gestures and gesture opt-out were verified on iPhone 17 with
 the W3C RTL sample; default-direction navigation was also rechecked.
+
+## Reader lifecycle
+
+Each reader exposes one read-only `ReaderPhase`. Readiness and blocking failure
+accessors derive from that phase rather than independent flags.
+
+| Event | Result |
+| --- | --- |
+| Construct a reader | `idle`; mounting starts rendering |
+| Request a new page/chapter or retry | `loading` immediately |
+| Activate an EPUB document or restore after text reflow | `restoring` |
+| Current request finishes with usable content | `ready` |
+| Current blocking operation fails | `failed(description)` |
+| Superseded request finishes | No state change |
+| Current blocking task is canceled without usable content | `idle`; remount can restart |
+| Comic resolution refinement fails with a usable image | Remain `ready`, expose advisory message |
+
+All transitions run on the main actor. Request identity, operation identity, and
+EPUB document tokens reject stale completions; cancellation alone is insufficient.
+Relative EPUB chapter requests accumulate from the most recently requested target
+while loading. Continuous comic readiness belongs to the visible canvas, not the
+background decode task. The phase describes usable content, not whether all
+background work has stopped. Async completion times are not deterministic; the
+acceptance rules and resulting transitions are explicit.
+
+Host file-opening state is separate. The embedding example uses `idle`,
+`opening(previous:)`, `reading(session)`, and `closing(session:)`. A session pairs
+one reader with one source URL and identity. A failed replacement preserves the
+previous valid session and reports the error. Closing invalidates pending opens;
+obsolete completions cannot resurrect a closed session. Progress saves use fixed
+coalescing windows so continuous scrolling cannot indefinitely postpone a write.
 
 ## Format contract
 

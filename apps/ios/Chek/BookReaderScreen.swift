@@ -43,7 +43,9 @@ struct BookReaderScreen: View {
           BookChapterControls(reader: reader, interacted: chrome.interacted)
         }
       }
-      .toolbarVisibility(.hidden, for: .statusBar)
+      #if os(iOS)
+        .toolbarVisibility(.hidden, for: .statusBar)
+      #endif
       .sheet(isPresented: $showingContents) {
         ContentsSheet(reader: reader)
       }
@@ -201,12 +203,18 @@ private struct TextSettingsSheet: View {
         .disabled(adjusting || reader.textScale == 1)
       }
       .navigationTitle("Text size")
-      .navigationBarTitleDisplayMode(.inline)
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
     }
-    .presentationDetents([.medium])
+    #if os(iOS)
+      .presentationDetents([.medium])
+    #else
+      .frame(minWidth: 360, minHeight: 240)
+    #endif
   }
 
   private func adjust(by delta: Double) {
@@ -261,11 +269,16 @@ private struct ContentsSheet: View {
         }
       }
       .navigationTitle("Contents")
-      .navigationBarTitleDisplayMode(.inline)
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
       }
     }
+    #if os(macOS)
+      .frame(minWidth: 480, minHeight: 360)
+    #endif
   }
 }
 

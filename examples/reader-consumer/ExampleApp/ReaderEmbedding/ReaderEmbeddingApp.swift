@@ -5,7 +5,12 @@ import UniformTypeIdentifiers
 @main
 struct ReaderEmbeddingApp: App {
   var body: some Scene {
-    WindowGroup { EmbeddingView() }
+    WindowGroup {
+      EmbeddingView()
+        #if os(macOS)
+          .frame(minWidth: 640, minHeight: 480)
+        #endif
+    }
   }
 }
 
@@ -22,16 +27,22 @@ private struct EmbeddingView: View {
         SessionCanvas(session: session)
       }
       .navigationTitle("Reader Embedding")
-      .navigationBarTitleDisplayMode(.inline)
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          Button("Files", systemImage: "folder") {
+        ToolbarItem(placement: .navigation) {
+          Button {
             session.refreshFiles()
             showFiles = true
+          } label: {
+            ToolbarIcon("Files", systemImage: "folder")
           }
+          .buttonStyle(.plain)
         }
-        ToolbarItem(placement: .topBarTrailing) {
-          Menu("Session", systemImage: "ellipsis") {
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarItem(placement: .primaryAction) {
+          Menu {
             Button("Import file", systemImage: "square.and.arrow.down") { showImporter = true }
             Button("Replace session", systemImage: "arrow.triangle.2.circlepath") {
               session.replace()
@@ -41,8 +52,16 @@ private struct EmbeddingView: View {
               .disabled(session.reader == nil)
             Toggle("Reader swipe navigation", isOn: $session.allowsSwipes)
             Button("Change tap callback") { session.callbackVersion += 1 }
+          } label: {
+            ToolbarIcon("Session", systemImage: "ellipsis")
           }
+          .menuIndicator(.hidden)
+          .buttonStyle(.plain)
+          #if os(macOS)
+            .menuStyle(.borderlessButton)
+          #endif
         }
+        .sharedBackgroundVisibility(.hidden)
       }
       .sheet(isPresented: $showFiles) {
         NavigationStack {
@@ -58,7 +77,7 @@ private struct EmbeddingView: View {
                 ContentUnavailableView(
                   "No publications", systemImage: "folder",
                   description: Text(
-                    "Import an EPUB or CBZ, or copy files into this app’s Documents folder."))
+                    "Import a local EPUB or CBZ to start reading."))
               }
             }
           }
@@ -70,6 +89,9 @@ private struct EmbeddingView: View {
             }
           }
         }
+        #if os(macOS)
+          .frame(minWidth: 480, minHeight: 360)
+        #endif
       }
       .fileImporter(
         isPresented: $showImporter,
@@ -88,6 +110,32 @@ private struct EmbeddingView: View {
         if phase != .active { Task { await session.save() } }
       }
     }
+  }
+}
+
+private struct ToolbarIcon: View {
+  let title: LocalizedStringKey
+  let systemImage: String
+
+  init(_ title: LocalizedStringKey, systemImage: String) {
+    self.title = title
+    self.systemImage = systemImage
+  }
+
+  private var size: CGFloat {
+    #if os(macOS)
+      32
+    #else
+      44
+    #endif
+  }
+
+  var body: some View {
+    Label(title, systemImage: systemImage)
+      .labelStyle(.iconOnly)
+      .frame(width: size, height: size)
+      .contentShape(.circle)
+      .glassEffect(.regular.interactive(), in: .circle)
   }
 }
 
@@ -172,11 +220,16 @@ private struct SessionStatus: View {
             .padding()
         }
         .navigationTitle("Reader controls")
-        .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
+          .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
           Button("Done") { showDetails = false }
         }
       }
+      #if os(macOS)
+        .frame(minWidth: 480, minHeight: 360)
+      #endif
     }
   }
 }
@@ -213,6 +266,7 @@ private struct SessionDetails: View {
       case .epub(let reader):
         Text(reader.failureDescription ?? (reader.isReadyForInteraction ? "Ready" : "Loading"))
         Text(reader.location?.resourceHref ?? reader.currentHref).lineLimit(1)
+        ChapterControls(reader: reader)
         TextScaleControls(reader: reader)
       case .cbz(let reader):
         Text(reader.failureDescription ?? (reader.isReadyForInteraction ? "Ready" : "Loading"))
@@ -225,6 +279,27 @@ private struct SessionDetails: View {
       if session.isOpening { ProgressView("Opening replacement") }
       if let error = session.error { Text(error).foregroundStyle(.red) }
     }
+  }
+}
+
+private struct ChapterControls: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  let reader: EPUBReader
+
+  var body: some View {
+    let href = reader.isReadyForInteraction ? reader.currentHref : reader.requestedHref
+    let path = href.split(separator: "#", maxSplits: 1).first.map(String.init)
+    let index = reader.publication.readingOrder.firstIndex(where: { $0.href == path })
+    let layout =
+      dynamicTypeSize.isAccessibilitySize
+      ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+    layout {
+      Button("Previous chapter", systemImage: "chevron.backward") { reader.moveChapter(by: -1) }
+        .disabled(index == nil || index == 0)
+      Button("Next chapter", systemImage: "chevron.forward") { reader.moveChapter(by: 1) }
+        .disabled(index == nil || index == reader.publication.readingOrder.count - 1)
+    }
+    .buttonStyle(.bordered)
   }
 }
 

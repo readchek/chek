@@ -39,3 +39,16 @@ reading-mode menu chooses automatic, paged, or continuous layout. The host
 shows session generation, readiness, location, and the callback used by the last
 tap. These are ordinary embedding controls; the app does not run assertions or
 automated checks. No publications are bundled.
+
+The package also targets native macOS 27. Run the independent demo on Apple
+Silicon without a phone or simulator from the repository root:
+
+```sh
+./script/build_and_run.sh
+```
+
+This builds the `ReaderEmbeddingMac` scheme and opens its `.app` bundle. Optional
+`--debug`, `--logs`, `--telemetry`, and `--verify` modes support local diagnosis;
+`--verify` checks process launch only, not rendered content or reading behavior.
+The Mac demo uses `dev.chek.reader.embedding.mac` and retains its own imported
+copies and saved locations. iPhone and iPad checks continue through Serve Sim.

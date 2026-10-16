@@ -19,6 +19,7 @@ nonisolated struct LoadedReadingProgress: Sendable {
   private let id: UUID
   private var progress: BookReadingProgress
   private var pending: Task<Void, Never>?
+  private var saveID = UUID()
   var errorMessage: String?
 
   init(id: UUID, progress: BookReadingProgress) {
@@ -42,20 +43,30 @@ nonisolated struct LoadedReadingProgress: Sendable {
   }
 
   private func scheduleSave() {
-    pending?.cancel()
-    pending = Task {
+    guard pending == nil else { return }
+    let token = UUID()
+    saveID = token
+    pending = Task { [weak self] in
       do {
         try await Task.sleep(for: .milliseconds(400))
         try Task.checkCancellation()
+        guard let self, saveID == token else { return }
+        // End the window before writing so updates during the write schedule
+        // another save. Continuous scrolling must not postpone persistence.
+        pending = nil
         try await ReadingProgressDisk.shared.save(progress, id: id)
+        if saveID == token { errorMessage = nil }
       } catch is CancellationError {
-      } catch { errorMessage = error.localizedDescription }
+      } catch {
+        if let self, saveID == token { errorMessage = error.localizedDescription }
+      }
     }
   }
 
   func flush() async throws {
     pending?.cancel()
     pending = nil
+    saveID = UUID()
     try await ReadingProgressDisk.shared.save(progress, id: id)
   }
 }

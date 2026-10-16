@@ -10,11 +10,37 @@ final class EmbeddingSession {
     case cbz(CBZReader)
   }
 
-  var reader: Reader?
+  struct ActiveSession {
+    let id = UUID()
+    let reader: Reader
+    let url: URL
+  }
+
+  /// The previous canvas stays mounted while a replacement opens or saves on
+  /// close. A failed replacement returns to that valid session with an advisory.
+  enum State {
+    case idle
+    case opening(previous: ActiveSession?)
+    case reading(ActiveSession)
+    case closing(ActiveSession?)
+
+    var activeSession: ActiveSession? {
+      switch self {
+      case .idle: nil
+      case .opening(let previous), .closing(let previous): previous
+      case .reading(let session): session
+      }
+    }
+  }
+
+  private(set) var state: State = .idle
+  var reader: Reader? { state.activeSession?.reader }
+  var filename: String { currentURL?.lastPathComponent ?? "No publication" }
+  var isOpening: Bool {
+    if case .opening = state { true } else { false }
+  }
   var files: [URL] = []
-  var filename = "No publication"
   var error: String?
-  var isOpening = false
   var generation = 0
   var tapCount = 0
   var callbackVersion = 1
@@ -31,12 +57,23 @@ final class EmbeddingSession {
   @ObservationIgnored private var operation: Task<Void, Never>?
   @ObservationIgnored private var autosave: Task<Void, Never>?
   @ObservationIgnored private var request = UUID()
-  @ObservationIgnored private var currentURL: URL?
+  private var currentURL: URL? { state.activeSession?.url }
+
+  nonisolated private static var originalsDirectory: URL {
+    #if os(macOS)
+      URL.applicationSupportDirectory.appending(
+        path: "ReaderEmbedding/Originals", directoryHint: .isDirectory)
+    #else
+      .documentsDirectory
+    #endif
+  }
 
   func refreshFiles() {
     do {
+      try FileManager.default.createDirectory(
+        at: Self.originalsDirectory, withIntermediateDirectories: true)
       files = try FileManager.default.contentsOfDirectory(
-        at: .documentsDirectory, includingPropertiesForKeys: nil,
+        at: Self.originalsDirectory, includingPropertiesForKeys: nil,
         options: [.skipsHiddenFiles]
       ).filter { ["epub", "cbz"].contains($0.pathExtension.lowercased()) }
         .sorted {
@@ -90,37 +127,35 @@ final class EmbeddingSession {
     operation?.cancel()
     let token = UUID()
     request = token
-    let previous = reader
-    let url = currentURL
-    isOpening = false
+    let previous = state.activeSession
+    state = .closing(previous)
     operation = Task { [weak self] in
       guard let self else { return }
-      await save(previous, url: url)
-      guard request == token else { return }
-      reader = nil
-      currentURL = nil
-      filename = "No publication"
+      await save(previous)
+      guard !Task.isCancelled, request == token else { return }
+      state = .idle
+      operation = nil
     }
   }
 
-  func save() async { await save(reader, url: currentURL) }
+  func save() async { await save(state.activeSession) }
 
   /// Coalesce progress updates without asking the canvas to capture again.
   /// A fixed interval also saves during a continuous comic scroll.
   func scheduleAutosave() {
-    guard autosave == nil, let reader, let url = currentURL else { return }
+    guard autosave == nil, case .reading(let session) = state else { return }
+    let token = request
     autosave = Task { [weak self] in
       do {
         try await Task.sleep(for: .seconds(1))
       } catch { return }
-      guard !Task.isCancelled, let self else { return }
+      guard !Task.isCancelled, let self, request == token,
+        case .reading(let current) = state, current.id == session.id
+      else { return }
       autosave = nil
-      switch (reader, self.reader) {
-      case (.epub(let previous), .epub(let current)) where previous === current:
-        persist(previous.location, url: url)
-      case (.cbz(let previous), .cbz(let current)) where previous === current:
-        persist(previous.location, url: url)
-      default: break
+      switch session.reader {
+      case .epub(let reader): persist(reader.location, url: session.url)
+      case .cbz(let reader): persist(reader.location, url: session.url)
       }
     }
   }
@@ -135,25 +170,32 @@ final class EmbeddingSession {
     operation?.cancel()
     let token = UUID()
     request = token
-    isOpening = true
+    let previous = state.activeSession
+    state = .opening(previous: previous)
     error = nil
     operation = Task { [weak self] in
       guard let self else { return }
+      defer {
+        if request == token {
+          operation = nil
+          // Cancellation or failure cannot leave an opening spinner behind.
+          if case .opening = state {
+            state = previous.map(State.reading) ?? .idle
+          }
+        }
+      }
       do {
-        await save()
+        await save(previous)
         try Task.checkCancellation()
         let (opened, url) = try await open()
         try Task.checkCancellation()
         guard request == token else { return }
-        reader = opened
-        currentURL = url
-        filename = url.lastPathComponent
+        state = .reading(ActiveSession(reader: opened, url: url))
         generation += 1
       } catch is CancellationError {
       } catch {
         if request == token { self.error = error.localizedDescription }
       }
-      if request == token { isOpening = false }
     }
   }
 
@@ -181,18 +223,15 @@ final class EmbeddingSession {
     }
   }
 
-  private func save(_ reader: Reader?, url: URL?) async {
-    guard let url else { return }
-    switch reader {
+  private func save(_ session: ActiveSession?) async {
+    guard let session, state.activeSession?.id == session.id else { return }
+    switch session.reader {
     case .epub(let reader):
       let location = await reader.captureLocation()
       // Background capture can finish after a replacement has been mounted.
-      guard case .epub(let current) = self.reader, current === reader, currentURL == url else {
-        return
-      }
-      persist(location, url: url)
-    case .cbz(let reader): persist(reader.captureLocation(), url: url)
-    case nil: return
+      guard !Task.isCancelled, state.activeSession?.id == session.id else { return }
+      persist(location, url: session.url)
+    case .cbz(let reader): persist(reader.captureLocation(), url: session.url)
     }
   }
 
@@ -204,7 +243,9 @@ final class EmbeddingSession {
   @concurrent private static func copyImport(_ source: URL) async throws -> URL {
     let scoped = source.startAccessingSecurityScopedResource()
     defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-    let destination = URL.documentsDirectory.appendingPathComponent(
+    try FileManager.default.createDirectory(
+      at: originalsDirectory, withIntermediateDirectories: true)
+    let destination = originalsDirectory.appendingPathComponent(
       "\(UUID().uuidString)-\(source.lastPathComponent)")
     try FileManager.default.copyItem(at: source, to: destination)
     return destination

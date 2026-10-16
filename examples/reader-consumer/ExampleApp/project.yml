@@ -3,6 +3,7 @@ options:
   minimumXcodeGenVersion: 2.44.0
   deploymentTarget:
     iOS: "27.0"
+    macOS: "27.0"
 packages:
   ChekReader:
     path: ../../..
@@ -41,10 +42,40 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         TARGETED_DEVICE_FAMILY: "1,2"
+  ReaderEmbeddingMac:
+    type: application
+    platform: macOS
+    sources: [ReaderEmbedding]
+    dependencies:
+      - package: ChekReader
+    info:
+      path: ReaderEmbeddingMac-Info.plist
+      properties:
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: dev.chek.reader.embedding.cbz
+            UTTypeDescription: CBZ comic archive
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [cbz]
+    settings:
+      base:
+        PRODUCT_NAME: ReaderEmbeddingMac
+        PRODUCT_BUNDLE_IDENTIFIER: dev.chek.reader.embedding.mac
+        DEVELOPMENT_TEAM: KZX5HZ32P9
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Reader Embedding
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
 schemes:
   ReaderEmbedding:
     build:
       targets:
         ReaderEmbedding: all
+    run:
+      config: Debug
+  ReaderEmbeddingMac:
+    build:
+      targets:
+        ReaderEmbeddingMac: all
     run:
       config: Debug
