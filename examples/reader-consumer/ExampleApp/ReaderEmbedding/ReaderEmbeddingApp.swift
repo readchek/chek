@@ -31,37 +31,45 @@ private struct EmbeddingView: View {
         .navigationBarTitleDisplayMode(.inline)
       #endif
       .toolbar {
-        ToolbarItem(placement: .navigation) {
-          Button {
-            session.refreshFiles()
-            showFiles = true
-          } label: {
-            ToolbarIcon("Files", systemImage: "folder")
-          }
-          .buttonStyle(.plain)
-        }
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarItem(placement: .primaryAction) {
-          Menu {
-            Button("Import file", systemImage: "square.and.arrow.down") { showImporter = true }
-            Button("Replace session", systemImage: "arrow.triangle.2.circlepath") {
-              session.replace()
+        #if os(macOS)
+          ToolbarItem(placement: .navigation) {
+            Button {
+              session.refreshFiles()
+              showFiles = true
+            } label: {
+              ToolbarIcon("Files", systemImage: "folder")
             }
-            .disabled(session.reader == nil)
-            Button("Close session", systemImage: "xmark") { session.close() }
-              .disabled(session.reader == nil)
-            Toggle("Reader swipe navigation", isOn: $session.allowsSwipes)
-            Button("Change tap callback") { session.callbackVersion += 1 }
-          } label: {
-            ToolbarIcon("Session", systemImage: "ellipsis")
+            .buttonStyle(.plain)
+            .modifier(ToolbarCircle())
           }
-          .menuIndicator(.hidden)
-          .buttonStyle(.plain)
-          #if os(macOS)
+          .sharedBackgroundVisibility(.hidden)
+          ToolbarItem(placement: .primaryAction) {
+            Menu {
+              sessionActions
+            } label: {
+              ToolbarIcon("Session", systemImage: "ellipsis")
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
             .menuStyle(.borderlessButton)
-          #endif
-        }
-        .sharedBackgroundVisibility(.hidden)
+            .modifier(ToolbarCircle())
+          }
+          .sharedBackgroundVisibility(.hidden)
+        #else
+          ToolbarItem(placement: .topBarLeading) {
+            Button("Files", systemImage: "folder") {
+              session.refreshFiles()
+              showFiles = true
+            }
+            .labelStyle(.iconOnly)
+          }
+          ToolbarItem(placement: .topBarTrailing) {
+            Menu("Session", systemImage: "ellipsis") {
+              sessionActions
+            }
+            .labelStyle(.iconOnly)
+          }
+        #endif
       }
       .sheet(isPresented: $showFiles) {
         NavigationStack {
@@ -111,6 +119,18 @@ private struct EmbeddingView: View {
       }
     }
   }
+
+  @ViewBuilder private var sessionActions: some View {
+    Button("Import file", systemImage: "square.and.arrow.down") { showImporter = true }
+    Button("Replace session", systemImage: "arrow.triangle.2.circlepath") {
+      session.replace()
+    }
+    .disabled(session.reader == nil)
+    Button("Close session", systemImage: "xmark") { session.close() }
+      .disabled(session.reader == nil)
+    Toggle("Reader swipe navigation", isOn: $session.allowsSwipes)
+    Button("Change tap callback") { session.callbackVersion += 1 }
+  }
 }
 
 private struct ToolbarIcon: View {
@@ -122,18 +142,16 @@ private struct ToolbarIcon: View {
     self.systemImage = systemImage
   }
 
-  private var size: CGFloat {
-    #if os(macOS)
-      32
-    #else
-      44
-    #endif
-  }
-
   var body: some View {
     Label(title, systemImage: systemImage)
       .labelStyle(.iconOnly)
-      .frame(width: size, height: size)
+  }
+}
+
+private struct ToolbarCircle: ViewModifier {
+  func body(content: Content) -> some View {
+    content
+      .frame(width: 32, height: 32)
       .contentShape(.circle)
       .glassEffect(.regular.interactive(), in: .circle)
   }

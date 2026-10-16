@@ -34,24 +34,28 @@ struct LibraryView: View {
       }
       .navigationTitle("Library")
       .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            importing = true
-          } label: {
-            Label("Import book", systemImage: "plus")
-              .labelStyle(.iconOnly)
-              #if os(macOS)
+        #if os(macOS)
+          ToolbarItem(placement: .primaryAction) {
+            Button {
+              importing = true
+            } label: {
+              Label("Import book", systemImage: "plus")
+                .labelStyle(.iconOnly)
                 .frame(width: 32, height: 32)
-              #else
-                .frame(width: 44, height: 44)
-              #endif
-              .contentShape(.circle)
-              .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(library.isBusy)
           }
-          .buttonStyle(.plain)
-          .disabled(library.isBusy)
-        }
-        .sharedBackgroundVisibility(.hidden)
+          .sharedBackgroundVisibility(.hidden)
+        #else
+          ToolbarItem(placement: .primaryAction) {
+            Button("Import book", systemImage: "plus") { importing = true }
+              .labelStyle(.iconOnly)
+              .disabled(library.isBusy)
+          }
+        #endif
       }
       .overlay {
         if library.isBusy {

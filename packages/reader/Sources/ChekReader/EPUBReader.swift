@@ -109,6 +109,7 @@ public final class EPUBReader {
 
   func load() async {
     guard !Task.isCancelled else { return }
+    let restoresMountedDocument = phase == .ready || phase == .idle
     let generation = loadRequestID
     let operationID = UUID()
     loadOperationID = operationID
@@ -140,7 +141,9 @@ public final class EPUBReader {
       try Task.checkCancellation()
       guard generation == loadRequestID, loadOperationID == operationID, let page else { return }
       let url = try publication.url(for: requestedHref)
-      let anchor = resumeLocation
+      // Remounting the same reader reloads its WebPage. Restore the captured
+      // passage; explicit navigation keeps its own fragment/start semantics.
+      let anchor = resumeLocation ?? (restoresMountedDocument ? location : nil)
       documentToken = UUID().uuidString
       phase = .restoring
       for try await _ in page.load(url) { try Task.checkCancellation() }
@@ -400,6 +403,11 @@ public final class EPUBReader {
     configuration.websiteDataStore = .nonPersistent()
     configuration.userContentController = controller
     configuration.defaultNavigationPreferences.allowsContentJavaScript = false
+    #if os(iOS)
+      // Use the reader's responsive viewport consistently on iPhone and iPad;
+      // desktop shrink-to-fit crashes WebKit on the iPad title-page fixture.
+      configuration.defaultNavigationPreferences.preferredContentMode = .mobile
+    #endif
     configuration.allowsAirPlayForMediaPlayback = false
     #if os(iOS)
       configuration.dataDetectorTypes = []

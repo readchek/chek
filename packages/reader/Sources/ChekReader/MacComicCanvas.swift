@@ -28,7 +28,14 @@
     }
 
     private final class Canvas: NSView {
+      weak var scrollView: MacComicScrollView?
       override var isFlipped: Bool { true }
+      override var acceptsFirstResponder: Bool { true }
+
+      override func keyDown(with event: NSEvent) {
+        if scrollView?.handleNavigationKey(event) == true { return }
+        super.keyDown(with: event)
+      }
     }
 
     private let canvas = Canvas()
@@ -73,6 +80,7 @@
       allowsMagnification = true
       minMagnification = 1
       maxMagnification = 4
+      canvas.scrollView = self
       documentView = canvas
       contentView.postsBoundsChangedNotifications = true
       NotificationCenter.default.addObserver(
@@ -237,18 +245,26 @@
           y =
             starts[anchor.index] + (starts[anchor.index + 1] - starts[anchor.index])
             * anchor.fraction
-          if ratios[anchor.index] != nil { unresolvedAnchor = nil }
         } else if let cell = cells[anchor.index], cell.image != nil {
           y = cell.frame.minY + cell.frame.height * anchor.fraction
-          unresolvedAnchor = nil
         } else {
           return
         }
+        // Changing mode replaces the document extent. Flush native document
+        // layout before NSClipView constrains a restored origin against it.
+        canvas.layoutSubtreeIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        let restoredY = min(max(0, y), max(0, canvas.bounds.height - contentView.bounds.height))
         contentView.scroll(
           to: CGPoint(
             x: min(contentView.bounds.minX, max(0, width - contentView.bounds.width)),
-            y: min(max(0, y), max(0, canvas.bounds.height - contentView.bounds.height))))
+            y: restoredY))
         reflectScrolledClipView(contentView)
+        if abs(contentView.bounds.minY - restoredY) < 0.5,
+          mode == .paged || ratios[anchor.index] != nil
+        {
+          unresolvedAnchor = nil
+        }
         lastAnchor = self.anchor()
       }
     }
@@ -482,9 +498,11 @@
     }
 
     override func mouseDown(with event: NSEvent) {
+      super.mouseDown(with: event)
+      // Native scroll-view mouse tracking may select the clip/document view as
+      // first responder. Claim keyboard navigation after that tracking finishes.
       window?.makeFirstResponder(self)
       onTap?()
-      super.mouseDown(with: event)
     }
 
     override func magnify(with event: NSEvent) {
@@ -536,13 +554,18 @@
     }
 
     override func keyDown(with event: NSEvent) {
+      if handleNavigationKey(event) { return }
+      super.keyDown(with: event)
+    }
+
+    private func handleNavigationKey(_ event: NSEvent) -> Bool {
       if mode == .paged, magnification <= 1.01,
         event.modifierFlags.intersection([.command, .control, .option]).isEmpty
       {
-        if event.keyCode == 124, navigate(left: true) { return }
-        if event.keyCode == 123, navigate(left: false) { return }
+        if event.keyCode == 124 { return navigate(left: true) }
+        if event.keyCode == 123 { return navigate(left: false) }
       }
-      super.keyDown(with: event)
+      return false
     }
   }
 

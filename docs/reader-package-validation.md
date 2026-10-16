@@ -333,3 +333,45 @@ consumer remains `dev.chek.reader.embedding`.
 
 The package is internally installable and hardened, not certified feature-complete
 or ready for a public release.
+
+### Native Mac and iPad portability — 2026-10-16
+
+The package and independent consumer compile for native arm64 macOS 27 with
+Swift 6.4. ChekMac, ReaderEmbeddingMac, Chek iOS, and ReaderEmbedding iOS Debug
+builds pass. This establishes Apple Silicon support, not an Intel universal binary
+or support for every Darwin platform. Run the native demo with
+`script/build_and_run.sh`; no attached iPhone is required.
+
+Native Mac checks exercised local EPUB/CBZ import, Moby-Dick chapter links,
+three successive chapter advances, text resizing, session replacement, and
+birds-eye continuous scrolling. Comic progress survived process restart and
+reopening. Paged arrow navigation advanced 3 → 4 → 3 after fixing document-view
+first-responder ownership. Continuous → paged → continuous retained page 3 at
+81.6%; window zoom and return retained that anchor too. Native layout must settle
+before the canvas accepts a restored scroll origin. Files and Session controls
+were visually checked as matching circular Liquid Glass controls.
+
+Serve Sim rendered the standalone host on iPhone 18 Pro and iPad Pro 11-inch
+(M5), both iOS 27 simulators. Native system toolbar glass was checked on both.
+The iPhone mixed-layout EPUB rendered. On iPad, birds-eye rendered, scrolled to
+page 2, and remained readable after rotation to landscape.
+
+Initial Moby-Dick loading on iPad exposed a reproducible WebContent crash in
+`WebPage::shrinkToFitContent` / `LocalFrameViewLayoutContext::performLayout`.
+The SDK defaults full-size iPads to desktop content mode. Explicit mobile content
+mode on iOS/iPadOS resolved the observed crash: the same title-page JPEG rendered
+in portrait and landscape, and navigation to the contents and chapter 1 succeeded. This keeps
+the reader's viewport behavior consistent across iPhone and iPad; macOS retains
+its native content mode. It is not proof that every WebKit layout failure is fixed.
+
+Reader phases and host session ownership are documented in
+[the embedding guide](reader-package.md). Late loads and persistence completions
+are guarded by operation/session identity. Build and manual checks above do not
+prove every possible event ordering. A further review fixed reuse of the captured
+EPUB location when the same reader view is reattached; its Release simulator build
+passes, but a dedicated view-reattachment exercise remains unperformed. No new
+tests were added.
+
+Remaining Mac qualification includes physical trackpad magnification, spoken
+VoiceOver, memory-pressure behavior and repeatable performance measurements.
+Earlier iPhone evidence does not establish those results on Mac or iPad.
