@@ -372,6 +372,10 @@ EPUB location when the same reader view is reattached; its Release simulator bui
 passes, but a dedicated view-reattachment exercise remains unperformed. No new
 tests were added.
 
+The existing hosts cannot exercise that exact reattachment case: Close/reopen
+and Replace create new reader objects; sheets and resizing retain the reader
+view. These actions must not be counted as same-reader reattachment evidence.
+
 Remaining Mac qualification includes physical trackpad magnification, spoken
 VoiceOver, memory-pressure behavior and repeatable performance measurements.
 Earlier iPhone evidence does not establish those results on Mac or iPad.
