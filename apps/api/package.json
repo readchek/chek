@@ -8,7 +8,11 @@
     "typecheck": "bun check"
   },
   "dependencies": {
+    "@chek/core": "workspace:*",
+    "@chek/extension-local-files": "workspace:*",
+    "@chek/extensions": "workspace:*",
     "@effect/platform-bun": "^4.0.0",
+    "@knadh/oat": "0.8.3",
     "effect": "^4.0.0"
   },
   "devDependencies": {

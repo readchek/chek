@@ -1,0 +1,29 @@
+{
+  "name": "@chek/core",
+  "version": "0.1.0",
+  "description": "Runtime-validated publication and asset contracts for Chek",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun check",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "bun run build"
+  },
+  "devDependencies": {
+    "effect": "^4.0.0",
+    "typescript": "^7"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0"
+  }
+}

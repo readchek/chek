@@ -1,0 +1,18 @@
+{
+  "protocolVersion": 1,
+  "id": "chek.local-files",
+  "name": "Local files",
+  "version": "0.1.0",
+  "description": "Import books and comic archives from a folder without changing the originals.",
+  "entrypoint": "src/index.ts",
+  "capabilities": ["discover"],
+  "configFields": [
+    {
+      "key": "root",
+      "label": "Folder path",
+      "required": true,
+      "secret": false,
+      "grant": "read-directory"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+:root {
+  --primary: #275b9e;
+  --primary-foreground: #ffffff;
+  --ring: #4a8ce0;
+}
+
+/* Preserve native hidden semantics when Oat sets a component display value. */
+[hidden] {
+  display: none !important;
+}

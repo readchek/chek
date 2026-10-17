@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chek · Library inspector</title>
+    <link rel="stylesheet" href="/inspect/oat.css" />
+    <link rel="stylesheet" href="/inspect/theme.css" />
+    <script src="/inspect/app.js" defer></script>
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Chek</h1>
+        <p>Library inspector</p>
+        <nav aria-label="Sections">
+          <a href="#sources">Sources</a> · <a href="#library">Library</a> ·
+          <a href="#jobs">Jobs</a> · <a href="#extensions">Extensions</a>
+        </nav>
+      </header>
+      <p id="notice" role="status" aria-live="polite">Connecting…</p>
+      <details>
+        <summary>Server access</summary>
+        <form id="access-form">
+          <label for="token">API token (only if configured on the server)</label>
+          <input type="password" id="token" autocomplete="off" />
+          <button>Connect</button>
+        </form>
+      </details>
+      <section id="sources">
+        <h2>Sources</h2>
+        <p>
+          Import without modifying your original files. Each source uses an installed extension.
+        </p>
+        <div id="source-list"></div>
+        <details>
+          <summary>Add a source</summary>
+          <form id="source-form">
+            <label for="source-name">Name</label
+            ><input id="source-name" required maxlength="256" placeholder="My books" />
+            <label for="extension-select">Extension</label
+            ><select id="extension-select" required></select>
+            <div id="config-fields"></div>
+            <div id="grants" hidden>
+              <label for="read-roots">Granted folders (one absolute path per line)</label
+              ><textarea id="read-roots"></textarea>
+              <label for="http-origins">Granted HTTP origins (one per line)</label
+              ><textarea id="http-origins" placeholder="https://library.example.com"></textarea>
+            </div>
+            <button>Add source and import</button>
+          </form>
+        </details>
+      </section>
+      <section id="library">
+        <h2>Library</h2>
+        <p>
+          Stored originals are available for download and byte-range reading. Parsing and reading
+          preparation are not yet enabled.
+        </p>
+        <form id="search-form" role="search">
+          <label for="search">Title</label
+          ><input id="search" type="search" maxlength="256" placeholder="Search imported titles" />
+          <button>Search</button>
+        </form>
+        <table>
+          <caption id="library-caption">
+            Imported publications
+          </caption>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Format</th>
+              <th>Size</th>
+              <th>Status</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="publications"></tbody>
+        </table>
+        <button id="more" type="button" hidden>Load more</button>
+      </section>
+      <section id="jobs">
+        <h2>Import jobs</h2>
+        <p>Updates every three seconds while this page is visible.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>State</th>
+              <th>Imported</th>
+              <th>Unchanged</th>
+              <th>Warnings</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="job-list"></tbody>
+        </table>
+      </section>
+      <section id="extensions">
+        <h2>Extensions</h2>
+        <p>Explicitly installed, trusted code. Connectors use this same extension interface.</p>
+        <div id="extension-list"></div>
+      </section>
+      <dialog id="detail">
+        <h2 id="detail-title"></h2>
+        <div id="detail-content"></div>
+        <form method="dialog"><button>Close</button></form>
+      </dialog>
+    </main>
+  </body>
+</html>

@@ -2,7 +2,9 @@
   "name": "chek",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*",
+    "extensions/*"
   ],
   "type": "module",
   "scripts": {
@@ -10,7 +12,8 @@
     "corpus:verify": "bun scripts/corpus.ts --verify",
     "dev": "bun run --filter @chek/api dev",
     "start": "bun run --filter @chek/api start",
-    "typecheck": "bun run --workspaces typecheck",
+    "build:packages": "bun run --filter @chek/core build && bun run --filter @chek/extensions build",
+    "typecheck": "bun run build:packages && bun run --workspaces typecheck",
     "lint": "oxlint --deny-warnings .",
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --write .",

@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
-import { OtlpLogger, OtlpSerialization, OtlpTracer } from "effect/observability"
+import { OtlpLogger, OtlpMetrics, OtlpSerialization, OtlpTracer } from "effect/observability"
 import { ApiConfig } from "../services/config"
 import { LoggerLive } from "./logger"
 
@@ -8,9 +8,10 @@ export const TelemetryLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ApiConfig
     const resource = { serviceName: config.serviceName }
-    return Layer.merge(
+    return Layer.mergeAll(
       OtlpLogger.layerFromConfig({ resource }),
       OtlpTracer.layerFromConfig({ resource }),
+      OtlpMetrics.layerFromConfig({ resource }),
     ).pipe(
       Layer.provide(
         config.otlpProtocol === "http/json"

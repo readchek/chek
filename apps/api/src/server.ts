@@ -5,8 +5,18 @@ import { HttpApiBuilder } from "effect/http-api"
 import { MangaApi } from "./api/api"
 import { BasicHandlers } from "./handlers/basic"
 import { ApiConfig } from "./services/config"
+import { CatalogHandlers } from "./handlers/catalog"
+import { DeliveryRoutes } from "./handlers/delivery"
+import { Guard } from "./handlers/guard"
+import { InspectorRoutes } from "./handlers/inspector"
 
-const Routes = HttpApiBuilder.layer(MangaApi).pipe(Layer.provide(BasicHandlers))
+const Routes = Layer.mergeAll(
+  HttpApiBuilder.layer(MangaApi, { openapiPath: "/api/openapi.json" }).pipe(
+    Layer.provide([BasicHandlers, CatalogHandlers]),
+  ),
+  DeliveryRoutes,
+  InspectorRoutes,
+).pipe(Layer.provide(Guard))
 
 export const ApiServerLive = Layer.unwrap(
   Effect.gen(function* () {

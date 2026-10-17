@@ -16,7 +16,11 @@
     "apps/api": {
       "name": "@chek/api",
       "dependencies": {
+        "@chek/core": "workspace:*",
+        "@chek/extension-local-files": "workspace:*",
+        "@chek/extensions": "workspace:*",
         "@effect/platform-bun": "^4.0.0",
+        "@knadh/oat": "0.8.3",
         "effect": "^4.0.0",
       },
       "devDependencies": {
@@ -31,9 +35,50 @@
         "cf": "^1.0.0-beta.13",
       },
     },
+    "extensions/local-files": {
+      "name": "@chek/extension-local-files",
+      "dependencies": {
+        "@chek/extensions": "workspace:*",
+        "effect": "^4.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/core": {
+      "name": "@chek/core",
+      "version": "0.1.0",
+      "devDependencies": {
+        "effect": "^4.0.0",
+        "typescript": "^7",
+      },
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/extensions": {
+      "name": "@chek/extensions",
+      "version": "0.1.0",
+      "dependencies": {
+        "@chek/core": "workspace:^",
+      },
+      "devDependencies": {
+        "effect": "^4.0.0",
+        "typescript": "^7",
+      },
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
   },
   "packages": {
     "@chek/api": ["@chek/api@workspace:apps/api"],
+
+    "@chek/core": ["@chek/core@workspace:packages/core"],
+
+    "@chek/extension-local-files": ["@chek/extension-local-files@workspace:extensions/local-files"],
+
+    "@chek/extensions": ["@chek/extensions@workspace:packages/extensions"],
 
     "@chek/website": ["@chek/website@workspace:apps/website"],
 
@@ -122,6 +167,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
+
+    "@knadh/oat": ["@knadh/oat@0.8.3", "", {}, "sha512-eE07LJ6RpC21PfEbu3U6dFbTO0V6m1OcXocrYr7dwN+Ffr8sx+SqVTPwHO5/+Azv0NWEU8V7frwzBQXdx7CzLA=="],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.71.0", "", { "os": "android", "cpu": "arm" }, "sha512-l31EyBfB4egJeFua11aQFEUE9nnDtfpWCadqQovm0WL30t/yUHtdFl/5HyFXvd5xT8Ewh3U4TI9f30GowrQ1fw=="],
 
@@ -305,6 +352,14 @@
 
     "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 
+    "@chek/api/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+
+    "@chek/extension-local-files/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+
     "miniflare/ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
+
+    "@chek/api/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+
+    "@chek/extension-local-files/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
   }
 }

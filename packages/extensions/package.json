@@ -1,0 +1,33 @@
+{
+  "name": "@chek/extensions",
+  "version": "0.1.0",
+  "description": "Effect-native SDK for Chek source extensions",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun check",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "bun run build"
+  },
+  "dependencies": {
+    "@chek/core": "workspace:^"
+  },
+  "devDependencies": {
+    "effect": "^4.0.0",
+    "typescript": "^7"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0"
+  }
+}
