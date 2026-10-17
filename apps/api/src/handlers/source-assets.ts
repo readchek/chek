@@ -56,9 +56,10 @@ export const SourceAssetRoutes = Layer.unwrap(
 
     return HttpRouter.add(
       "GET",
-      "/api/v1/source-assets/:token",
+      "/api/v1/source-assets",
       Effect.gen(function* () {
-        const { token } = yield* HttpRouter.params
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const token = new URL(request.url, "http://localhost").searchParams.get("token")
         const resource = yield* queries.resource(token ?? "")
         const asset = yield* Cache.get(
           cache,
@@ -72,7 +73,6 @@ export const SourceAssetRoutes = Layer.unwrap(
             code: "source-image-invalid",
             message: "Source returned an unsupported image or a non-image response",
           })
-        const request = yield* HttpServerRequest.HttpServerRequest
         const etag = `"${asset.hash}"`
         const headers = {
           "content-type": type,
@@ -97,7 +97,16 @@ export const SourceAssetRoutes = Layer.unwrap(
                 code: error._tag === "Missing" ? "source-missing" : error.code,
                 message: error.message,
               },
-              { status: error._tag === "Missing" ? 404 : 502 },
+              {
+                status:
+                  error._tag === "Missing"
+                    ? 404
+                    : error.code === "source-asset-expired"
+                      ? 410
+                      : error._tag === "StorageError"
+                        ? 503
+                        : 502,
+              },
             ),
           ),
         ),

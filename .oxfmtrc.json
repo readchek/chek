@@ -1,5 +1,12 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "semi": false,
-  "ignorePatterns": ["AGENTS.md", "bun.lock", "**/dist/**", "**/out/**", "**/coverage/**"]
+  "ignorePatterns": [
+    "AGENTS.md",
+    "bun.lock",
+    "test-data/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/coverage/**"
+  ]
 }

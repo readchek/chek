@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import { chmodSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 
-export const schemaVersion = 3
+export const schemaVersion = 4
 
 const migrations = [
   `
@@ -38,6 +38,7 @@ const migrations = [
   `,
   "ALTER TABLE publications ADD COLUMN sourceFingerprint TEXT;",
   "ALTER TABLE publications ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';",
+  "ALTER TABLE sources ADD COLUMN checkpoint TEXT; ALTER TABLE jobs ADD COLUMN nextAttemptAt INTEGER NOT NULL DEFAULT 0; CREATE INDEX jobs_ready ON jobs(state,nextAttemptAt,createdAt);",
 ] as const
 
 export function openDatabase(directory: string): Database {

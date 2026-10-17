@@ -10,6 +10,8 @@ export class ExtensionContext extends Context.Service<
   ExtensionContext,
   {
     readonly grants: AssetGrants
+    /** Last host-acknowledged import cursor; null means start a full scan. */
+    readonly checkpoint: string | null
   }
 >()("@chek/extensions/ExtensionContext") {}
 
@@ -130,24 +132,22 @@ export function defineExtension<Config>(definition: ExtensionDefinition<Config>)
           if (!definition.discover) return yield* unsupported("discover")
           const config = yield* configuration(input)
           yield* definition.validate(config)
-          return definition
-            .discover(config)
-            .pipe(
-              Stream.mapEffect((event) =>
-                Schema.decodeUnknownEffect(DiscoveryEvent)(event, {
-                  onExcessProperty: "error",
-                }).pipe(
-                  Effect.mapError(
-                    () =>
-                      new ExtensionError({
-                        code: "publication-invalid",
-                        message: "Invalid discovery record",
-                        retryable: false,
-                      }),
-                  ),
+          return definition.discover(config).pipe(
+            Stream.mapEffect((event) =>
+              Schema.decodeUnknownEffect(DiscoveryEvent)(event, {
+                onExcessProperty: "error",
+              }).pipe(
+                Effect.mapError(
+                  () =>
+                    new ExtensionError({
+                      code: "publication-invalid",
+                      message: "Invalid discovery record",
+                      retryable: false,
+                    }),
                 ),
               ),
-            )
+            ),
+          )
         }),
       ),
     query: Effect.fn("extension.query")(function* (input, query) {
@@ -177,6 +177,54 @@ export function defineExtension<Config>(definition: ExtensionDefinition<Config>)
             }),
         ),
       )
+
+      if (
+        valid.operation === "series" &&
+        validQuery.operation === "series" &&
+        valid.data.key !== validQuery.seriesKey
+      ) {
+        return yield* new ExtensionError({
+          code: "series-identity-invalid",
+          message: "Source returned a different series",
+          retryable: false,
+        })
+      }
+      if (valid.operation !== "series" && validQuery.operation !== "series") {
+        if (
+          valid.data.items.length > validQuery.limit ||
+          (valid.data.nextCursor !== null && valid.data.nextCursor === validQuery.cursor)
+        ) {
+          return yield* new ExtensionError({
+            code: "pagination-invalid",
+            message: "Source exceeded the page limit or repeated its cursor",
+            retryable: false,
+          })
+        }
+      }
+      if (
+        valid.operation === "chapters" &&
+        validQuery.operation === "chapters" &&
+        valid.data.items.some((chapter) => chapter.seriesKey !== validQuery.seriesKey)
+      ) {
+        return yield* new ExtensionError({
+          code: "chapter-identity-invalid",
+          message: "Source returned a chapter from another series",
+          retryable: false,
+        })
+      }
+      if (
+        valid.operation === "browse" ||
+        valid.operation === "search" ||
+        valid.operation === "chapters"
+      ) {
+        const keys = valid.data.items.map((item) => item.key)
+        if (new Set(keys).size !== keys.length)
+          return yield* new ExtensionError({
+            code: "source-identity-invalid",
+            message: "Source returned duplicate identities",
+            retryable: false,
+          })
+      }
 
       if (
         valid.operation === "pages" &&

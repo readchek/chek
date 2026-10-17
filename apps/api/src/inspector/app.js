@@ -57,6 +57,7 @@ const post = (path, payload) =>
   json(path, { method: "POST", ...(payload ? { body: JSON.stringify(payload) } : {}) })
 
 function showDetail(title, content) {
+  releasePageObjects()
   element("detail-title").textContent = title
   element("detail-content").replaceChildren(content)
   if (!element("detail").open) element("detail").showModal()
@@ -133,16 +134,163 @@ async function loadSources() {
           line.append(
             node("strong", source.name),
             document.createTextNode(` · ${source.extensionId} `),
-            action("Scan", async () => {
-              await post(`/api/v1/sources/${source.id}/scan`)
-              notice("Import queued")
-              await loadJobs()
-            }),
           )
+          const capabilities =
+            extensions.find((extension) => extension.id === source.extensionId)?.capabilities ?? []
+          if (capabilities.includes("discover"))
+            line.append(
+              action("Scan", async () => {
+                await post(`/api/v1/sources/${source.id}/scan`)
+                notice("Import queued")
+                await loadJobs()
+              }),
+            )
+          if (capabilities.includes("browse") || capabilities.includes("search"))
+            line.append(action("Browse", () => browseSource(source)))
           return line
         })
       : [node("p", "No sources yet. Add a folder to begin.")]),
   )
+}
+
+const querySource = (source, query) => post(`/api/v1/sources/${source.id}/query`, query)
+
+async function browseSource(source) {
+  const container = node("div")
+  const form = node("form")
+  const input = node("input")
+  input.type = "search"
+  input.placeholder = "Search this source"
+  input.setAttribute("aria-label", "Search this source")
+  const results = node("div")
+  const capabilities = extensions.find(
+    (extension) => extension.id === source.extensionId,
+  ).capabilities
+  const load = async (cursor) => {
+    const text = input.value.trim()
+    const operation = text ? "search" : "browse"
+    if (!capabilities.includes(operation))
+      throw new Error(`This source does not support ${operation}`)
+    const result = await querySource(source, {
+      operation,
+      limit: 20,
+      filters: {},
+      ...(text ? { text } : {}),
+      ...(cursor ? { cursor } : {}),
+    })
+    if (!cursor) results.replaceChildren()
+    for (const series of result.data.items) {
+      const article = node("article")
+      article.append(
+        node("h3", series.title),
+        node("p", `${series.status} · ${series.languages.join(", ")}`),
+      )
+      if (capabilities.includes("chapters"))
+        article.append(action("Chapters", () => showChapters(source, series)))
+      if (capabilities.includes("series"))
+        article.append(
+          action("Metadata", async () =>
+            showDetail(
+              series.title,
+              raw(await querySource(source, { operation: "series", seriesKey: series.key })),
+            ),
+          ),
+        )
+      results.append(article)
+    }
+    more.hidden = !result.data.nextCursor
+    next = result.data.nextCursor
+  }
+  let next = null
+  const more = action("More series", () => load(next))
+  more.hidden = true
+  form.append(input, node("button", "Search"))
+  form.addEventListener("submit", (event) => {
+    event.preventDefault()
+    load().catch((error) => notice(error.message))
+  })
+  container.append(form, results, more)
+  showDetail(source.name, container)
+  if (capabilities.includes("browse")) await load()
+}
+
+async function showChapters(source, series) {
+  const container = node("div")
+  container.append(action("Back to source", () => browseSource(source)))
+  const list = node("ol")
+  let next = null
+  const more = action("More chapters", () => load(next))
+  const load = async (cursor) => {
+    const result = await querySource(source, {
+      operation: "chapters",
+      seriesKey: series.key,
+      limit: 30,
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const chapter of result.data.items) {
+      const item = node("li")
+      item.append(
+        action(chapter.title, () => showPages(source, series, chapter)),
+        node("small", ` ${chapter.language ?? ""} ${chapter.groups.join(", ")}`),
+      )
+      list.append(item)
+    }
+    next = result.data.nextCursor
+    more.hidden = !next
+  }
+  container.append(list, more)
+  showDetail(series.title, container)
+  await load()
+}
+
+const pageObjects = new Set()
+function releasePageObjects() {
+  for (const url of pageObjects) URL.revokeObjectURL(url)
+  pageObjects.clear()
+}
+element("detail").addEventListener("close", releasePageObjects)
+
+async function showPages(source, series, chapter) {
+  releasePageObjects()
+  const container = node("div")
+  container.append(action("Back to chapters", () => showChapters(source, series)))
+  const pages = node("div")
+  let next = null
+  const more = action("More pages", () => load(next))
+  const load = async (cursor) => {
+    const result = await querySource(source, {
+      operation: "pages",
+      chapterKey: chapter.key,
+      limit: 10,
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const page of result.data.items) {
+      const figure = node("figure")
+      const image = node("img")
+      image.alt = `${chapter.title}, page ${page.index + 1}`
+      image.loading = "lazy"
+      image.className = "source-page"
+      if (token) {
+        const object = URL.createObjectURL(await (await api(page.asset)).blob())
+        pageObjects.add(object)
+        image.src = object
+      } else image.src = page.asset
+      image.addEventListener(
+        "error",
+        () => {
+          figure.append(node("p", "Image could not load. Reopen the chapter to refresh its URLs."))
+        },
+        { once: true },
+      )
+      figure.append(image, node("figcaption", `Page ${page.index + 1}`))
+      pages.append(figure)
+    }
+    next = result.data.nextCursor
+    more.hidden = !next
+  }
+  container.append(pages, more)
+  showDetail(chapter.title, container)
+  await load()
 }
 
 async function publicationDetail(publication) {
@@ -304,8 +452,10 @@ element("source-form").addEventListener("submit", async (event) => {
         ]),
       ],
     })
-    await post(`/api/v1/sources/${source.id}/scan`)
-    notice("Source added; import queued")
+    if (extension.capabilities.includes("discover")) {
+      await post(`/api/v1/sources/${source.id}/scan`)
+      notice("Source added; import queued")
+    } else notice("Source added; ready to browse")
     await loadSources()
     await loadJobs()
     event.target.reset()

@@ -65,6 +65,7 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
           protocolVersion: 1,
           operation: "discover",
           sourceId: source.id,
+          checkpoint: source.checkpoint,
           extensionId: extension.manifest.id,
           extensionVersion: extension.manifest.version,
           config: source.config,
@@ -73,10 +74,22 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
         controller.signal,
       )
 
+      // Never move a resume cursor past an asset that failed to import.
+      let checkpointSafe = true
       yield* Stream.runForEach(events, (event) =>
         Effect.gen(function* () {
           if (event.type === "complete" || event.type === "failure" || event.type === "result")
             return
+
+          if (event.type === "checkpoint") {
+            if (checkpointSafe)
+              yield* store.call("checkpoint", {
+                id: job.id,
+                attempt: job.attempts,
+                cursor: event.cursor,
+              })
+            return
+          }
 
           if (event.type === "warning") {
             yield* store.call("event", {
@@ -94,6 +107,7 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
             .pipe(
               Effect.catchTag("RequestError", (error) =>
                 Effect.gen(function* () {
+                  checkpointSafe = false
                   yield* Metric.update(failures, 1)
                   yield* store.call("event", {
                     id: job.id,
@@ -139,6 +153,7 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
           attempt: job.attempts,
           errorCode: error.code,
           errorMessage: error.message,
+          retryable: "retryable" in error && error.retryable === true,
         })
         yield* Effect.logError("Import failed", { jobId: job.id, code: error.code })
       }),

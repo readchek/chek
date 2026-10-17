@@ -11,21 +11,13 @@ import {
   Semaphore,
   Stream,
 } from "effect"
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { CatalogStore } from "../catalog/store"
 import { Missing, RequestError, StorageError } from "../catalog/models"
 import { ApiConfig } from "../services/config"
 import { ExtensionRegistry } from "./registry"
 import { ExtensionHost } from "./host"
 import { stateKey } from "./state"
-
-const Resource = Schema.Struct({
-  sourceId: Schema.String,
-  asset: AssetReference,
-  mediaType: Schema.String,
-  expiresAt: Schema.Number,
-})
-type Resource = typeof Resource.Type
+import { resourceStore, type Resource } from "./resources"
 type QueryError = Missing | RequestError | StorageError
 
 /** Queries are coalesced and cached for 30 seconds. Raw results stay inside the server. */
@@ -36,7 +28,11 @@ export class SourceQueries extends Context.Service<
       sourceId: string,
       query: SourceQuery,
     ) => Effect.Effect<SourceResult, QueryError>
-    readonly resourceUrl: (sourceId: string, asset: AssetReference, mediaType: string) => string
+    readonly resourceUrl: (
+      sourceId: string,
+      asset: AssetReference,
+      mediaType: string,
+    ) => Effect.Effect<string, StorageError>
     readonly resource: (token: string) => Effect.Effect<Resource, RequestError>
   }
 >()("@chek/api/SourceQueries") {
@@ -48,6 +44,7 @@ export class SourceQueries extends Context.Service<
       const host = yield* ExtensionHost
       const config = yield* ApiConfig
       const key = yield* Effect.promise(() => stateKey(config.dataDirectory))
+      const resources = yield* resourceStore(config.dataDirectory, key)
       const permits = yield* Semaphore.make(4)
 
       const lookup = Effect.fn("sources.query")(function* (cacheKey: string) {
@@ -77,7 +74,7 @@ export class SourceQueries extends Context.Service<
             extensionId: source.extensionId,
             extensionVersion: extension.manifest.version,
             config: source.config,
-            grants: source,
+            grants: { readRoots: source.readRoots, httpOrigins: source.httpOrigins },
             query,
           })
           .pipe(
@@ -121,41 +118,8 @@ export class SourceQueries extends Context.Service<
 
       return SourceQueries.of({
         query: (sourceId, query) => Cache.get(cache, JSON.stringify({ sourceId, query })),
-        resourceUrl: (sourceId, asset, mediaType) => {
-          const iv = randomBytes(12)
-          const cipher = createCipheriv("aes-256-gcm", key, iv)
-          cipher.setAAD(Buffer.from("chek-source-resource-v1"))
-          const body = Buffer.concat([
-            cipher.update(
-              JSON.stringify({ sourceId, asset, mediaType, expiresAt: Date.now() + 600_000 }),
-            ),
-            cipher.final(),
-          ])
-          const token = Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64url")
-          return `/api/v1/source-assets/${token}`
-        },
-        resource: (token) =>
-          Effect.try({
-            try: () => {
-              if (token.length > 32768) throw new Error("Oversized token")
-              const bytes = Buffer.from(token, "base64url")
-              const cipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12))
-              cipher.setAAD(Buffer.from("chek-source-resource-v1"))
-              cipher.setAuthTag(bytes.subarray(12, 28))
-              const resource = Schema.decodeUnknownSync(Resource)(
-                JSON.parse(
-                  Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString(),
-                ),
-              )
-              if (resource.expiresAt <= Date.now()) throw new Error("Expired token")
-              return resource
-            },
-            catch: () =>
-              new RequestError({
-                code: "source-asset-expired",
-                message: "Reload the source page to obtain a fresh asset URL",
-              }),
-          }),
+        resourceUrl: resources.issue,
+        resource: resources.resolve,
       })
     }),
   )

@@ -64,7 +64,8 @@ export const Guard = HttpRouter.middleware(
             "x-content-type-options": "nosniff",
             "referrer-policy": "no-referrer",
             "content-security-policy":
-              "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+              response.headers["content-security-policy"] ??
+              "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
             ...(request.url.startsWith("/api/") && !request.url.startsWith("/api/v1/assets/")
               ? { "cache-control": "no-store" }
               : {}),

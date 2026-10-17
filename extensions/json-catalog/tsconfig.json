@@ -1,0 +1,5 @@
+{
+  "extends": "../../packages/extensions/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "resolveJsonModule": true, "rootDir": "." },
+  "include": ["src/**/*.ts", "extension.json"]
+}

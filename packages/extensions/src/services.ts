@@ -14,9 +14,14 @@ export interface SourceHttpResponse {
   readonly url: string
   readonly headers: Readonly<Record<string, string>>
   readonly text: string
+  readonly byteLength: number
 }
 
-/** Enforces grants, bounded bodies, timeouts, origin-scoped cookies, and shared request pacing. */
+/**
+ * Fetch text/JSON/HTML through the host. Responses are capped at 4 MiB and 30 seconds.
+ * Cookies persist per source and origin. GET transport/429/5xx failures are retryable;
+ * other statuses are returned for the extension to interpret. Never log credentials.
+ */
 export class SourceHttp extends Context.Service<
   SourceHttp,
   {
@@ -26,7 +31,11 @@ export class SourceHttp extends Context.Service<
   }
 >()("@chek/extensions/SourceHttp") {}
 
-/** Durable, encrypted, source-scoped JSON state. Use for tokens and source-specific cursors. */
+/**
+ * Encrypted JSON state, isolated per configured source (64 KiB/value, 1,024 entries).
+ * Validation uses temporary state. Get/set are not a transaction. For durable import
+ * cursors, emit discovery checkpoints instead so progress cannot outrun ingestion.
+ */
 export class SourceState extends Context.Service<
   SourceState,
   {

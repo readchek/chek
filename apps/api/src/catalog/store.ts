@@ -91,7 +91,7 @@ export class CatalogStore extends Context.Service<CatalogStore, StoreService>()(
       }
       yield* request("initialize", config.dataDirectory)
       yield* Effect.addFinalizer(() => request("close", null).pipe(Effect.ignore))
-      yield* Effect.logInfo("Catalog storage ready", { schemaVersion: 3, journalMode: "wal" })
+      yield* Effect.logInfo("Catalog storage ready", { schemaVersion: 4, journalMode: "wal" })
       return CatalogStore.of({
         call: <K extends keyof StoreOperations>(action: K, input: StoreOperations[K]["input"]) =>
           request(action, input) as Effect.Effect<StoreOperations[K]["output"], StorageError>,

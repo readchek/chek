@@ -21,25 +21,37 @@ export const CatalogHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       sourceQuery: Effect.fn("sources.publicQuery")(function* ({ params, payload }) {
         const result = yield* queries.query(params.id, payload)
-        const series = ({ cover, ...value }: Series) => ({
-          ...value,
-          ...(cover ? { cover: queries.resourceUrl(params.id, cover, "image/*") } : {}),
+        const series = Effect.fnUntraced(function* ({ cover, ...value }: Series) {
+          return {
+            ...value,
+            ...(cover ? { cover: yield* queries.resourceUrl(params.id, cover, "image/*") } : {}),
+          }
         })
         switch (result.operation) {
           case "series":
-            return { ...result, data: series(result.data) }
+            return { ...result, data: yield* series(result.data) }
           case "browse":
           case "search":
-            return { ...result, data: { ...result.data, items: result.data.items.map(series) } }
+            return {
+              ...result,
+              data: {
+                ...result.data,
+                items: yield* Effect.forEach(result.data.items, series, { concurrency: 8 }),
+              },
+            }
           case "pages":
             return {
               ...result,
               data: {
                 ...result.data,
-                items: result.data.items.map((page) => ({
-                  ...page,
-                  asset: queries.resourceUrl(params.id, page.asset, page.mediaType),
-                })),
+                items: yield* Effect.forEach(
+                  result.data.items,
+                  (page) =>
+                    queries
+                      .resourceUrl(params.id, page.asset, page.mediaType)
+                      .pipe(Effect.map((asset) => ({ ...page, asset }))),
+                  { concurrency: 8 },
+                ),
               },
             }
           case "chapters":

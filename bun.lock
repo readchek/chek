@@ -35,6 +35,13 @@
         "cf": "^1.0.0-beta.13",
       },
     },
+    "extensions/json-catalog": {
+      "name": "@chek/extension-json-catalog",
+      "dependencies": {
+        "@chek/extensions": "workspace:*",
+        "effect": "^4.0.0",
+      },
+    },
     "extensions/local-files": {
       "name": "@chek/extension-local-files",
       "dependencies": {
@@ -75,6 +82,8 @@
     "@chek/api": ["@chek/api@workspace:apps/api"],
 
     "@chek/core": ["@chek/core@workspace:packages/core"],
+
+    "@chek/extension-json-catalog": ["@chek/extension-json-catalog@workspace:extensions/json-catalog"],
 
     "@chek/extension-local-files": ["@chek/extension-local-files@workspace:extensions/local-files"],
 

@@ -30,7 +30,9 @@ export function sourceRepository(db: Database) {
       const id = crypto.randomUUID()
       const createdAt = Date.now()
 
-      db.query("INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      db.query(
+        "INSERT INTO sources(id,name,extensionId,config,readRoots,httpOrigins,createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(
         id,
         source.name,
         source.extensionId,

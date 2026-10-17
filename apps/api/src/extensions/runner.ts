@@ -142,24 +142,25 @@ const program = Effect.scoped(
         request.operation === "validate"
           ? extension.validate(request.config)
           : request.operation === "query"
-            ? extension
-                .query(request.config, request.query)
-                .pipe(
-                  Effect.flatMap((result) =>
-                    Effect.try({
-                      try: () => sessionAssets(result, sessions),
-                      catch: transportError,
-                    }).pipe(
-                      Effect.flatMap((result) => writeEvent(output, { type: "result", result })),
-                    ),
+            ? extension.query(request.config, request.query).pipe(
+                Effect.flatMap((result) =>
+                  Effect.try({
+                    try: () => sessionAssets(result, sessions),
+                    catch: transportError,
+                  }).pipe(
+                    Effect.flatMap((result) => writeEvent(output, { type: "result", result })),
                   ),
-                )
+                ),
+              )
             : Stream.runForEach(extension.discover(request.config), (event) =>
                 writeEvent(output, event),
               )
 
       const traced = execution.pipe(
-        Effect.provideService(ExtensionContext, { grants: request.grants }),
+        Effect.provideService(ExtensionContext, {
+          grants: request.grants,
+          checkpoint: request.checkpoint ?? null,
+        }),
         Effect.provideService(SourceState, sessions.service),
         Effect.provide(sourceHttpLayer(sessions, request.grants)),
         Effect.tapError((error) =>

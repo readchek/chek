@@ -1,10 +1,11 @@
-import { AssetGrants, PublicationInput, SourceQuery, SourceResult, Text } from "@chek/core"
+import { AssetGrants, Cursor, PublicationInput, SourceQuery, SourceResult, Text } from "@chek/core"
 import { Schema } from "effect"
 import { ExtensionConfig, ExtensionId, ExtensionVersion } from "./manifest.js"
 
 const RequestFields = {
   protocolVersion: Schema.Literal(1),
   sourceId: Schema.optional(Text),
+  checkpoint: Schema.optional(Schema.NullOr(Cursor)),
   extensionId: ExtensionId,
   extensionVersion: ExtensionVersion,
   config: ExtensionConfig,
@@ -25,6 +26,8 @@ export type ExtensionRequest = typeof ExtensionRequest.Type
 export const DiscoveryEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("publication"), publication: PublicationInput }),
   Schema.Struct({ type: Schema.Literal("warning"), code: Text, message: Text }),
+  /** Emit after a batch. The host saves this cursor only after earlier records have been handled. */
+  Schema.Struct({ type: Schema.Literal("checkpoint"), cursor: Schema.NullOr(Cursor) }),
 ])
 export type DiscoveryEvent = typeof DiscoveryEvent.Type
 

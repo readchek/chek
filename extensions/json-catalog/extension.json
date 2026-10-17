@@ -1,0 +1,19 @@
+{
+  "protocolVersion": 1,
+  "id": "chek.json-catalog",
+  "name": "JSON catalog",
+  "version": "0.1.0",
+  "description": "Browse a private JSON catalog of series, chapter releases, and page images.",
+  "entrypoint": "src/index.ts",
+  "capabilities": ["browse", "search", "series", "chapters", "pages"],
+  "configFields": [
+    {
+      "key": "url",
+      "label": "Catalog URL",
+      "required": true,
+      "secret": false,
+      "grant": "http-origin"
+    },
+    { "key": "token", "label": "Bearer token (optional)", "required": false, "secret": true }
+  ]
+}

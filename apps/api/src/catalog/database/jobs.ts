@@ -77,10 +77,10 @@ export function jobRepository(db: Database) {
       `).run(now, now, maxAttempts)
 
           const next = db
-            .query<{ id: string }, []>(
-              "SELECT id FROM jobs WHERE state='queued' ORDER BY createdAt, id LIMIT 1",
+            .query<{ id: string }, [number]>(
+              "SELECT id FROM jobs WHERE state='queued' AND nextAttemptAt<=? ORDER BY createdAt, id LIMIT 1",
             )
-            .get()
+            .get(now)
           if (!next) return null
 
           db.query(
@@ -111,17 +111,26 @@ export function jobRepository(db: Database) {
     },
 
     finish: (value: StoreOperations["finish"]["input"]) => {
+      const retry = Boolean(value.errorCode && value.retryable && value.attempt < maxAttempts)
       db.query(`
-        UPDATE jobs SET state=?, errorCode=?, errorMessage=?, updatedAt=?, leaseUntil=0
+        UPDATE jobs SET state=?, errorCode=?, errorMessage=?, updatedAt=?, leaseUntil=0, nextAttemptAt=?
         WHERE id=? AND attempts=? AND state='running'
       `).run(
-        value.errorCode ? "failed" : "completed",
+        retry ? "queued" : value.errorCode ? "failed" : "completed",
         value.errorCode,
         value.errorMessage,
         Date.now(),
+        retry ? Date.now() + Math.min(60_000, 1000 * 2 ** value.attempt) : 0,
         value.id,
         value.attempt,
       )
+      return null
+    },
+
+    checkpoint: (value: StoreOperations["checkpoint"]["input"]) => {
+      db.query(
+        `UPDATE sources SET checkpoint=? WHERE id=(SELECT sourceId FROM jobs WHERE id=? AND attempts=? AND state='running' AND leaseUntil>=?)`,
+      ).run(value.cursor, value.id, value.attempt, Date.now())
       return null
     },
 

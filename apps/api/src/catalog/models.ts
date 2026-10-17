@@ -18,7 +18,11 @@ export const Source = Schema.Struct({
   createdAt: Schema.Number,
 })
 export type Source = typeof Source.Type
-export const StoredSource = Schema.Struct({ ...Source.fields, ...SourceInput.fields })
+export const StoredSource = Schema.Struct({
+  ...Source.fields,
+  ...SourceInput.fields,
+  checkpoint: Schema.NullOr(Schema.String),
+})
 export type StoredSource = typeof StoredSource.Type
 
 export const Job = Schema.Struct({
@@ -31,6 +35,7 @@ export const Job = Schema.Struct({
   warnings: Count,
   createdAt: Count,
   updatedAt: Count,
+  nextAttemptAt: Count,
   errorCode: Schema.NullOr(Schema.String),
   errorMessage: Schema.NullOr(Schema.String),
   traceId: Schema.NullOr(Schema.String),
@@ -95,9 +100,16 @@ export interface StoreOperations {
   heartbeat: { input: { id: string; attempt: number }; output: boolean }
   trace: { input: { id: string; traceId: string; attempt: number }; output: null }
   finish: {
-    input: { id: string; attempt: number; errorCode: string | null; errorMessage: string | null }
+    input: {
+      id: string
+      attempt: number
+      errorCode: string | null
+      errorMessage: string | null
+      retryable?: boolean
+    }
     output: null
   }
+  checkpoint: { input: { id: string; attempt: number; cursor: string | null }; output: null }
   event: { input: { id: string; attempt: number; code: string; message: string }; output: null }
   import: {
     input: { jobId: string; attempt: number; publication: ImportedPublication }

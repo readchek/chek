@@ -100,9 +100,16 @@ export const sourceHttpLayer = (store: SessionStore, grants: AssetGrants) =>
                 )
                 for (const cookie of Object.values(response.cookies.cookies)) {
                   const options = cookie.options
+                  const domain = options?.domain?.replace(/^\./, "").toLowerCase()
+                  if (
+                    domain &&
+                    target.hostname !== domain &&
+                    !target.hostname.endsWith(`.${domain}`)
+                  )
+                    continue
                   const path = options?.path?.startsWith("/")
                     ? options.path
-                    : target.pathname.slice(0, target.pathname.lastIndexOf("/") + 1) || "/"
+                    : target.pathname.slice(0, target.pathname.lastIndexOf("/")) || "/"
                   const expires =
                     options?.maxAge !== undefined
                       ? Date.now() + Duration.toMillis(Duration.fromInputUnsafe(options.maxAge))
@@ -160,16 +167,21 @@ export const sourceHttpLayer = (store: SessionStore, grants: AssetGrants) =>
 
           const chunks: Uint8Array[] = []
           let bytes = 0
-          yield* Stream.runForEach(response.stream, (chunk) => {
-            bytes += chunk.byteLength
-            if (bytes > 4 * 1024 * 1024) return Effect.fail(failure("http-response-limit"))
-            chunks.push(chunk)
-            return Effect.void
-          }).pipe(
-            Effect.mapError((error) =>
-              error instanceof ExtensionError ? error : failure("http-network", method === "GET"),
-            ),
+          if (
+            response.status !== 204 &&
+            response.status !== 304 &&
+            response.headers["content-length"] !== "0"
           )
+            yield* Stream.runForEach(response.stream, (chunk) => {
+              bytes += chunk.byteLength
+              if (bytes > 4 * 1024 * 1024) return Effect.fail(failure("http-response-limit"))
+              chunks.push(chunk)
+              return Effect.void
+            }).pipe(
+              Effect.mapError((error) =>
+                error instanceof ExtensionError ? error : failure("http-network", method === "GET"),
+              ),
+            )
           return {
             status: response.status,
             url: target.href,
@@ -177,6 +189,7 @@ export const sourceHttpLayer = (store: SessionStore, grants: AssetGrants) =>
               Object.entries(response.headers).filter(([name]) => name !== "set-cookie"),
             ),
             text: Buffer.concat(chunks).toString("utf8"),
+            byteLength: bytes,
           }
         }
         return yield* failure("http-redirect-limit")
