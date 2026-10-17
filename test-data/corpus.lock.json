@@ -1,0 +1,652 @@
+{
+  "version": 1,
+  "bucket": "chek-test-corpus",
+  "archive": {
+    "bytes": 623516953,
+    "sha256": "6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919",
+    "parts": [
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-000",
+        "bytes": 33554432,
+        "sha256": "84fc54f4c2d917bd68f3285ff990ddc73fa5afa4e05bfe7d7a16d72a3ecaa072"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-001",
+        "bytes": 33554432,
+        "sha256": "7d468bc277428ca4c917e43e445f246f830cc6add8c6b54b4d5d4526a2b2be4e"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-002",
+        "bytes": 33554432,
+        "sha256": "520673a1a8d1fb8ea53403145e09ed7286d473a831143b0939b6f094454bcd0c"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-003",
+        "bytes": 33554432,
+        "sha256": "82c0b9d490a847d1575d71900153bbc6615484e807c5964f5e6ff99023eb0520"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-004",
+        "bytes": 33554432,
+        "sha256": "fdcfcf178e398fad232afd9ab38104c409092f0fd6dccbd14ca2ac24483ec4b9"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-005",
+        "bytes": 33554432,
+        "sha256": "ad9da3fe0192fc6c76f03773767450d29706878651c090c52b965e8e53978bfe"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-006",
+        "bytes": 33554432,
+        "sha256": "a7c5f0fdd80f7403147892ca70169133aaafa4d8780ec71e2b15b46dc4ae1c11"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-007",
+        "bytes": 33554432,
+        "sha256": "7625ed672614dbaee2d5c650bcf7b84243c9d172239849d31e3fea6d3380c8e5"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-008",
+        "bytes": 33554432,
+        "sha256": "bb6177084f51074caa2b2769f03177b8fc7a8101fc6ab57bd886208233d181a1"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-009",
+        "bytes": 33554432,
+        "sha256": "80b826a9a4574f918dbb9964dd8cdc0915403caa06d35b593a1cd5488cd8176d"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-010",
+        "bytes": 33554432,
+        "sha256": "d58488fc9a958062b467fb9d1a7ed243e20dce038598533cbe61bd8c735288d2"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-011",
+        "bytes": 33554432,
+        "sha256": "f79335a981576678858c43faa194817f834580788cc5895a7c7c5398a714cfbb"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-012",
+        "bytes": 33554432,
+        "sha256": "03b49428844efa09411970e34fb8328e07d5ffe8bfb9706e9070702bea2c71a1"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-013",
+        "bytes": 33554432,
+        "sha256": "cd6d75755082b989d353b6c9545690e3007b66e72ed6c2304647d3fe7ed2f8d5"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-014",
+        "bytes": 33554432,
+        "sha256": "e3a861fdbb22d808d1f90b85cd00ad12f4e4e480c0eb8077237e7d52484e35bb"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-015",
+        "bytes": 33554432,
+        "sha256": "8753791ac5b3566c591189ae26cc5d8e80f7d62427fcc875f8e23518a88dbd31"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-016",
+        "bytes": 33554432,
+        "sha256": "0747e36c15dccb6bd5851f054491afa11c1d8942af502d9653a3bc3e84db9f4b"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-017",
+        "bytes": 33554432,
+        "sha256": "adc0b835a5b30a615ee5ea03fcdba849fd9672f45e33ce36b6dfcb7381716d34"
+      },
+      {
+        "key": "reader-corpus/v1/6810b7516e2fe1b92fd51685d070a4e8f4330b8f0bff78e581e1cff36e948919/corpus-32m.tar.gz.part-018",
+        "bytes": 19537177,
+        "sha256": "67dea1add8b9820ad60210712b733a46f6f57f08e291735e39ceaecc7b3c8145"
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": ".DS_Store",
+      "bytes": 8196,
+      "sha256": "78c04b1a4f93f3ab55926589a2ceb0c3a4f5477bae0dd3225773eb1f6a39b438"
+    },
+    {
+      "path": "COVERAGE.md",
+      "bytes": 5891,
+      "sha256": "f0983fe940e56eced6aa43e9dd9b04abbb5c364975f7f9aa55f1ebc08bdf9d62"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7415,
+      "sha256": "c71dec80873ad840dc213724dfb6433a46bae4c4c5de5892dc8974928cbae57d"
+    },
+    {
+      "path": "SHA256SUMS",
+      "bytes": 7512,
+      "sha256": "a65c20ba0b5d6d738f3d174a950c57026c9a25ffc3fe903000542c30297cecff"
+    },
+    {
+      "path": "additional-download-errors.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "path": "author-download-errors.json",
+      "bytes": 89,
+      "sha256": "db5f174a64845871ad78ec0250fabf3af711e6aae1f057302535e573108560cd"
+    },
+    {
+      "path": "comics/cbz-albums/little-nemo-1905-1914.cbz",
+      "bytes": 295457942,
+      "sha256": "85d657be059d38668dbd299a56a1a68159f0aee3f3e15fc5969a51d0f75a7681"
+    },
+    {
+      "path": "comics/cbz-albums/peppercarrot-book1.cbz",
+      "bytes": 28725066,
+      "sha256": "8b7cf7e1064d309adb9610979471c11c52a2c725d05228ff08fe4117d8e94d18"
+    },
+    {
+      "path": "djvu/historic-scans/alice.djvu",
+      "bytes": 6470479,
+      "sha256": "9d1ce7f3a5e5204a21d5d655a61666a33658681f16abe061cb2e7f23d2240d39"
+    },
+    {
+      "path": "djvu/historic-scans/lookingglass.djvu",
+      "bytes": 9406718,
+      "sha256": "6b5f56bac14ddbe3190c546963891fd602212ce69158bf5f3aa886f02dc1e1ff"
+    },
+    {
+      "path": "documents/.DS_Store",
+      "bytes": 6148,
+      "sha256": "6750e078df19d30db4bf09fa36a80008192b60517bb403cd30a4459989bbaf00"
+    },
+    {
+      "path": "documents/doc/capitaine-hatteras.doc",
+      "bytes": 1475072,
+      "sha256": "efbfed9b038d14d58c072c4aafe2f8b6e460ceb581ff57fd077cfeb6c61dbeb3"
+    },
+    {
+      "path": "documents/doc/le-comte-de-chanteleine.doc",
+      "bytes": 2103296,
+      "sha256": "f5bc302fbbe9f5ed5bd56ab8fcd6b6e69242ad93d2014430cde92b4152b5a944"
+    },
+    {
+      "path": "documents/odt/gorilla.odt",
+      "bytes": 710309,
+      "sha256": "00359efa8fdd9277f4e5f4214652f215852bdb0f0ef192192b130d5c4fdf3c17"
+    },
+    {
+      "path": "documents/odt/sugar.odt",
+      "bytes": 53358,
+      "sha256": "b77b52bf9683cf7a63ed0509fb6849d64caf35c84004441eb5f839d63cc85665"
+    },
+    {
+      "path": "documents/source-bundles/capitaine-hatteras.zip",
+      "bytes": 956046,
+      "sha256": "6c6011bf023a483a123afbd8c78354cd6e20d9724d2b7231d0d90492c35a1e9a"
+    },
+    {
+      "path": "documents/source-bundles/le-comte-de-chanteleine.zip",
+      "bytes": 1898818,
+      "sha256": "9eb765117a23f28d5adc86af278160f94f463bc365540dd8795b13cc7e4fca0f"
+    },
+    {
+      "path": "download-errors.json",
+      "bytes": 893,
+      "sha256": "deab7e792bb9b6b1723b0478a9f930eea40f4781a89a57804c9b8c8d6eea643e"
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode01.cbz",
+      "bytes": 1078314,
+      "sha256": "02e28b6d55d9d02b7ebaa2e0ba4a20e652c4fdcb63579b1169f8c0328689d2fe"
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode02.cbz",
+      "bytes": 2276638,
+      "sha256": "f4476b666947ef36240e05bc07e8b08f9260aa0d8c57b82e8ba9bbb029f6c8df"
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode08.cbz",
+      "bytes": 2900954,
+      "sha256": "5d04c036736455656da91d9ed88567f7d07b3239596448870515ba77479267f8"
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode10.cbz",
+      "bytes": 2406301,
+      "sha256": "152c18b639556ba14a5739d013f840541e73c716403c33e674804417ed11357d"
+    },
+    {
+      "path": "epub/.DS_Store",
+      "bytes": 10244,
+      "sha256": "6e418d12b0d21483d8f3c868031f06d1ff7a6dc8175fda5ff5f5bdb8f3fa7eaf"
+    },
+    {
+      "path": "epub/embedded-fonts/moby-dick-mo.epub",
+      "bytes": 10627796,
+      "sha256": "749a9de094c26bc79351722a2bf320845dc5f6af2d5bf41a96d720d723b29a4c"
+    },
+    {
+      "path": "epub/embedded-fonts/moby-dick.epub",
+      "bytes": 1628868,
+      "sha256": "81bc079841a38e91a02a7776d04786a2fc311cfd300064e9fc533ce7c54cf7b4"
+    },
+    {
+      "path": "epub/epub2-illustrated/alice.epub",
+      "bytes": 187950,
+      "sha256": "e332bfce56f79897138d73e7b698dc59bd073d932acb87897606aa7b5df96dac"
+    },
+    {
+      "path": "epub/epub2-illustrated/pride-and-prejudice.epub",
+      "bytes": 24848783,
+      "sha256": "e0674ae6301910561953116eb3757d4342ad71ffecd1835c8c4a1baf47189b04"
+    },
+    {
+      "path": "epub/epub2-text/alice.epub",
+      "bytes": 136756,
+      "sha256": "08a2de3a58226311915bd87056e59ed4ee49a284dcb5e722fef415bca4032a4b"
+    },
+    {
+      "path": "epub/epub2-text/pride-and-prejudice.epub",
+      "bytes": 561102,
+      "sha256": "e59e587472723023b21bf380b8327858e7540b25e57affa3a68935b291e370dc"
+    },
+    {
+      "path": "epub/epub3-illustrated/alice.epub",
+      "bytes": 189249,
+      "sha256": "4f81245d31380ac1d6eafb9a321e3691369bc70985736ae4bccf849a4f784036"
+    },
+    {
+      "path": "epub/epub3-illustrated/pride-and-prejudice.epub",
+      "bytes": 24836548,
+      "sha256": "d401ad6b118e84d01b8dd1a3d034fd41784feb14c50f1f7a0fc17f3263fa8e9f"
+    },
+    {
+      "path": "epub/fixed-layout-bitmap/page-blanche-bitmaps-in-spine.epub",
+      "bytes": 3132235,
+      "sha256": "343501373d73c660f5632a715e72ef11d305ae06402202f47b354abbafec7e90"
+    },
+    {
+      "path": "epub/fixed-layout-bitmap/page-blanche.epub",
+      "bytes": 3136922,
+      "sha256": "d2efb562f17d43cef50578d4d67dd7fd991f8f254b6f5a7c28bde7461ea783eb"
+    },
+    {
+      "path": "epub/fixed-layout-manga/haruko-html-jpeg.epub",
+      "bytes": 2247393,
+      "sha256": "87b5eaff288e238864d817ea54b4600dc8c6f96789d0efb946b8545d7ad2f0c0"
+    },
+    {
+      "path": "epub/fixed-layout-manga/haruko-jpeg.epub",
+      "bytes": 2268455,
+      "sha256": "5e9fc05e366d99607acc4b312c76b6e8928578ced0121fd5d8befa85e219703e"
+    },
+    {
+      "path": "epub/fixed-layout-svg/sous-le-vent.epub",
+      "bytes": 1156166,
+      "sha256": "1ac68b0a334d19ac97338574d6ad0d7a30723315c668c6d74021540b6b3f816d"
+    },
+    {
+      "path": "epub/fixed-layout-svg/sous-le-vent_svg-in-spine.epub",
+      "bytes": 1455424,
+      "sha256": "be7d9b735474f7d433e0a842f089b12647975dcaaf0314a8ef09c5ea0664f6bc"
+    },
+    {
+      "path": "epub/mixed-layout/cole-voyage-of-life-tol.epub",
+      "bytes": 1002693,
+      "sha256": "b0027cc7f216b53e4c549029f761d9896d87628660dd161051a313ec3ce94f59"
+    },
+    {
+      "path": "epub/mixed-layout/cole-voyage-of-life.epub",
+      "bytes": 970980,
+      "sha256": "e38ed606ff604e638f737efaf66e0fd0b2997c3eab7432bcba9a00a81a925cf3"
+    },
+    {
+      "path": "epub/modern-fiction/gorilla.epub",
+      "bytes": 291493,
+      "sha256": "8bb9ebefc217b1fec6b2f7aa8efab7aacdbadc10f25542ec221390ff43b8ddbc"
+    },
+    {
+      "path": "epub/modern-fiction/troll.epub",
+      "bytes": 218972,
+      "sha256": "21192f019269ca0db91b433d57f57c1ea8ee78535a0f7a1b41f7499ddb227702"
+    },
+    {
+      "path": "epub/previews/kusamakura-preview-embedded.epub",
+      "bytes": 17940892,
+      "sha256": "3264675235acced8188969b55ba419f7355c4db61725a3cf2bf1470d2eb99dbe"
+    },
+    {
+      "path": "epub/previews/kusamakura-preview.epub",
+      "bytes": 9995446,
+      "sha256": "805582bc9680a92deef0bcfef218f5ed91b93c9a686db68c8b7431d97fc37a3b"
+    },
+    {
+      "path": "epub/reflowable-reference/accessible_epub_3.epub",
+      "bytes": 4051892,
+      "sha256": "67f75b8e3cd1abe4bb143d91d5424191d5af3115c9d26ff029a38e19f8d16feb"
+    },
+    {
+      "path": "epub/reflowable-reference/childrens-literature.epub",
+      "bytes": 161291,
+      "sha256": "191d14d07bcaefde647e494256f73d789f265c8edc46c404320641b23c86b76a"
+    },
+    {
+      "path": "epub/rtl/israelsailing.epub",
+      "bytes": 1358190,
+      "sha256": "10c397036d2eb54db172d05c9e3cda4382d04e8e9ce3ddd8741ba7058c3dcd4a"
+    },
+    {
+      "path": "epub/rtl/regime-anticancer-arabic.epub",
+      "bytes": 110694,
+      "sha256": "5d10bf6a73f461b7b23294b6e34b72f2a1184c9543a424b4a0f737ed33967e96"
+    },
+    {
+      "path": "epub/technical-reference/jlreq-in-english.epub",
+      "bytes": 8402185,
+      "sha256": "3599b1b40ff3e9f9c9d040116fe13c90e7a36ecf7a8cb4084f5615a75e1577f4"
+    },
+    {
+      "path": "epub/technical-reference/jlreq-in-japanese.epub",
+      "bytes": 8352424,
+      "sha256": "22ab584f27026c653057d0b88e3168dc57a4badbc86585dd68d789cf6de630a3"
+    },
+    {
+      "path": "epub/vertical-japanese/kusamakura-japanese-vertical-writing.epub",
+      "bytes": 17940673,
+      "sha256": "6d4d4ed5eda3f612e3263c54fa0f74ccfa87260f43e81bb58ea658636e52eeb7"
+    },
+    {
+      "path": "epub/vertical-japanese/mymedia_lite.epub",
+      "bytes": 267252,
+      "sha256": "6623732b1aa7cefed26e2db95f7ac14c80360b99d328ed927b93548a96990c62"
+    },
+    {
+      "path": "fb2/gorilla.fb2",
+      "bytes": 439202,
+      "sha256": "a84de0a40057e4546880d872e460e82a4133448dbea17052982ca8f382eedcb0"
+    },
+    {
+      "path": "fb2/sugar.fb2",
+      "bytes": 512655,
+      "sha256": "155008197653fd31b1924f90ffa27c98f99df170ea37382bd8b047c3d4d7cac4"
+    },
+    {
+      "path": "final-download-errors.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "path": "html/.DS_Store",
+      "bytes": 6148,
+      "sha256": "60c0d2886d4407076d2079b323fa3795644169c4151c0bb383ca6d9de07c3195"
+    },
+    {
+      "path": "html/illustrated-bundles/alice.zip",
+      "bytes": 167116,
+      "sha256": "1896df01bf0b84915f56dd1b93eb6736069c35947c6450536d848e052be615ea"
+    },
+    {
+      "path": "html/illustrated-bundles/pride-and-prejudice.zip",
+      "bytes": 25269564,
+      "sha256": "932b4622c5bd15df8c1559ff8426991cb3f1632b8d3629f712c64bdd38129939"
+    },
+    {
+      "path": "html/standalone/alice.html",
+      "bytes": 192539,
+      "sha256": "7df9c19e9fccac5b3ae9b1f837b247db1c1da93845dfb9e1903dce85013c43d3"
+    },
+    {
+      "path": "html/standalone/pride-and-prejudice.html",
+      "bytes": 852590,
+      "sha256": "11a120c25838974d55bb542d424df322ee10a9058cd884e1166208d1c0fbfeaa"
+    },
+    {
+      "path": "images/.DS_Store",
+      "bytes": 6148,
+      "sha256": "6215ef6738b773f9845cc3f7340f2822b91ca786f5e056b090f8e1d4299ae889"
+    },
+    {
+      "path": "images/jpeg-covers/en_Pepper-and-Carrot_by-David-Revoy_E01.jpg",
+      "bytes": 241149,
+      "sha256": "4cb56c76a4537d812dbdb18b2a0de464abc67187bcc7941bf4079df0f0f4f446"
+    },
+    {
+      "path": "images/jpeg-covers/fr_Pepper-and-Carrot_by-David-Revoy_E01.jpg",
+      "bytes": 239895,
+      "sha256": "4882ecd500f796ac08964f9f6aafe208c9c0b942e1f0e867923bf3a78dee7865"
+    },
+    {
+      "path": "images/jpeg-pages/en_Pepper-and-Carrot_by-David-Revoy_E01P01.jpg",
+      "bytes": 2200446,
+      "sha256": "c532b3e5674d8b833e99dbc455d43ebc73225044fc3ec4426d0c846de19b7af9"
+    },
+    {
+      "path": "images/jpeg-pages/en_Pepper-and-Carrot_by-David-Revoy_E01P02.jpg",
+      "bytes": 2211587,
+      "sha256": "f81683fd9d28d08ad6ad8b63d06f4e5778619682d6caa46ef88d26abf1331e1d"
+    },
+    {
+      "path": "kindle/.DS_Store",
+      "bytes": 6148,
+      "sha256": "3f6a98244bf0873d9208e7e0d5ddac109b56abac70346ae1ad888cef5e0618cf"
+    },
+    {
+      "path": "kindle/kf8/alice.azw3",
+      "bytes": 255506,
+      "sha256": "d8211269aed55ded8302f289950936db8368b4d4d384c463b722034152f8f1d2"
+    },
+    {
+      "path": "kindle/kf8/pride-and-prejudice.azw3",
+      "bytes": 25333914,
+      "sha256": "7d22f45b5f2f19a1af24e854ac5ecf62eb0a9b532f38f0cb556caf18220d8cae"
+    },
+    {
+      "path": "kindle/mobi/alice.mobi",
+      "bytes": 241000,
+      "sha256": "1b4222ffdf1862a39d0fae6d42c588f28a34c12ad73cc21c2849fe2646cac3e1"
+    },
+    {
+      "path": "kindle/mobi/pride-and-prejudice.mobi",
+      "bytes": 25224289,
+      "sha256": "650ec367ded641382f09c741585e37fe4b788c9337b297808961fd22ca89aa14"
+    },
+    {
+      "path": "legacy/palm-ereader/capitaine-hatteras.pdb",
+      "bytes": 561872,
+      "sha256": "39574484a0bf39b330b15437332167beb4896a06aee64cee7d22a3ec86fd4450"
+    },
+    {
+      "path": "legacy/palm-ereader/le-comte-de-chanteleine.pdb",
+      "bytes": 919686,
+      "sha256": "7d4c648e7ea4573d6936c5b9df4b42f94baafa07db884d30adb88c3503cb7147"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 73057,
+      "sha256": "0fe03bd50624abe4d401478c8c9e33f50da456ad4bbf028f247249e2f791b142"
+    },
+    {
+      "path": "pdf/.DS_Store",
+      "bytes": 6148,
+      "sha256": "1632865571d7af63510eac8a3c170d0626b8f02a392642403cb25661cb4fe009"
+    },
+    {
+      "path": "pdf/comics/2020-08-02_B01_inside_72pages_8.5x11_final.pdf",
+      "bytes": 16714590,
+      "sha256": "37af99a646ab83513cd1fab2c781f650e57119a34b905e35d86ad638c4f535af"
+    },
+    {
+      "path": "pdf/comics/2020-08-02_B02_inside_72pages_8.5x11_final.pdf",
+      "bytes": 16044245,
+      "sha256": "35dd8769501777a246139c56b01a0041f3072ece66be58812b8ede0379f75381"
+    },
+    {
+      "path": "pdf/modern-fiction/gorilla.pdf",
+      "bytes": 645089,
+      "sha256": "49d63a3a0834289fb2dd61623700b538fbb31c9abf50283c0aafcf1cc9bb5a5b"
+    },
+    {
+      "path": "pdf/modern-fiction/sugar.pdf",
+      "bytes": 1033676,
+      "sha256": "88bbc8e3e6aed0b87ebf53435626521c8bcdcfe0fb41cbb8b184b12f5d64dff3"
+    },
+    {
+      "path": "pdf/text-books/capitaine-hatteras.pdf",
+      "bytes": 2154805,
+      "sha256": "0b37af5b8cfc79700a8b29c011ab6680fce9cc2a69e053e50a19f93cd5c00422"
+    },
+    {
+      "path": "pdf/text-books/le-comte-de-chanteleine.pdf",
+      "bytes": 2124983,
+      "sha256": "8d0c90dc402fe90b171521500afaa89af644ba32adfe4a6e794a82305dfd0d36"
+    },
+    {
+      "path": "provenance/cc-by-4.0.txt",
+      "bytes": 18657,
+      "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411"
+    },
+    {
+      "path": "provenance/cc-by-sa-2.5.html",
+      "bytes": 37574,
+      "sha256": "c054abc4d00e2029c620128d4e23f26a2e7048597cc9ac478a060cb26748958a"
+    },
+    {
+      "path": "provenance/cc-by-sa-3.0.txt",
+      "bytes": 22240,
+      "sha256": "3f941b3b89cf7b8370ceb83cc76d2120d471b58735d8ca60238a751a48d7f72f"
+    },
+    {
+      "path": "provenance/cc-by-sa-4.0.txt",
+      "bytes": 20138,
+      "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5"
+    },
+    {
+      "path": "provenance/commons-alice-djvu.html",
+      "bytes": 171485,
+      "sha256": "bed4ebf72bb7057007e9666e2ccff87cc07455a18f3091986405fed43c4b711c"
+    },
+    {
+      "path": "provenance/commons-lookingglass-djvu.html",
+      "bytes": 139092,
+      "sha256": "b9be86513d2850c92bb7ee5f00616096f845740f1ccc6f9aec4fbbaae0f711e7"
+    },
+    {
+      "path": "provenance/crimper-gorilla.html",
+      "bytes": 36320,
+      "sha256": "6c54c5ec9e6bbd4bd2f3ba3f1235ca2173727246fb83cfb0ae4cef19cce0facc"
+    },
+    {
+      "path": "provenance/crimper-legal.html",
+      "bytes": 23670,
+      "sha256": "ef66bea7b46f345d7adca6ea42c87e5ebf88fe520054a721a21e9916ee0bd25b"
+    },
+    {
+      "path": "provenance/crimper-sugar.html",
+      "bytes": 46590,
+      "sha256": "046bd25d66fb211486914a1f7d63475ebbd7ecaa280a33be40545ddbf741a570"
+    },
+    {
+      "path": "provenance/crimper-troll.html",
+      "bytes": 45492,
+      "sha256": "ff877fd93cebc6b9d435c8d8f2cc2c58daac261039c46a14af80ca7cc10e5caa"
+    },
+    {
+      "path": "provenance/elg-rights.html",
+      "bytes": 5151,
+      "sha256": "fdb9d69d19120bc5cf0868e309d84c6945aa797e53bae78a00f4c692498ca147"
+    },
+    {
+      "path": "provenance/elg-verne-catalog.html",
+      "bytes": 103424,
+      "sha256": "a4235323d3a9e4aac99f0720fb97fa00b95a9ddd5c622af88f1331abfc18e209"
+    },
+    {
+      "path": "provenance/epub3-samples-licensing.html",
+      "bytes": 38448,
+      "sha256": "b8c722c1bd096e538cc41f071c884764bdf03fd520b02c96fb97b214349695c2"
+    },
+    {
+      "path": "provenance/gutenberg-alice.html",
+      "bytes": 24537,
+      "sha256": "4ac2c6adef5acd83af12da1cd3e881225e5337dac8bfc28f9c11c43cc94db67d"
+    },
+    {
+      "path": "provenance/gutenberg-hong-lou-meng.html",
+      "bytes": 22436,
+      "sha256": "6bba3056be072d09e33dcf89b3111c320b7db22974c74cdcb85a8684c2bf54cf"
+    },
+    {
+      "path": "provenance/gutenberg-pride.html",
+      "bytes": 24938,
+      "sha256": "be5ba8df63e41f12d138be21208f11e41d8c430818ea00c98ef483ed00d133b1"
+    },
+    {
+      "path": "provenance/gutenberg-shi-gong-an.html",
+      "bytes": 22684,
+      "sha256": "910a8b3a7784c6793e41362a21ed1d2dd9dba6ac5279ea1b8c1cba1de0094a5f"
+    },
+    {
+      "path": "provenance/little-nemo-archive-metadata.json",
+      "bytes": 6115,
+      "sha256": "c07c2dfea69538a7bd6997e91a6957137e277b96b7b6879f95711dce25732b8c"
+    },
+    {
+      "path": "provenance/peppercarrot-about.html",
+      "bytes": 84108,
+      "sha256": "e5a773e0f43b548939faf25974d552604772e64d181ec26bb50fcfe4e481ab22"
+    },
+    {
+      "path": "provenance/peppercarrot-archive-metadata.json",
+      "bytes": 132186,
+      "sha256": "4834a77b16d28739f34a30c63f039c3726be0e7f33354217ee455c9b4f503424"
+    },
+    {
+      "path": "provenance/pulpit-attribution.md",
+      "bytes": 10137,
+      "sha256": "ba9b40417c16d9e945830a18cf46787006ddeb9d5409af41c99862095b4da531"
+    },
+    {
+      "path": "provenance/w3c-document-license.html",
+      "bytes": 27473,
+      "sha256": "888bd32d1e7b386edd688a588b70873d794563bd8ae9cdeb09089ea50d0da29d"
+    },
+    {
+      "path": "txt/.DS_Store",
+      "bytes": 6148,
+      "sha256": "3773c28d50c1339279d4217cea646869e67e58c8b05465ff4f5344f34793f695"
+    },
+    {
+      "path": "txt/modern-fiction/gorilla.txt",
+      "bytes": 60409,
+      "sha256": "e141142bfbe82daf8ce66fdfd1ba8c078c03e17abed79475ba983de9438c1506"
+    },
+    {
+      "path": "txt/modern-fiction/sugar.txt",
+      "bytes": 75512,
+      "sha256": "e4e6e2f2fcc835b84976a48eb450a3325b5221aa7d11d15841b99a8182c5448f"
+    },
+    {
+      "path": "txt/utf8-cjk/hong-lou-meng.txt",
+      "bytes": 2663455,
+      "sha256": "ff1526996bf4b81807651921a85e5c1c0f1d1d123c9fa4553057ba6a3ec72011"
+    },
+    {
+      "path": "txt/utf8-cjk/shi-gong-an.txt",
+      "bytes": 3573543,
+      "sha256": "e88cab51a2ec41fdf8cf829ad1487c075546797cddb861c0bcb02677a2f1edc6"
+    },
+    {
+      "path": "txt/utf8-english/alice.txt",
+      "bytes": 174311,
+      "sha256": "01b38ea4c710a84bc18d0bd41271a5a1a92b94e97b2812f4dece97d4a694725e"
+    },
+    {
+      "path": "txt/utf8-english/pride-and-prejudice.txt",
+      "bytes": 772386,
+      "sha256": "3f6bb9d6f78e0293b56acd4714dd68cb7d6d1d293402031ce9d5a216bcaf9d75"
+    },
+    {
+      "path": "verification.json",
+      "bytes": 33178,
+      "sha256": "78afe2763f042bb9ff2b865dd588f651b7b85bd9be0c99b889ce21b22e69f2ff"
+    }
+  ]
+}

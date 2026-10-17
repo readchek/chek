@@ -21,3 +21,5 @@ prototypes/
 .cloudflare/
 
 .agents/
+/test-data/reader-corpus/
+/.chek/corpus/

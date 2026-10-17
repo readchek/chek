@@ -6,6 +6,8 @@
   ],
   "type": "module",
   "scripts": {
+    "corpus:setup": "bun scripts/corpus.ts",
+    "corpus:verify": "bun scripts/corpus.ts --verify",
     "dev": "bun run --filter @chek/api dev",
     "start": "bun run --filter @chek/api start",
     "typecheck": "bun run --workspaces typecheck",
@@ -18,6 +20,7 @@
     "deploy:website": "bun run --filter @chek/website deploy"
   },
   "devDependencies": {
+    "@effect/platform-bun": "^4.0.0",
     "@types/bun": "latest",
     "effect": "^4.0.0",
     "oxfmt": "^0.71.0",

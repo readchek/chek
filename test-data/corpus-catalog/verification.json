@@ -1,0 +1,1004 @@
+{
+  "files": [
+    {
+      "path": "comics/cbz-albums/little-nemo-1905-1914.cbz",
+      "bytes": 295457942,
+      "sha256": "85d657be059d38668dbd299a56a1a68159f0aee3f3e15fc5969a51d0f75a7681",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 843,
+      "rooted_members": [],
+      "traversal_members": [],
+      "image_pages": 421,
+      "image_extensions": [
+        ".jpeg"
+      ],
+      "ignored_macos_metadata_entries": 422,
+      "decoded_image_samples": [
+        {
+          "member": "little-nemo-19051015-l-01.jpeg",
+          "size": [
+            1740,
+            2376
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "little-nemo-19140726-l-421.jpeg",
+          "size": [
+            1748,
+            2368
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "comics/cbz-albums/peppercarrot-book1.cbz",
+      "bytes": 28725066,
+      "sha256": "8b7cf7e1064d309adb9610979471c11c52a2c725d05228ff08fe4117d8e94d18",
+      "detected_type": "Zip archive data, at least v1.0 to extract, compression method=store",
+      "zip_crc": "pass",
+      "archive_entries": 73,
+      "rooted_members": [],
+      "traversal_members": [],
+      "image_pages": 73,
+      "image_extensions": [
+        ".jpg"
+      ],
+      "ignored_macos_metadata_entries": 0,
+      "decoded_image_samples": [
+        {
+          "member": "page-01.jpg",
+          "size": [
+            1367,
+            1778
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "page-73.jpg",
+          "size": [
+            1325,
+            1778
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "djvu/historic-scans/alice.djvu",
+      "bytes": 6470479,
+      "sha256": "9d1ce7f3a5e5204a21d5d655a61666a33658681f16abe061cb2e7f23d2240d39",
+      "detected_type": "DjVu multiple page document"
+    },
+    {
+      "path": "djvu/historic-scans/lookingglass.djvu",
+      "bytes": 9406718,
+      "sha256": "6b5f56bac14ddbe3190c546963891fd602212ce69158bf5f3aa886f02dc1e1ff",
+      "detected_type": "DjVu multiple page document"
+    },
+    {
+      "path": "documents/doc/capitaine-hatteras.doc",
+      "bytes": 1475072,
+      "sha256": "efbfed9b038d14d58c072c4aafe2f8b6e460ceb581ff57fd077cfeb6c61dbeb3",
+      "detected_type": "Composite Document File V2 Document, Little Endian, Os: Windows, Version 6.2, Code page: 1252, Title: Voyages et aventures du capitaine Hatteras, Subject: Aventures, Author: Jules Verne, Comments: 1866John Hatteras veut atteindre le p�le nord. Malgr� la perte de son navire et de presque tout son �quipage, accompagn� par le Dr Clawbonny et deux marins, il y parvient tout de m�me..., Template: livres.dot, Last Saved By: Cool Micro, Revision Number: 158, Name of Creating Application: Microsoft Office Word, Total Editing Time: 1d+16:41:00, Create Time/Date: Fri May 28 14:30:00 2004, Last Saved Time/Date: Sat Sep 13 21:31:00 2014, Number of Pages: 519, Number of Words: 129456, Number of Characters: 712010, Security: 0"
+    },
+    {
+      "path": "documents/doc/le-comte-de-chanteleine.doc",
+      "bytes": 2103296,
+      "sha256": "f5bc302fbbe9f5ed5bd56ab8fcd6b6e69242ad93d2014430cde92b4152b5a944",
+      "detected_type": "Composite Document File V2 Document, Little Endian, Os: Windows, Version 6.2, Code page: 1252, Title: Le Comte de Chanteleine, Subject: Historique, Author: Jules Verne, Comments: 1864Ce roman nous conte une insurrection royaliste, en Bretagne, en 1793., Template: livres.dot, Last Saved By: XX, Revision Number: 17, Name of Creating Application: Microsoft Office Word, Total Editing Time: 47:00, Create Time/Date: Sat Jul 28 13:11:00 2007, Last Saved Time/Date: Tue Jul  7 18:35:00 2015, Number of Pages: 167, Number of Words: 30815, Number of Characters: 169484, Security: 0"
+    },
+    {
+      "path": "documents/odt/gorilla.odt",
+      "bytes": 710309,
+      "sha256": "00359efa8fdd9277f4e5f4214652f215852bdb0f0ef192192b130d5c4fdf3c17",
+      "detected_type": "OpenDocument Text",
+      "zip_crc": "pass",
+      "archive_entries": 18,
+      "rooted_members": [],
+      "traversal_members": [],
+      "odt_mimetype": "application/vnd.oasis.opendocument.text"
+    },
+    {
+      "path": "documents/odt/sugar.odt",
+      "bytes": 53358,
+      "sha256": "b77b52bf9683cf7a63ed0509fb6849d64caf35c84004441eb5f839d63cc85665",
+      "detected_type": "OpenDocument Text",
+      "zip_crc": "pass",
+      "archive_entries": 18,
+      "rooted_members": [],
+      "traversal_members": [],
+      "odt_mimetype": "application/vnd.oasis.opendocument.text"
+    },
+    {
+      "path": "documents/source-bundles/capitaine-hatteras.zip",
+      "bytes": 956046,
+      "sha256": "6c6011bf023a483a123afbd8c78354cd6e20d9724d2b7231d0d90492c35a1e9a",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 2,
+      "rooted_members": [],
+      "traversal_members": []
+    },
+    {
+      "path": "documents/source-bundles/le-comte-de-chanteleine.zip",
+      "bytes": 1898818,
+      "sha256": "9eb765117a23f28d5adc86af278160f94f463bc365540dd8795b13cc7e4fca0f",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 1,
+      "rooted_members": [],
+      "traversal_members": []
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode01.cbz",
+      "bytes": 1078314,
+      "sha256": "02e28b6d55d9d02b7ebaa2e0ba4a20e652c4fdcb63579b1169f8c0328689d2fe",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 4,
+      "rooted_members": [
+        "/001.jpg",
+        "/002.jpg",
+        "/003.jpg",
+        "/peppercredit.png"
+      ],
+      "traversal_members": [],
+      "image_pages": 4,
+      "image_extensions": [
+        ".jpg",
+        ".png"
+      ],
+      "ignored_macos_metadata_entries": 0,
+      "decoded_image_samples": [
+        {
+          "member": "/001.jpg",
+          "size": [
+            992,
+            1373
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "/peppercredit.png",
+          "size": [
+            720,
+            177
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode02.cbz",
+      "bytes": 2276638,
+      "sha256": "f4476b666947ef36240e05bc07e8b08f9260aa0d8c57b82e8ba9bbb029f6c8df",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 7,
+      "rooted_members": [
+        "/peppercredit.png",
+        "/001.jpg",
+        "/002.jpg",
+        "/004.jpg",
+        "/003.jpg",
+        "/006.jpg",
+        "/005.jpg"
+      ],
+      "traversal_members": [],
+      "image_pages": 7,
+      "image_extensions": [
+        ".jpg",
+        ".png"
+      ],
+      "ignored_macos_metadata_entries": 0,
+      "decoded_image_samples": [
+        {
+          "member": "/peppercredit.png",
+          "size": [
+            720,
+            177
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "/005.jpg",
+          "size": [
+            992,
+            1373
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode08.cbz",
+      "bytes": 2900954,
+      "sha256": "5d04c036736455656da91d9ed88567f7d07b3239596448870515ba77479267f8",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 8,
+      "rooted_members": [
+        "/peppercredit.png",
+        "/007.jpg",
+        "/005.jpg",
+        "/001.jpg",
+        "/004.jpg",
+        "/002.jpg",
+        "/003.jpg",
+        "/006.jpg"
+      ],
+      "traversal_members": [],
+      "image_pages": 8,
+      "image_extensions": [
+        ".jpg",
+        ".png"
+      ],
+      "ignored_macos_metadata_entries": 0,
+      "decoded_image_samples": [
+        {
+          "member": "/peppercredit.png",
+          "size": [
+            720,
+            177
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "/006.jpg",
+          "size": [
+            992,
+            1373
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "edge-cases/cbz-rooted-paths/peppercarrot_episode10.cbz",
+      "bytes": 2406301,
+      "sha256": "152c18b639556ba14a5739d013f840541e73c716403c33e674804417ed11357d",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 7,
+      "rooted_members": [
+        "/peppercredit.png",
+        "/006.jpg",
+        "/003.jpg",
+        "/001.jpg",
+        "/002.jpg",
+        "/005.jpg",
+        "/004.jpg"
+      ],
+      "traversal_members": [],
+      "image_pages": 7,
+      "image_extensions": [
+        ".jpg",
+        ".png"
+      ],
+      "ignored_macos_metadata_entries": 0,
+      "decoded_image_samples": [
+        {
+          "member": "/peppercredit.png",
+          "size": [
+            720,
+            177
+          ],
+          "mode": "RGB"
+        },
+        {
+          "member": "/004.jpg",
+          "size": [
+            992,
+            1373
+          ],
+          "mode": "RGB"
+        }
+      ]
+    },
+    {
+      "path": "epub/embedded-fonts/moby-dick-mo.epub",
+      "bytes": 10627796,
+      "sha256": "749a9de094c26bc79351722a2bf320845dc5f6af2d5bf41a96d720d723b29a4c",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 157,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OPS/package.opf",
+      "spine_items": 144,
+      "languages": [
+        "en-US"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/embedded-fonts/moby-dick.epub",
+      "bytes": 1628868,
+      "sha256": "81bc079841a38e91a02a7776d04786a2fc311cfd300064e9fc533ce7c54cf7b4",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 154,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OPS/package.opf",
+      "spine_items": 144,
+      "languages": [
+        "en-US"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub2-illustrated/alice.epub",
+      "bytes": 187950,
+      "sha256": "e332bfce56f79897138d73e7b698dc59bd073d932acb87897606aa7b5df96dac",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 21,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 14,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub2-illustrated/pride-and-prejudice.epub",
+      "bytes": 24848783,
+      "sha256": "e0674ae6301910561953116eb3757d4342ad71ffecd1835c8c4a1baf47189b04",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 188,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 18,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub2-text/alice.epub",
+      "bytes": 136756,
+      "sha256": "08a2de3a58226311915bd87056e59ed4ee49a284dcb5e722fef415bca4032a4b",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 21,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 14,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub2-text/pride-and-prejudice.epub",
+      "bytes": 561102,
+      "sha256": "e59e587472723023b21bf380b8327858e7540b25e57affa3a68935b291e370dc",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 24,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 17,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub3-illustrated/alice.epub",
+      "bytes": 189249,
+      "sha256": "4f81245d31380ac1d6eafb9a321e3691369bc70985736ae4bccf849a4f784036",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 24,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 15,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/epub3-illustrated/pride-and-prejudice.epub",
+      "bytes": 24836548,
+      "sha256": "d401ad6b118e84d01b8dd1a3d034fd41784feb14c50f1f7a0fc17f3263fa8e9f",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 182,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 9,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-bitmap/page-blanche-bitmaps-in-spine.epub",
+      "bytes": 3132235,
+      "sha256": "343501373d73c660f5632a715e72ef11d305ae06402202f47b354abbafec7e90",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 15,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 9,
+      "languages": [
+        "fr"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-bitmap/page-blanche.epub",
+      "bytes": 3136922,
+      "sha256": "d2efb562f17d43cef50578d4d67dd7fd991f8f254b6f5a7c28bde7461ea783eb",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 25,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 10,
+      "languages": [
+        "fr"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-manga/haruko-html-jpeg.epub",
+      "bytes": 2247393,
+      "sha256": "87b5eaff288e238864d817ea54b4600dc8c6f96789d0efb946b8545d7ad2f0c0",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 33,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OPS/package.opf",
+      "spine_items": 13,
+      "languages": [
+        "ja-jp"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-manga/haruko-jpeg.epub",
+      "bytes": 2268455,
+      "sha256": "5e9fc05e366d99607acc4b312c76b6e8928578ced0121fd5d8befa85e219703e",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 20,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OPS/package.opf",
+      "spine_items": 13,
+      "languages": [
+        "ja-jp"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-svg/sous-le-vent.epub",
+      "bytes": 1156166,
+      "sha256": "1ac68b0a334d19ac97338574d6ad0d7a30723315c668c6d74021540b6b3f816d",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 25,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 13,
+      "languages": [
+        "fr"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/fixed-layout-svg/sous-le-vent_svg-in-spine.epub",
+      "bytes": 1455424,
+      "sha256": "be7d9b735474f7d433e0a842f089b12647975dcaaf0314a8ef09c5ea0664f6bc",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 25,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 13,
+      "languages": [
+        "fr"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/mixed-layout/cole-voyage-of-life-tol.epub",
+      "bytes": 1002693,
+      "sha256": "b0027cc7f216b53e4c549029f761d9896d87628660dd161051a313ec3ce94f59",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 21,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/cole.opf",
+      "spine_items": 5,
+      "languages": [
+        "en-US"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/mixed-layout/cole-voyage-of-life.epub",
+      "bytes": 970980,
+      "sha256": "e38ed606ff604e638f737efaf66e0fd0b2997c3eab7432bcba9a00a81a925cf3",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 24,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/cole.opf",
+      "spine_items": 10,
+      "languages": [
+        "en-US"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/modern-fiction/gorilla.epub",
+      "bytes": 291493,
+      "sha256": "8bb9ebefc217b1fec6b2f7aa8efab7aacdbadc10f25542ec221390ff43b8ddbc",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 21,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "content.opf",
+      "spine_items": 13,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/modern-fiction/troll.epub",
+      "bytes": 218972,
+      "sha256": "21192f019269ca0db91b433d57f57c1ea8ee78535a0f7a1b41f7499ddb227702",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 39,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "2.0",
+      "opf": "content.opf",
+      "spine_items": 32,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/previews/kusamakura-preview-embedded.epub",
+      "bytes": 17940892,
+      "sha256": "3264675235acced8188969b55ba419f7355c4db61725a3cf2bf1470d2eb99dbe",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 30,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 16,
+      "languages": [
+        "ja-jp"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/previews/kusamakura-preview.epub",
+      "bytes": 9995446,
+      "sha256": "805582bc9680a92deef0bcfef218f5ed91b93c9a686db68c8b7431d97fc37a3b",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 17,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 3,
+      "languages": [
+        "ja-jp"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/reflowable-reference/accessible_epub_3.epub",
+      "bytes": 4051892,
+      "sha256": "67f75b8e3cd1abe4bb143d91d5424191d5af3115c9d26ff029a38e19f8d16feb",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 38,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 22,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/reflowable-reference/childrens-literature.epub",
+      "bytes": 161291,
+      "sha256": "191d14d07bcaefde647e494256f73d789f265c8edc46c404320641b23c86b76a",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 10,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 3,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/rtl/israelsailing.epub",
+      "bytes": 1358190,
+      "sha256": "10c397036d2eb54db172d05c9e3cda4382d04e8e9ce3ddd8741ba7058c3dcd4a",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 30,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/content.opf",
+      "spine_items": 12,
+      "languages": [
+        "he"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/rtl/regime-anticancer-arabic.epub",
+      "bytes": 110694,
+      "sha256": "5d10bf6a73f461b7b23294b6e34b72f2a1184c9543a424b4a0f737ed33967e96",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 11,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "EPUB/package.opf",
+      "spine_items": 3,
+      "languages": [
+        "ar"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/technical-reference/jlreq-in-english.epub",
+      "bytes": 8402185,
+      "sha256": "3599b1b40ff3e9f9c9d040116fe13c90e7a36ecf7a8cb4084f5615a75e1577f4",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 501,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/jlreq.opf",
+      "spine_items": 159,
+      "languages": [
+        "en"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/technical-reference/jlreq-in-japanese.epub",
+      "bytes": 8352424,
+      "sha256": "22ab584f27026c653057d0b88e3168dc57a4badbc86585dd68d789cf6de630a3",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 501,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/jlreq_ja.opf",
+      "spine_items": 159,
+      "languages": [
+        "ja"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/vertical-japanese/kusamakura-japanese-vertical-writing.epub",
+      "bytes": 17940673,
+      "sha256": "6d4d4ed5eda3f612e3263c54fa0f74ccfa87260f43e81bb58ea658636e52eeb7",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 30,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OPS/package.opf",
+      "spine_items": 16,
+      "languages": [
+        "ja-jp"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "epub/vertical-japanese/mymedia_lite.epub",
+      "bytes": 267252,
+      "sha256": "6623732b1aa7cefed26e2db95f7ac14c80360b99d328ed927b93548a96990c62",
+      "detected_type": "EPUB document",
+      "zip_crc": "pass",
+      "archive_entries": 22,
+      "rooted_members": [],
+      "traversal_members": [],
+      "epub_version": "3.0",
+      "opf": "OEBPS/mymedia_lite.opf",
+      "spine_items": 7,
+      "languages": [
+        "ja"
+      ],
+      "missing_manifest_resources": []
+    },
+    {
+      "path": "fb2/gorilla.fb2",
+      "bytes": 439202,
+      "sha256": "a84de0a40057e4546880d872e460e82a4133448dbea17052982ca8f382eedcb0",
+      "detected_type": "XML 1.0 document text, Unicode text, UTF-8 text, with very long lines (1353)",
+      "xml_root": "{http://www.gribuser.ru/xml/fictionbook/2.0}FictionBook"
+    },
+    {
+      "path": "fb2/sugar.fb2",
+      "bytes": 512655,
+      "sha256": "155008197653fd31b1924f90ffa27c98f99df170ea37382bd8b047c3d4d7cac4",
+      "detected_type": "XML 1.0 document text, Unicode text, UTF-8 text, with very long lines (893)",
+      "xml_root": "{http://www.gribuser.ru/xml/fictionbook/2.0}FictionBook"
+    },
+    {
+      "path": "html/illustrated-bundles/alice.zip",
+      "bytes": 167116,
+      "sha256": "1896df01bf0b84915f56dd1b93eb6736069c35947c6450536d848e052be615ea",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 2,
+      "rooted_members": [],
+      "traversal_members": []
+    },
+    {
+      "path": "html/illustrated-bundles/pride-and-prejudice.zip",
+      "bytes": 25269564,
+      "sha256": "932b4622c5bd15df8c1559ff8426991cb3f1632b8d3629f712c64bdd38129939",
+      "detected_type": "Zip archive data, at least v2.0 to extract, compression method=deflate",
+      "zip_crc": "pass",
+      "archive_entries": 165,
+      "rooted_members": [],
+      "traversal_members": []
+    },
+    {
+      "path": "html/standalone/alice.html",
+      "bytes": 192539,
+      "sha256": "7df9c19e9fccac5b3ae9b1f837b247db1c1da93845dfb9e1903dce85013c43d3",
+      "detected_type": "HTML document text, Unicode text, UTF-8 text, with CRLF line terminators"
+    },
+    {
+      "path": "html/standalone/pride-and-prejudice.html",
+      "bytes": 852590,
+      "sha256": "11a120c25838974d55bb542d424df322ee10a9058cd884e1166208d1c0fbfeaa",
+      "detected_type": "HTML document text, Unicode text, UTF-8 text, with CRLF line terminators"
+    },
+    {
+      "path": "images/jpeg-covers/en_Pepper-and-Carrot_by-David-Revoy_E01.jpg",
+      "bytes": 241149,
+      "sha256": "4cb56c76a4537d812dbdb18b2a0de464abc67187bcc7941bf4079df0f0f4f446",
+      "detected_type": "JPEG image data, JFIF standard 1.01, resolution (DPI), density 300x300, segment length 16, baseline, precision 8, 1100x765, components 3",
+      "image_size": [
+        1100,
+        765
+      ],
+      "image_mode": "RGB"
+    },
+    {
+      "path": "images/jpeg-covers/fr_Pepper-and-Carrot_by-David-Revoy_E01.jpg",
+      "bytes": 239895,
+      "sha256": "4882ecd500f796ac08964f9f6aafe208c9c0b942e1f0e867923bf3a78dee7865",
+      "detected_type": "JPEG image data, JFIF standard 1.01, resolution (DPI), density 300x300, segment length 16, baseline, precision 8, 1100x765, components 3",
+      "image_size": [
+        1100,
+        765
+      ],
+      "image_mode": "RGB"
+    },
+    {
+      "path": "images/jpeg-pages/en_Pepper-and-Carrot_by-David-Revoy_E01P01.jpg",
+      "bytes": 2200446,
+      "sha256": "c532b3e5674d8b833e99dbc455d43ebc73225044fc3ec4426d0c846de19b7af9",
+      "detected_type": "JPEG image data, JFIF standard 1.01, resolution (DPI), density 300x300, segment length 16, progressive, precision 8, 2481x3503, components 3",
+      "image_size": [
+        2481,
+        3503
+      ],
+      "image_mode": "RGB"
+    },
+    {
+      "path": "images/jpeg-pages/en_Pepper-and-Carrot_by-David-Revoy_E01P02.jpg",
+      "bytes": 2211587,
+      "sha256": "f81683fd9d28d08ad6ad8b63d06f4e5778619682d6caa46ef88d26abf1331e1d",
+      "detected_type": "JPEG image data, JFIF standard 1.01, resolution (DPI), density 300x300, segment length 16, progressive, precision 8, 2481x3503, components 3",
+      "image_size": [
+        2481,
+        3503
+      ],
+      "image_mode": "RGB"
+    },
+    {
+      "path": "kindle/kf8/alice.azw3",
+      "bytes": 255506,
+      "sha256": "d8211269aed55ded8302f289950936db8368b4d4d384c463b722034152f8f1d2",
+      "detected_type": "Mobipocket E-book \"Alice's Adventures in Wonderland\", 239888 bytes uncompressed, version 8, codepage 65001"
+    },
+    {
+      "path": "kindle/kf8/pride-and-prejudice.azw3",
+      "bytes": 25333914,
+      "sha256": "7d22f45b5f2f19a1af24e854ac5ecf62eb0a9b532f38f0cb556caf18220d8cae",
+      "detected_type": "Mobipocket E-book \"Pride and Prejudice\", 1058708 bytes uncompressed, version 8, codepage 65001"
+    },
+    {
+      "path": "kindle/mobi/alice.mobi",
+      "bytes": 241000,
+      "sha256": "1b4222ffdf1862a39d0fae6d42c588f28a34c12ad73cc21c2849fe2646cac3e1",
+      "detected_type": "Mobipocket E-book \"Alice's Adventures in Wonderland\", 228070 bytes uncompressed, version 6, codepage 65001"
+    },
+    {
+      "path": "kindle/mobi/pride-and-prejudice.mobi",
+      "bytes": 25224289,
+      "sha256": "650ec367ded641382f09c741585e37fe4b788c9337b297808961fd22ca89aa14",
+      "detected_type": "Mobipocket E-book \"Pride and Prejudice\", 896999 bytes uncompressed, version 6, codepage 65001"
+    },
+    {
+      "path": "legacy/palm-ereader/capitaine-hatteras.pdb",
+      "bytes": 561872,
+      "sha256": "39574484a0bf39b330b15437332167beb4896a06aee64cee7d22a3ec86fd4450",
+      "detected_type": "PeanutPress PalmOS document \"VOYAGES ET AVENTURES DU CAPIT\""
+    },
+    {
+      "path": "legacy/palm-ereader/le-comte-de-chanteleine.pdb",
+      "bytes": 919686,
+      "sha256": "7d4c648e7ea4573d6936c5b9df4b42f94baafa07db884d30adb88c3503cb7147",
+      "detected_type": "PeanutPress PalmOS document \"LE COMTE DE CHANTELEINE\""
+    },
+    {
+      "path": "pdf/comics/2020-08-02_B01_inside_72pages_8.5x11_final.pdf",
+      "bytes": 16714590,
+      "sha256": "37af99a646ab83513cd1fab2c781f650e57119a34b905e35d86ad638c4f535af",
+      "detected_type": "PDF document, version 1.3",
+      "pdf_pages": 73,
+      "encrypted": false,
+      "first_page_text_characters": 0
+    },
+    {
+      "path": "pdf/comics/2020-08-02_B02_inside_72pages_8.5x11_final.pdf",
+      "bytes": 16044245,
+      "sha256": "35dd8769501777a246139c56b01a0041f3072ece66be58812b8ede0379f75381",
+      "detected_type": "PDF document, version 1.3",
+      "pdf_pages": 73,
+      "encrypted": false,
+      "first_page_text_characters": 0
+    },
+    {
+      "path": "pdf/modern-fiction/gorilla.pdf",
+      "bytes": 645089,
+      "sha256": "49d63a3a0834289fb2dd61623700b538fbb31c9abf50283c0aafcf1cc9bb5a5b",
+      "detected_type": "PDF document, version 1.7, 11 pages",
+      "pdf_pages": 50,
+      "encrypted": false,
+      "first_page_text_characters": 2
+    },
+    {
+      "path": "pdf/modern-fiction/sugar.pdf",
+      "bytes": 1033676,
+      "sha256": "88bbc8e3e6aed0b87ebf53435626521c8bcdcfe0fb41cbb8b184b12f5d64dff3",
+      "detected_type": "PDF document, version 1.4, 16 pages",
+      "pdf_pages": 102,
+      "encrypted": false,
+      "first_page_text_characters": 0
+    },
+    {
+      "path": "pdf/text-books/capitaine-hatteras.pdf",
+      "bytes": 2154805,
+      "sha256": "0b37af5b8cfc79700a8b29c011ab6680fce9cc2a69e053e50a19f93cd5c00422",
+      "detected_type": "PDF document, version 1.5 (zip deflate encoded)",
+      "pdf_pages": 519,
+      "encrypted": false,
+      "first_page_text_characters": 119
+    },
+    {
+      "path": "pdf/text-books/le-comte-de-chanteleine.pdf",
+      "bytes": 2124983,
+      "sha256": "8d0c90dc402fe90b171521500afaa89af644ba32adfe4a6e794a82305dfd0d36",
+      "detected_type": "PDF document, version 1.5 (zip deflate encoded)",
+      "pdf_pages": 167,
+      "encrypted": false,
+      "first_page_text_characters": 125
+    },
+    {
+      "path": "txt/modern-fiction/gorilla.txt",
+      "bytes": 60409,
+      "sha256": "e141142bfbe82daf8ce66fdfd1ba8c078c03e17abed79475ba983de9438c1506",
+      "detected_type": "Unicode text, UTF-8 (with BOM) text, with very long lines (1346)",
+      "encoding": "UTF-8 (BOM accepted)"
+    },
+    {
+      "path": "txt/modern-fiction/sugar.txt",
+      "bytes": 75512,
+      "sha256": "e4e6e2f2fcc835b84976a48eb450a3325b5221aa7d11d15841b99a8182c5448f",
+      "detected_type": "Unicode text, UTF-8 (with BOM) text, with very long lines (831)",
+      "encoding": "UTF-8 (BOM accepted)"
+    },
+    {
+      "path": "txt/utf8-cjk/hong-lou-meng.txt",
+      "bytes": 2663455,
+      "sha256": "ff1526996bf4b81807651921a85e5c1c0f1d1d123c9fa4553057ba6a3ec72011",
+      "detected_type": "Unicode text, UTF-8 text, with CRLF line terminators",
+      "encoding": "UTF-8 (BOM accepted)"
+    },
+    {
+      "path": "txt/utf8-cjk/shi-gong-an.txt",
+      "bytes": 3573543,
+      "sha256": "e88cab51a2ec41fdf8cf829ad1487c075546797cddb861c0bcb02677a2f1edc6",
+      "detected_type": "Unicode text, UTF-8 text, with CRLF line terminators",
+      "encoding": "UTF-8 (BOM accepted)"
+    },
+    {
+      "path": "txt/utf8-english/alice.txt",
+      "bytes": 174311,
+      "sha256": "01b38ea4c710a84bc18d0bd41271a5a1a92b94e97b2812f4dece97d4a694725e",
+      "detected_type": "Unicode text, UTF-8 text, with CRLF line terminators",
+      "encoding": "UTF-8 (BOM accepted)"
+    },
+    {
+      "path": "txt/utf8-english/pride-and-prejudice.txt",
+      "bytes": 772386,
+      "sha256": "3f6bb9d6f78e0293b56acd4714dd68cb7d6d1d293402031ce9d5a216bcaf9d75",
+      "detected_type": "Unicode text, UTF-8 text, with CRLF line terminators",
+      "encoding": "UTF-8 (BOM accepted)"
+    }
+  ],
+  "pdf_visual_review": {
+    "scope": "Second page of each of six downloaded PDFs rendered with Poppler and visually inspected; no editing performed.",
+    "notes": "Sugar has a blank second page in the publisher PDF. Full-book visual review and Chek reader verification were not performed."
+  }
+}

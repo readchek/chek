@@ -5,6 +5,7 @@
     "": {
       "name": "chek",
       "devDependencies": {
+        "@effect/platform-bun": "^4.0.0",
         "@types/bun": "latest",
         "effect": "^4.0.0",
         "oxfmt": "^0.71.0",
