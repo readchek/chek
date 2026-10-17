@@ -14,7 +14,7 @@
   <a href="https://github.com/readchek/chek/issues">Issues</a>
 </p>
 
-> In development. A personal project, starting with iOS.
+> In development. A personal project.
 
 ## Overview
 
@@ -45,6 +45,8 @@ See the [development guide](docs/development.md) for API setup and code checks,
 and the [website guide](docs/website.md) for builds, deployment, and assets.
 
 ## Project structure
+
+This repository contains the backend and website. Chek Reader is developed separately.
 
 ```text
 apps/
