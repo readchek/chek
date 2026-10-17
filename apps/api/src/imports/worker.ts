@@ -64,6 +64,7 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
         {
           protocolVersion: 1,
           operation: "discover",
+          sourceId: source.id,
           extensionId: extension.manifest.id,
           extensionVersion: extension.manifest.version,
           config: source.config,
@@ -74,7 +75,8 @@ const runJob = Effect.fn("imports.scan")(function* (job: Job) {
 
       yield* Stream.runForEach(events, (event) =>
         Effect.gen(function* () {
-          if (event.type === "complete" || event.type === "failure") return
+          if (event.type === "complete" || event.type === "failure" || event.type === "result")
+            return
 
           if (event.type === "warning") {
             yield* store.call("event", {

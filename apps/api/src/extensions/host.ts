@@ -3,6 +3,8 @@ import { Context, Effect, Layer, Stream } from "effect"
 import { ApiConfig } from "../services/config"
 import { discover, ExtensionFailure } from "./process"
 import type { InstalledExtension } from "./installation"
+import { stateKey } from "./state"
+import { resolve } from "node:path"
 
 export class ExtensionHost extends Context.Service<
   ExtensionHost,
@@ -18,6 +20,8 @@ export class ExtensionHost extends Context.Service<
     ExtensionHost,
     Effect.gen(function* () {
       const config = yield* ApiConfig
+      const directory = resolve(config.dataDirectory)
+      yield* Effect.promise(() => stateKey(directory))
 
       return ExtensionHost.of({
         execute: (extension, request, signal) =>
@@ -30,7 +34,7 @@ export class ExtensionHost extends Context.Service<
               const cancellation = signal
                 ? AbortSignal.any([signal, controller.signal])
                 : controller.signal
-              const timeout = request.operation === "validate" ? 15000 : config.extensionTimeoutMs
+              const timeout = request.operation === "discover" ? config.extensionTimeoutMs : 45000
               const span = yield* Effect.currentSpan.pipe(Effect.orElseSucceed(() => undefined))
               const tracedRequest = {
                 ...request,
@@ -38,7 +42,7 @@ export class ExtensionHost extends Context.Service<
               }
 
               return Stream.fromAsyncIterable(
-                discover(extension, tracedRequest, timeout, cancellation),
+                discover(extension, tracedRequest, timeout, cancellation, directory),
                 (error) =>
                   new ExtensionError({
                     code: error instanceof ExtensionFailure ? error.code : "extension-interrupted",

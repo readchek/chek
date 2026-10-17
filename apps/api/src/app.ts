@@ -9,8 +9,10 @@ import { PublicationIngestion } from "./catalog/ingestion"
 import { ExtensionHost } from "./extensions/host"
 import { ExtensionCollections } from "./extensions/collections"
 import { ImportWakeup } from "./imports/wakeup"
+import { SourceQueries } from "./extensions/queries"
 
 export const AppLive = Layer.merge(ApiServerLive, ImportWorkerLive).pipe(
+  Layer.provide(SourceQueries.layer),
   Layer.provide([PublicationIngestion.layer, ExtensionRegistry.layer, ExtensionCollections.layer]),
   Layer.provide([CatalogStore.layer, ExtensionHost.layer, ImportWakeup.layer]),
   Layer.provide(TelemetryLive),

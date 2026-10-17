@@ -1,15 +1,11 @@
-import { AssetGrants, Text } from "@chek/core"
+import { AssetGrants, SourceQuery, SourceResult, type QueryFor, type ResultFor } from "@chek/core"
 import { Context, Effect, Schema, Stream } from "effect"
 import { type ExtensionConfig, ExtensionManifest } from "./manifest.js"
 import { DiscoveryEvent } from "./protocol.js"
+import { ExtensionError, unsupported } from "./errors.js"
+import { SourceHttp, SourceState } from "./services.js"
 
-export class ExtensionError extends Schema.TaggedError<ExtensionError>()("ExtensionError", {
-  code: Text,
-  message: Text,
-  retryable: Schema.Boolean,
-}) {}
-
-/** Supplied by the host for each execution; interruption is carried by Effect. */
+/** Immutable permissions for this invocation. Effect carries cancellation through all services. */
 export class ExtensionContext extends Context.Service<
   ExtensionContext,
   {
@@ -17,35 +13,64 @@ export class ExtensionContext extends Context.Service<
   }
 >()("@chek/extensions/ExtensionContext") {}
 
+export type ExtensionServices = ExtensionContext | SourceHttp | SourceState
+
+/** Optional operations must match the capabilities declared in extension.json. */
+export type SourceHandlers<Config> = {
+  readonly [K in SourceQuery["operation"]]?: (
+    config: Config,
+    query: QueryFor<K>,
+  ) => Effect.Effect<ResultFor<K>, ExtensionError, ExtensionServices>
+}
+
+/** Implement source operations here. The SDK owns input/output validation. */
+export interface ExtensionDefinition<Config> extends SourceHandlers<Config> {
+  readonly manifest: ExtensionManifest
+  readonly config: Schema.Codec<Config, unknown>
+  /** Validate configuration without importing content. Fail with a safe, actionable error code. */
+  readonly validate: (config: Config) => Effect.Effect<void, ExtensionError, ExtensionServices>
+  /** Stream original-file candidates for durable import. Remote browsing does not require this operation. */
+  readonly discover?: (
+    config: Config,
+  ) => Stream.Stream<DiscoveryEvent, ExtensionError, ExtensionServices>
+}
+
+/** Runtime contract consumed by the host. Authors normally export defineExtension(...). */
 export interface Extension {
   readonly manifest: ExtensionManifest
   readonly validate: (
     config: ExtensionConfig,
-  ) => Effect.Effect<void, ExtensionError, ExtensionContext>
+  ) => Effect.Effect<void, ExtensionError, ExtensionServices>
   readonly discover: (
     config: ExtensionConfig,
-  ) => Stream.Stream<DiscoveryEvent, ExtensionError, ExtensionContext>
+  ) => Stream.Stream<DiscoveryEvent, ExtensionError, ExtensionServices>
+  readonly query: (
+    config: ExtensionConfig,
+    query: SourceQuery,
+  ) => Effect.Effect<SourceResult, ExtensionError, ExtensionServices>
 }
 
-export interface ExtensionDefinition<Config> {
-  readonly manifest: ExtensionManifest
-  readonly config: Schema.Codec<Config, unknown>
-  readonly validate: (config: Config) => Effect.Effect<void, ExtensionError, ExtensionContext>
-  readonly discover: (
-    config: Config,
-  ) => Stream.Stream<DiscoveryEvent, ExtensionError, ExtensionContext>
-}
-
-/** Decode at the boundary, then keep configuration typed throughout the extension. */
+/**
+ * Build a validated extension. Config is decoded before every operation; results are
+ * checked before crossing the process boundary. Provide your own service layers
+ * inside handlers, leaving only ExtensionServices for the host to supply.
+ */
 export function defineExtension<Config>(definition: ExtensionDefinition<Config>): Extension {
   const manifest = Schema.decodeUnknownSync(ExtensionManifest)(definition.manifest, {
     onExcessProperty: "error",
   })
-  const decodeConfig = Schema.decodeUnknownEffect(definition.config)
-  const decodeEvent = Schema.decodeUnknownEffect(DiscoveryEvent)
+  const operations = ["discover", "browse", "search", "series", "chapters", "pages"] as const
+
+  for (const operation of operations) {
+    if (manifest.capabilities.includes(operation) !== (definition[operation] !== undefined)) {
+      throw new Error(`Manifest capability and handler disagree: ${operation}`)
+    }
+  }
+  if (new Set(manifest.capabilities).size !== manifest.capabilities.length)
+    throw new Error("Duplicate capability")
 
   const configuration = (input: ExtensionConfig) =>
-    decodeConfig(input, { onExcessProperty: "error" }).pipe(
+    Schema.decodeUnknownEffect(definition.config)(input, { onExcessProperty: "error" }).pipe(
       Effect.mapError(
         () =>
           new ExtensionError({
@@ -56,6 +81,44 @@ export function defineExtension<Config>(definition: ExtensionDefinition<Config>)
       ),
     )
 
+  const execute = (
+    config: Config,
+    query: SourceQuery,
+  ): Effect.Effect<SourceResult, ExtensionError, ExtensionServices> => {
+    switch (query.operation) {
+      case "browse":
+        return definition.browse
+          ? definition
+              .browse(config, query)
+              .pipe(Effect.map((data) => ({ operation: "browse" as const, data })))
+          : Effect.fail(unsupported("browse"))
+      case "search":
+        return definition.search
+          ? definition
+              .search(config, query)
+              .pipe(Effect.map((data) => ({ operation: "search" as const, data })))
+          : Effect.fail(unsupported("search"))
+      case "series":
+        return definition.series
+          ? definition
+              .series(config, query)
+              .pipe(Effect.map((data) => ({ operation: "series" as const, data })))
+          : Effect.fail(unsupported("series"))
+      case "chapters":
+        return definition.chapters
+          ? definition
+              .chapters(config, query)
+              .pipe(Effect.map((data) => ({ operation: "chapters" as const, data })))
+          : Effect.fail(unsupported("chapters"))
+      case "pages":
+        return definition.pages
+          ? definition
+              .pages(config, query)
+              .pipe(Effect.map((data) => ({ operation: "pages" as const, data })))
+          : Effect.fail(unsupported("pages"))
+    }
+  }
+
   return {
     manifest,
     validate: Effect.fn("extension.validate")(function* (input) {
@@ -64,24 +127,70 @@ export function defineExtension<Config>(definition: ExtensionDefinition<Config>)
     discover: (input) =>
       Stream.unwrap(
         Effect.gen(function* () {
+          if (!definition.discover) return yield* unsupported("discover")
           const config = yield* configuration(input)
           yield* definition.validate(config)
-
-          return definition.discover(config).pipe(
-            Stream.mapEffect((event) =>
-              decodeEvent(event, { onExcessProperty: "error" }).pipe(
-                Effect.mapError(
-                  () =>
-                    new ExtensionError({
-                      code: "publication-invalid",
-                      message: "Extension produced an invalid discovery event",
-                      retryable: false,
-                    }),
+          return definition
+            .discover(config)
+            .pipe(
+              Stream.mapEffect((event) =>
+                Schema.decodeUnknownEffect(DiscoveryEvent)(event, {
+                  onExcessProperty: "error",
+                }).pipe(
+                  Effect.mapError(
+                    () =>
+                      new ExtensionError({
+                        code: "publication-invalid",
+                        message: "Invalid discovery record",
+                        retryable: false,
+                      }),
+                  ),
                 ),
               ),
-            ),
-          )
+            )
         }),
       ),
+    query: Effect.fn("extension.query")(function* (input, query) {
+      const config = yield* configuration(input)
+      const validQuery = yield* Schema.decodeUnknownEffect(SourceQuery)(query, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.mapError(
+          () =>
+            new ExtensionError({
+              code: "query-invalid",
+              message: "Invalid source query",
+              retryable: false,
+            }),
+        ),
+      )
+      const result = yield* execute(config, validQuery)
+      const valid = yield* Schema.decodeUnknownEffect(SourceResult)(result, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.mapError(
+          () =>
+            new ExtensionError({
+              code: "source-result-invalid",
+              message: "Invalid source result",
+              retryable: false,
+            }),
+        ),
+      )
+
+      if (
+        valid.operation === "pages" &&
+        valid.data.items.some(
+          (page, index, items) => index > 0 && page.index <= items[index - 1]!.index,
+        )
+      ) {
+        return yield* new ExtensionError({
+          code: "page-order-invalid",
+          message: "Page indices must be unique and increasing",
+          retryable: false,
+        })
+      }
+      return valid
+    }),
   }
 }

@@ -9,12 +9,14 @@ import { CatalogHandlers } from "./handlers/catalog"
 import { DeliveryRoutes } from "./handlers/delivery"
 import { Guard } from "./handlers/guard"
 import { InspectorRoutes } from "./handlers/inspector"
+import { SourceAssetRoutes } from "./handlers/source-assets"
 
 const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(MangaApi, { openapiPath: "/api/openapi.json" }).pipe(
     Layer.provide([BasicHandlers, CatalogHandlers]),
   ),
   DeliveryRoutes,
+  SourceAssetRoutes,
   InspectorRoutes,
 ).pipe(Layer.provide(Guard))
 

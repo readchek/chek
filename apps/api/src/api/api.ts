@@ -1,5 +1,7 @@
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api"
+import { SourceQuery } from "@chek/core"
+import { PublicSourceResult } from "./source-models"
 import { ExtensionCollection, ExtensionManifest } from "@chek/extensions"
 import {
   Id,
@@ -23,9 +25,21 @@ export const MangaApi = HttpApi.make("MangaApi").add(
     }),
   ),
   HttpApiGroup.make("catalog").add(
+    HttpApiEndpoint.post("sourceQuery", "/api/v1/sources/:id/query", {
+      params: { id: Id },
+      payload: SourceQuery,
+      success: PublicSourceResult,
+      error: [Missing, RequestError, StorageError],
+    }).annotate(
+      OpenApi.Description,
+      "Browse/search a source, fetch series details, list chapter releases, or resolve ordered pages. Check the installed extension capabilities first. Keys and cursors are opaque and source-scoped. Results are cached for 30 seconds; concurrent identical requests share execution. Cover/page URLs expire after 10 minutes and require the same API authorization. Requery to refresh expired URLs. Upstream credentials and local paths never appear in this response.",
+    ),
     HttpApiEndpoint.get("extensionCollections", "/api/v1/extension-collections", {
       success: Schema.Array(ExtensionCollection),
-    }),
+    }).annotate(
+      OpenApi.Description,
+      "Author collections are discovery metadata only. Listed packages are not installed automatically.",
+    ),
     HttpApiEndpoint.get("extensions", "/api/v1/extensions", {
       success: Schema.Array(ExtensionManifest),
     }),
@@ -37,12 +51,18 @@ export const MangaApi = HttpApi.make("MangaApi").add(
       payload: SourceInput,
       success: Source,
       error: [RequestError, StorageError],
-    }),
+    }).annotate(
+      OpenApi.Description,
+      "Validate extension configuration and explicit filesystem/HTTP grants, then persist a source. Secret configuration is excluded from responses. This does not start a scan or query.",
+    ),
     HttpApiEndpoint.post("scan", "/api/v1/sources/:id/scan", {
       params: { id: Id },
       success: Job,
-      error: [Missing, StorageError],
-    }),
+      error: [Missing, RequestError, StorageError],
+    }).annotate(
+      OpenApi.Description,
+      "Queue a durable import for an extension with discover capability. Reuses an active job for the same source. Imports preserve originals and stable publication IDs; they do not parse files into reader pages.",
+    ),
     HttpApiEndpoint.get("jobs", "/api/v1/jobs", {
       success: Schema.Array(Job),
       error: StorageError,

@@ -33,10 +33,9 @@ export const ExtensionManifest = Schema.Struct({
   description: Text,
   entrypoint: Text,
   author: Schema.optional(ExtensionAuthor),
-  capabilities: Schema.Array(Schema.Literal("discover")).check(
-    Schema.isMinLength(1),
-    Schema.isMaxLength(1),
-  ),
+  capabilities: Schema.Array(
+    Schema.Literals(["discover", "browse", "search", "series", "chapters", "pages"]),
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(6)),
   configFields: Schema.Array(ConfigField).check(Schema.isMaxLength(32)),
 })
 export type ExtensionManifest = typeof ExtensionManifest.Type

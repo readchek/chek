@@ -1,4 +1,4 @@
-import { ExtensionEvent, type ExtensionRequest } from "@chek/extensions"
+import { ExtensionEvent, protocolLimits, type ExtensionRequest } from "@chek/extensions"
 import { Schema } from "effect"
 import { fileURLToPath } from "node:url"
 import type { InstalledExtension } from "./installation"
@@ -18,6 +18,7 @@ export async function* discover(
   request: ExtensionRequest,
   timeoutMs: number,
   signal: AbortSignal,
+  dataDirectory: string,
 ): AsyncGenerator<ExtensionEvent> {
   signal.throwIfAborted()
   const telemetryEnvironment = Object.fromEntries(
@@ -29,6 +30,7 @@ export async function* discover(
       "--no-env-file",
       fileURLToPath(new URL("./runner.ts", import.meta.url)),
       extension.entrypoint,
+      dataDirectory,
     ],
     {
       stdin: new Blob([JSON.stringify(request)]),
@@ -58,6 +60,7 @@ export async function* discover(
   }, timeoutMs)
   signal.addEventListener("abort", stop, { once: true })
   let completed = false
+  let resultCount = 0
   let failure: ExtensionFailure | undefined
   try {
     let pending = ""
@@ -69,8 +72,8 @@ export async function* discover(
       while ((end = pending.indexOf("\n")) !== -1) {
         const line = pending.slice(0, end)
         pending = pending.slice(end + 1)
-        if (Buffer.byteLength(line) > 65536)
-          throw new ExtensionFailure("extension-output-limit", "Extension event exceeds 64 KiB")
+        if (Buffer.byteLength(line) > protocolLimits.eventBytes)
+          throw new ExtensionFailure("extension-output-limit", "Extension event exceeds byte limit")
         if (completed)
           throw new ExtensionFailure(
             "extension-protocol",
@@ -78,7 +81,9 @@ export async function* discover(
           )
         let event: ExtensionEvent
         try {
-          event = Schema.decodeUnknownSync(ExtensionEvent)(JSON.parse(line))
+          event = Schema.decodeUnknownSync(ExtensionEvent)(JSON.parse(line), {
+            onExcessProperty: "error",
+          })
         } catch {
           throw new ExtensionFailure(
             "extension-protocol",
@@ -97,11 +102,23 @@ export async function* discover(
         if (request.operation === "validate" && event.type !== "complete") {
           throw new ExtensionFailure("extension-protocol", "Validation emitted discovery data")
         }
+        if (event.type === "result") {
+          if (
+            request.operation !== "query" ||
+            ++resultCount !== 1 ||
+            event.result.operation !== request.query.operation
+          )
+            throw new ExtensionFailure("extension-protocol", "Unexpected source query result")
+        }
+        if (request.operation === "query" && event.type !== "result" && event.type !== "complete")
+          throw new ExtensionFailure("extension-protocol", "Query emitted discovery data")
+        if (request.operation === "query" && event.type === "complete" && resultCount !== 1)
+          throw new ExtensionFailure("extension-protocol", "Query completed without a result")
         if (event.type === "complete") completed = true
         yield event
       }
-      if (Buffer.byteLength(pending) > 65536)
-        throw new ExtensionFailure("extension-output-limit", "Extension event exceeds 64 KiB")
+      if (Buffer.byteLength(pending) > protocolLimits.eventBytes)
+        throw new ExtensionFailure("extension-output-limit", "Extension event exceeds byte limit")
     }
     const exitCode = await process.exited
     await diagnostics

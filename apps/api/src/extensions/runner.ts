@@ -5,12 +5,46 @@ import {
   ExtensionEvent,
   ExtensionRequest,
   protocolLimits,
+  SourceState,
   type Extension,
 } from "@chek/extensions"
 import { Effect, Schema, Stream, Tracer } from "effect"
 import { pathToFileURL } from "node:url"
 import { TelemetryLive } from "../observability/telemetry"
 import { ApiConfig } from "../services/config"
+import { SessionStore, stateKey } from "./state"
+import { sourceHttpLayer, cookieHeader } from "./http"
+import type { AssetReference, SourceResult } from "@chek/core"
+
+/** Attach only matching-origin cookies to private references before sending them to the host. */
+function sessionAssets(result: SourceResult, store: SessionStore): SourceResult {
+  const asset = (reference: AssetReference): AssetReference => {
+    if (reference.kind === "file") return reference
+    const cookie = cookieHeader(store, new URL(reference.url))
+    return cookie ? { ...reference, headers: { cookie, ...reference.headers } } : reference
+  }
+  const series = (value: Extract<SourceResult, { operation: "series" }>["data"]) => ({
+    ...value,
+    ...(value.cover ? { cover: asset(value.cover) } : {}),
+  })
+  switch (result.operation) {
+    case "series":
+      return { ...result, data: series(result.data) }
+    case "browse":
+    case "search":
+      return { ...result, data: { ...result.data, items: result.data.items.map(series) } }
+    case "pages":
+      return {
+        ...result,
+        data: {
+          ...result.data,
+          items: result.data.items.map((page) => ({ ...page, asset: asset(page.asset) })),
+        },
+      }
+    case "chapters":
+      return result
+  }
+}
 
 // Only protocol records belong on stdout. Extension console output stays diagnostic.
 console.log = console.error
@@ -89,15 +123,45 @@ const program = Effect.scoped(
           }),
       })
 
+      const sessions = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            const directory = process.argv[3]
+            if (!directory) throw new Error("Missing runtime directory")
+            return new SessionStore(
+              directory,
+              await stateKey(directory),
+              request.sourceId ? `${request.extensionId}:${request.sourceId}` : undefined,
+            )
+          },
+          catch: transportError,
+        }),
+        (store) => Effect.sync(() => store.close()),
+      )
       const execution =
         request.operation === "validate"
           ? extension.validate(request.config)
-          : Stream.runForEach(extension.discover(request.config), (event) =>
-              writeEvent(output, event),
-            )
+          : request.operation === "query"
+            ? extension
+                .query(request.config, request.query)
+                .pipe(
+                  Effect.flatMap((result) =>
+                    Effect.try({
+                      try: () => sessionAssets(result, sessions),
+                      catch: transportError,
+                    }).pipe(
+                      Effect.flatMap((result) => writeEvent(output, { type: "result", result })),
+                    ),
+                  ),
+                )
+            : Stream.runForEach(extension.discover(request.config), (event) =>
+                writeEvent(output, event),
+              )
 
       const traced = execution.pipe(
         Effect.provideService(ExtensionContext, { grants: request.grants }),
+        Effect.provideService(SourceState, sessions.service),
+        Effect.provide(sourceHttpLayer(sessions, request.grants)),
         Effect.tapError((error) =>
           Effect.logError("Extension operation failed", {
             extensionId: request.extensionId,

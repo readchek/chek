@@ -1,10 +1,10 @@
-import { AssetGrants, PublicationInput, Text } from "@chek/core"
+import { AssetGrants, PublicationInput, SourceQuery, SourceResult, Text } from "@chek/core"
 import { Schema } from "effect"
 import { ExtensionConfig, ExtensionId, ExtensionVersion } from "./manifest.js"
 
-export const ExtensionRequest = Schema.Struct({
+const RequestFields = {
   protocolVersion: Schema.Literal(1),
-  operation: Schema.Literals(["validate", "discover"]),
+  sourceId: Schema.optional(Text),
   extensionId: ExtensionId,
   extensionVersion: ExtensionVersion,
   config: ExtensionConfig,
@@ -15,7 +15,11 @@ export const ExtensionRequest = Schema.Struct({
       spanId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{16}$/)),
     }),
   ),
-})
+}
+export const ExtensionRequest = Schema.Union([
+  Schema.Struct({ ...RequestFields, operation: Schema.Literals(["validate", "discover"]) }),
+  Schema.Struct({ ...RequestFields, operation: Schema.Literal("query"), query: SourceQuery }),
+])
 export type ExtensionRequest = typeof ExtensionRequest.Type
 
 export const DiscoveryEvent = Schema.Union([
@@ -26,6 +30,7 @@ export type DiscoveryEvent = typeof DiscoveryEvent.Type
 
 export const ExtensionEvent = Schema.Union([
   DiscoveryEvent,
+  Schema.Struct({ type: Schema.Literal("result"), result: SourceResult }),
   Schema.Struct({ type: Schema.Literal("complete") }),
   Schema.Struct({
     type: Schema.Literal("failure"),
@@ -36,4 +41,4 @@ export const ExtensionEvent = Schema.Union([
 ])
 export type ExtensionEvent = typeof ExtensionEvent.Type
 
-export const protocolLimits = { requestBytes: 65536, eventBytes: 65536 } as const
+export const protocolLimits = { requestBytes: 65536, eventBytes: 4 * 1024 * 1024 } as const

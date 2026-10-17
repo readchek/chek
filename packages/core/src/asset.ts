@@ -8,7 +8,9 @@ export const AssetReference = Schema.Union([
     url: Text.check(Schema.isPattern(/^https?:\/\//)),
     headers: Schema.optional(
       Schema.Record(
-        Schema.String.check(Schema.isPattern(/^(?:authorization|accept|x-[a-z0-9-]+)$/i)),
+        Schema.String.check(
+          Schema.isPattern(/^(?:authorization|accept|cookie|referer|user-agent|x-[a-z0-9-]+)$/i),
+        ),
         Schema.String.check(Schema.isMaxLength(8192), Schema.isPattern(/^[^\r\n]*$/)),
       ).check(Schema.isMaxProperties(32)),
     ),
