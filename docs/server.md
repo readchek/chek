@@ -103,8 +103,10 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 - Scans read metadata from the file itself: the EPUB package document
   (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
-  CBZs. PDFs carry none yet. A file without metadata keeps its file name as
-  its title.
+  CBZs. PDFs give the title, authors and subject from their document
+  information, read through libvips' poppler loader; a title that's only a
+  source file's name, such as `Microsoft Word - draft.docx`, is ignored. A
+  file without metadata keeps its file name as its title.
 - Lists go series by series, in title order. Within a series, publications
   with a number in their metadata come first in number order, then the rest
   by title. Numbers inside titles and file names compare by value, so

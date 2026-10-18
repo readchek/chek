@@ -83,7 +83,7 @@ fn target_size(image: &VipsImage) -> i32 {
 /// Starts libvips once per process. Each call runs on a single libvips
 /// thread, because scans already run one file per worker and the worker count
 /// is what keeps scans below the core count.
-fn vips() -> Result<&'static VipsApp, FormatError> {
+pub(crate) fn vips() -> Result<&'static VipsApp, FormatError> {
     static VIPS: OnceLock<Result<VipsApp, String>> = OnceLock::new();
     VIPS.get_or_init(|| {
         let app = VipsApp::new("chek", false).map_err(|e| e.to_string())?;
@@ -96,7 +96,7 @@ fn vips() -> Result<&'static VipsApp, FormatError> {
     .map_err(|e| FormatError::Image(format!("libvips failed to start: {e}")))
 }
 
-fn vips_error(e: libvips::error::Error) -> FormatError {
+pub(crate) fn vips_error(e: libvips::error::Error) -> FormatError {
     let detail = vips()
         .ok()
         .and_then(|app| {
