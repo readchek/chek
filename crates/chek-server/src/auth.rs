@@ -76,7 +76,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         let token = match credentials {
             Some((scheme, token)) if scheme.eq_ignore_ascii_case("Bearer") => token,
             Some((scheme, encoded)) if scheme.eq_ignore_ascii_case("Basic") => {
-                let ip = client_ip(parts, &state.trusted_proxies);
+                let ip = client_ip(parts, state);
                 return basic_user(state, encoded, ip).await;
             }
             _ => {

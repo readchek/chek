@@ -2,6 +2,8 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use axum::http::HeaderName;
+
 use crate::limit::IpRange;
 
 /// Server settings, read from `CHEK_*` environment variables.
@@ -17,6 +19,11 @@ pub struct Config {
     /// reverse proxies whose `X-Forwarded-For` header names the real client.
     /// Default none.
     pub trusted_proxies: Vec<IpRange>,
+    /// `CHEK_CLIENT_IP_HEADER`, a header such as `CF-Connecting-IP` that a
+    /// CDN in front of the trusted proxies sets to the client's address.
+    /// Believed only from trusted proxies, before `X-Forwarded-For`. Default
+    /// none.
+    pub client_ip_header: Option<HeaderName>,
     /// `CHEK_SETUP_TOKEN`, the token that creates the first admin, for
     /// deployments that set up the server without reading its log. Default
     /// a random token, logged at startup.
@@ -55,6 +62,12 @@ impl Config {
                     })
                 })
                 .collect::<Result<_, _>>()?,
+            client_ip_header: match env::var("CHEK_CLIENT_IP_HEADER") {
+                Ok(name) if !name.trim().is_empty() => {
+                    Some(parse::<HeaderName>("CHEK_CLIENT_IP_HEADER", "")?)
+                }
+                _ => None,
+            },
             setup_token: match env::var("CHEK_SETUP_TOKEN") {
                 Ok(token) if token.len() < MIN_SETUP_TOKEN_LEN => {
                     return Err(ConfigError {

@@ -82,8 +82,8 @@ fn prune(times: &mut VecDeque<Instant>, now: Instant) {
 }
 
 /// The address a request came from. Behind a reverse proxy listed in
-/// `CHEK_TRUSTED_PROXIES`, it's the client the proxy names in
-/// `X-Forwarded-For`; otherwise it's the connection's peer, since anyone can
+/// `CHEK_TRUSTED_PROXIES`, it's the client named in `CHEK_CLIENT_IP_HEADER`
+/// or `X-Forwarded-For`; otherwise it's the connection's peer, since anyone can
 /// send that header. `None` when the server has no connection address.
 pub struct ClientIp(pub Option<IpAddr>);
 
@@ -94,12 +94,17 @@ impl FromRequestParts<AppState> for ClientIp {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Ok(Self(client_ip(parts, &state.trusted_proxies)))
+        Ok(Self(client_ip(parts, state)))
     }
 }
 
-pub fn client_ip(parts: &Parts, trusted_proxies: &[IpRange]) -> Option<IpAddr> {
-    let trusted = |ip: &IpAddr| trusted_proxies.iter().any(|range| range.contains(*ip));
+pub fn client_ip(parts: &Parts, state: &AppState) -> Option<IpAddr> {
+    let trusted = |ip: &IpAddr| {
+        state
+            .trusted_proxies
+            .iter()
+            .any(|range| range.contains(*ip))
+    };
     let peer = parts
         .extensions
         .get::<ConnectInfo<SocketAddr>>()?
@@ -108,6 +113,17 @@ pub fn client_ip(parts: &Parts, trusted_proxies: &[IpRange]) -> Option<IpAddr> {
         .to_canonical();
     if !trusted(&peer) {
         return Some(peer);
+    }
+    // A CDN in front of the proxy, such as Cloudflare, names the client in
+    // its own header; the proxy in between may not pass X-Forwarded-For on.
+    if let Some(name) = &state.client_ip_header
+        && let Some(ip) = parts
+            .headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok())
+    {
+        return Some(ip.to_canonical());
     }
     // Each proxy appends the address it received from, so the client is the
     // last entry that isn't one of our own proxies.
