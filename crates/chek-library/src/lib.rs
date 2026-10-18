@@ -270,8 +270,11 @@ fn scan_file(
     let inspection = chek_formats::inspect(path, format)?;
     let hash = hash_file(path)?;
     let cover = make_cover(covers_dir, path, format, &inspection.pages, &hash);
-    let (series_key, series_title) = series_for(root, path, &relative_path);
     let metadata = inspection.metadata;
+    let (series_key, series_title) = match &metadata.series {
+        Some(name) => metadata_series(name),
+        None => series_for(root, path, &relative_path),
+    };
     let title = metadata.title.unwrap_or_else(|| {
         path.file_stem().map_or_else(
             || relative_path.clone(),
@@ -337,7 +340,14 @@ fn leading_number(label: &str) -> Option<f64> {
     digits[..end].trim_end_matches('.').parse().ok()
 }
 
-/// A file's series is the folder it sits in. A file at the library root is a
+/// A series named in a file's metadata groups every file with that name in
+/// the library, wherever it sits. Names match ignoring case, and the key
+/// starts with `/`, which no folder's relative path does.
+fn metadata_series(name: &str) -> (String, String) {
+    (format!("/series/{}", name.to_lowercase()), name.to_owned())
+}
+
+/// Without a series in its metadata, a file's series is the folder it sits in. A file at the library root is a
 /// series of its own, keyed by its path, since it has no folder to group by.
 fn series_for(root: &Path, path: &Path, relative_path: &str) -> (String, String) {
     match relative_path.rsplit_once('/') {

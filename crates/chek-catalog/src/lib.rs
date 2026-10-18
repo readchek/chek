@@ -27,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005_metadata.sql"),
     include_str!("../migrations/0006_session_ids.sql"),
     include_str!("../migrations/0007_sort_titles.sql"),
+    include_str!("../migrations/0008_metadata_series.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -289,8 +290,9 @@ impl Catalog {
     }
 
     /// Marks each file publication in the library available if its path was
-    /// seen by the scan and unavailable otherwise. Missing files are kept, not
-    /// deleted, so a disconnected drive doesn't erase anyone's progress.
+    /// seen by the scan and unavailable otherwise, and removes series with no
+    /// publications left. Missing files are kept, not deleted, so a
+    /// disconnected drive doesn't erase anyone's progress.
     pub fn set_availability(&self, library_id: i64, seen: &HashSet<String>) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -316,6 +318,13 @@ impl Catalog {
                 }
             }
         }
+        // A series is left empty when its files' metadata moves them to
+        // another one.
+        tx.execute(
+            "DELETE FROM series WHERE library_id = ?1
+             AND NOT EXISTS (SELECT 1 FROM publication p WHERE p.series_id = series.id)",
+            [library_id],
+        )?;
         tx.commit()?;
         Ok(())
     }
