@@ -27,6 +27,19 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/opds/v2/catalog", get(catalog))
         .route("/opds/v2/libraries/{id}", get(library))
+        .route(
+            "/opds/v2/libraries/{id}/publications",
+            get(library_publications),
+        )
+        .route("/opds/v2/libraries/{id}/search", get(library_search))
+        .route("/opds/v2/search", get(search))
+        .route("/opds/v2/continue-reading", get(continue_reading))
+        .route("/opds/v2/recently-added", get(recently_added))
+        .route(
+            "/opds/v2/libraries/{id}/recently-added",
+            get(library_recently_added),
+        )
+        .route("/opds/v2/series/{id}", get(series))
         .route("/opds/v2/publications/{id}", get(publication))
         // The same handlers as the API, under this prefix so reader apps
         // send the credentials they used for the catalog.
@@ -107,18 +120,16 @@ async fn catalog(
     current: CurrentUser,
 ) -> Result<Response, ApiError> {
     let libraries = blocking(&state, |c| c.libraries()).await?;
-    let navigation: Vec<Value> = libraries
-        .into_iter()
-        .filter(|l| current.user.can_read(l.id))
-        .map(|l| {
-            json!({
-                "href": format!("/opds/v2/libraries/{}", l.id),
-                "title": l.name,
-                "type": FEED_TYPE,
-                "rel": "subsection",
-            })
-        })
-        .collect();
+    let mut navigation = vec![
+        subsection("/opds/v2/continue-reading", "Continue reading"),
+        subsection("/opds/v2/recently-added", "Recently added"),
+    ];
+    navigation.extend(
+        libraries
+            .into_iter()
+            .filter(|l| current.user.can_read(l.id))
+            .map(|l| subsection(&format!("/opds/v2/libraries/{}", l.id), &l.name)),
+    );
     Ok(document(
         FEED_TYPE,
         json!({
@@ -126,10 +137,15 @@ async fn catalog(
             "links": [
                 { "rel": "self", "href": "/opds/v2/catalog", "type": FEED_TYPE },
                 { "rel": "start", "href": "/opds/v2/catalog", "type": FEED_TYPE },
+                search_link("/opds/v2/search"),
             ],
             "navigation": navigation,
         }),
     ))
+}
+
+fn subsection(href: &str, title: &str) -> Value {
+    json!({ "href": href, "title": title, "type": FEED_TYPE, "rel": "subsection" })
 }
 
 #[derive(Deserialize)]
@@ -137,6 +153,78 @@ struct FeedQuery {
     cursor: Option<String>,
 }
 
+/// Publications the user has started and not finished, most recently read
+/// first.
+async fn continue_reading(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let user = current.user.clone();
+    let entries = blocking(&state, move |c| {
+        let reading = c.continue_reading(&user, after, PAGE_SIZE)?;
+        with_details(c, reading.into_iter().map(|(p, _)| p).collect())
+    })
+    .await?;
+    Ok(publications_feed(
+        "Continue reading",
+        "/opds/v2/continue-reading",
+        "/opds/v2/catalog",
+        (after, next_after_last(&entries)),
+        entries,
+    ))
+}
+
+/// Newest publications first across every library the user can read.
+async fn recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    recent_feed(&state, &current, None, query).await
+}
+
+/// Newest publications first in one library.
+async fn library_recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    recent_feed(&state, &current, Some(id), query).await
+}
+
+async fn recent_feed(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    query: FeedQuery,
+) -> Result<Response, ApiError> {
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let found = api::recent_publications(state, current, library_id, after, PAGE_SIZE).await?;
+    let entries = blocking(state, move |c| with_details(c, found)).await?;
+    let (base, up) = match library_id {
+        Some(id) => (
+            format!("/opds/v2/libraries/{id}/recently-added"),
+            format!("/opds/v2/libraries/{id}"),
+        ),
+        None => (
+            "/opds/v2/recently-added".to_owned(),
+            "/opds/v2/catalog".to_owned(),
+        ),
+    };
+    Ok(publications_feed(
+        "Recently added",
+        &base,
+        &up,
+        (after, next_after_last(&entries)),
+        entries,
+    ))
+}
+
+/// A library as a navigation feed of its series, led by a link to every
+/// publication in it at once.
 async fn library(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -146,57 +234,232 @@ async fn library(
     if !current.user.can_read(id) {
         return Err(ApiError::library_not_found(id));
     }
-    let after = match query.cursor.as_deref() {
-        None => None,
-        Some(c) => Some(
-            c.parse::<i64>()
-                .map_err(|_| ApiError::bad_request("cursor is not valid"))?,
-        ),
-    };
+    let after = api::parse_cursor(query.cursor.as_deref())?;
     let found = blocking(&state, move |c| {
         let Some(library) = c.library(id)? else {
             return Ok(None);
         };
-        let mut entries = Vec::new();
-        for summary in c.publications(id, after, PAGE_SIZE)? {
-            let details = c.publication_details(summary.id)?.unwrap_or_default();
-            entries.push((summary, details));
-        }
-        Ok(Some((library, entries)))
+        Ok(Some((library, c.series_list(id, after, PAGE_SIZE)?)))
     })
     .await?;
-    let (library, entries) = found.ok_or_else(|| ApiError::library_not_found(id))?;
+    let (library, series) = found.ok_or_else(|| ApiError::library_not_found(id))?;
 
-    let self_href = match after {
-        Some(after) => format!("/opds/v2/libraries/{id}?cursor={after}"),
-        None => format!("/opds/v2/libraries/{id}"),
-    };
-    let mut links = vec![
-        json!({ "rel": "self", "href": self_href, "type": FEED_TYPE }),
-        json!({ "rel": "start", "href": "/opds/v2/catalog", "type": FEED_TYPE }),
-        json!({ "rel": "up", "href": "/opds/v2/catalog", "type": FEED_TYPE }),
-    ];
-    if entries.len() == PAGE_SIZE as usize
-        && let Some((last, _)) = entries.last()
-    {
-        links.push(json!({
-            "rel": "next",
-            "href": format!("/opds/v2/libraries/{id}?cursor={}", last.id),
-            "type": FEED_TYPE,
-        }));
+    let base = format!("/opds/v2/libraries/{id}");
+    let next = (series.len() == PAGE_SIZE as usize)
+        .then(|| series.last().map(|s| s.id))
+        .flatten();
+    let mut navigation = Vec::new();
+    if after.is_none() {
+        navigation.push(subsection(
+            &format!("{base}/publications"),
+            "All publications",
+        ));
+        navigation.push(subsection(
+            &format!("{base}/recently-added"),
+            "Recently added",
+        ));
     }
-    let publications: Vec<Value> = entries
-        .into_iter()
-        .map(|(summary, details)| publication_entry(summary, details))
-        .collect();
+    navigation.extend(series.into_iter().map(|s| {
+        json!({
+            "href": format!("/opds/v2/series/{}", s.id),
+            "title": s.title,
+            "type": FEED_TYPE,
+            "rel": "subsection",
+            "properties": { "numberOfItems": s.publication_count },
+        })
+    }));
+    let mut links = feed_links(&base, after, next, "/opds/v2/catalog");
+    links.push(search_link(&format!("{base}/search")));
     Ok(document(
         FEED_TYPE,
         json!({
             "metadata": { "title": library.name, "itemsPerPage": PAGE_SIZE },
             "links": links,
-            "publications": publications,
+            "navigation": navigation,
         }),
     ))
+}
+
+/// Every publication in a library, series by series.
+async fn library_publications(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    if !current.user.can_read(id) {
+        return Err(ApiError::library_not_found(id));
+    }
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let found = blocking(&state, move |c| {
+        let Some(library) = c.library(id)? else {
+            return Ok(None);
+        };
+        let entries = with_details(c, c.publications(id, after, PAGE_SIZE)?)?;
+        Ok(Some((library, entries)))
+    })
+    .await?;
+    let (library, entries) = found.ok_or_else(|| ApiError::library_not_found(id))?;
+    Ok(publications_feed(
+        &library.name,
+        &format!("/opds/v2/libraries/{id}/publications"),
+        &format!("/opds/v2/libraries/{id}"),
+        (after, next_after_last(&entries)),
+        entries,
+    ))
+}
+
+/// A series' publications in reading order.
+async fn series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    let series = api::readable_series(&state, &current, id).await?;
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let entries = blocking(&state, move |c| {
+        with_details(c, c.series_publications(id, after, PAGE_SIZE)?)
+    })
+    .await?;
+    Ok(publications_feed(
+        &series.title,
+        &format!("/opds/v2/series/{id}"),
+        &format!("/opds/v2/libraries/{}", series.library_id),
+        (after, next_after_last(&entries)),
+        entries,
+    ))
+}
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    query: Option<String>,
+    cursor: Option<String>,
+}
+
+/// Search across every library the user can read.
+async fn search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<SearchQuery>,
+) -> Result<Response, ApiError> {
+    search_feed(&state, &current, None, query).await
+}
+
+/// Search within one library.
+async fn library_search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Response, ApiError> {
+    search_feed(&state, &current, Some(id), query).await
+}
+
+async fn search_feed(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    query: SearchQuery,
+) -> Result<Response, ApiError> {
+    let text = query.query.unwrap_or_default();
+    let offset = api::parse_cursor(query.cursor.as_deref())?;
+    let found =
+        api::search_publications(state, current, &text, library_id, offset, PAGE_SIZE).await?;
+    let next =
+        (found.len() == PAGE_SIZE as usize).then(|| offset.unwrap_or(0) + i64::from(PAGE_SIZE));
+    let entries = blocking(state, move |c| with_details(c, found)).await?;
+    let (path, up) = match library_id {
+        Some(id) => (
+            format!("/opds/v2/libraries/{id}/search"),
+            format!("/opds/v2/libraries/{id}"),
+        ),
+        None => ("/opds/v2/search".to_owned(), "/opds/v2/catalog".to_owned()),
+    };
+    let encoded =
+        serde_urlencoded::to_string([("query", text.trim())]).map_err(ApiError::internal)?;
+    Ok(publications_feed(
+        &format!("Search: {}", text.trim()),
+        &format!("{path}?{encoded}"),
+        &up,
+        (offset, next),
+        entries,
+    ))
+}
+
+/// A templated link apps fill in with what the reader types.
+fn search_link(path: &str) -> Value {
+    json!({
+        "rel": "search",
+        "href": format!("{path}{{?query}}"),
+        "type": FEED_TYPE,
+        "templated": true,
+    })
+}
+
+fn with_details(
+    catalog: &chek_catalog::Catalog,
+    summaries: Vec<PublicationSummary>,
+) -> Result<Vec<(PublicationSummary, PublicationDetails)>, chek_catalog::CatalogError> {
+    summaries
+        .into_iter()
+        .map(|summary| {
+            let details = catalog.publication_details(summary.id)?.unwrap_or_default();
+            Ok((summary, details))
+        })
+        .collect()
+}
+
+/// The cursor for the page after `entries`: the last id, when the page is
+/// full.
+fn next_after_last(entries: &[(PublicationSummary, PublicationDetails)]) -> Option<i64> {
+    (entries.len() == PAGE_SIZE as usize)
+        .then(|| entries.last().map(|(p, _)| p.id))
+        .flatten()
+}
+
+fn publications_feed(
+    title: &str,
+    base: &str,
+    up: &str,
+    (after, next): (Option<i64>, Option<i64>),
+    entries: Vec<(PublicationSummary, PublicationDetails)>,
+) -> Response {
+    let publications: Vec<Value> = entries
+        .into_iter()
+        .map(|(summary, details)| publication_entry(summary, details))
+        .collect();
+    document(
+        FEED_TYPE,
+        json!({
+            "metadata": { "title": title, "itemsPerPage": PAGE_SIZE },
+            "links": feed_links(base, after, next, up),
+            "publications": publications,
+        }),
+    )
+}
+
+/// A feed page's self, start, up and next links. `base` may already carry
+/// a query string.
+fn feed_links(base: &str, after: Option<i64>, next: Option<i64>, up: &str) -> Vec<Value> {
+    let separator = if base.contains('?') { '&' } else { '?' };
+    let self_href = match after {
+        Some(after) => format!("{base}{separator}cursor={after}"),
+        None => base.to_owned(),
+    };
+    let mut links = vec![
+        json!({ "rel": "self", "href": self_href, "type": FEED_TYPE }),
+        json!({ "rel": "start", "href": "/opds/v2/catalog", "type": FEED_TYPE }),
+        json!({ "rel": "up", "href": up, "type": FEED_TYPE }),
+    ];
+    if let Some(next) = next {
+        links.push(json!({
+            "rel": "next",
+            "href": format!("{base}{separator}cursor={next}"),
+            "type": FEED_TYPE,
+        }));
+    }
+    links
 }
 
 async fn publication(
@@ -224,7 +487,10 @@ fn publication_entry(summary: PublicationSummary, details: PublicationDetails) -
     metadata.insert("title".into(), summary.title.into());
     metadata.insert(
         "belongsTo".into(),
-        json!({ "series": [{ "name": summary.series_title }] }),
+        json!({ "series": [{
+            "name": summary.series_title,
+            "links": [{ "href": format!("/opds/v2/series/{}", summary.series_id), "type": FEED_TYPE }],
+        }] }),
     );
     if let Some(pages) = summary.page_count {
         metadata.insert("numberOfPages".into(), pages.into());

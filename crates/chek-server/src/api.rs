@@ -13,7 +13,7 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use chek_catalog::{
     Catalog, CatalogError, Library, LibraryKind, PageRecord, PublicationFile, PublicationSummary,
-    ScanStatus,
+    ScanStatus, SeriesSummary,
 };
 use chek_formats::{Compression, PageEntry};
 use chek_library::ScanOptions;
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::progress;
+use crate::{annotations, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -39,6 +39,8 @@ pub struct AppState {
     /// A header those proxies set to the client's address, believed before
     /// `X-Forwarded-For`.
     pub client_ip_header: Option<axum::http::HeaderName>,
+    /// The largest file an upload may send.
+    pub max_upload_bytes: u64,
 }
 
 /// Starts a background scan of every folder library.
@@ -60,15 +62,28 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/libraries/{id}", get(get_library))
         .route("/api/v1/libraries/{id}/scan", post(scan_library))
         .route(
+            "/api/v1/libraries/{id}/files/{*path}",
+            put(crate::upload::upload),
+        )
+        .route(
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
         )
+        .route("/api/v1/libraries/{id}/series", get(list_series))
+        .route("/api/v1/series/{id}", get(get_series))
+        .route(
+            "/api/v1/series/{id}/publications",
+            get(list_series_publications),
+        )
+        .route("/api/v1/search", get(search))
         .route("/api/v1/setup", post(auth::setup))
         .route("/api/v1/auth/sign-in", post(auth::sign_in))
         .route("/api/v1/auth/sign-out", post(auth::sign_out))
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", put(auth::change_password))
         .route("/api/v1/me/sessions", get(auth::list_sessions))
+        .route("/api/v1/me/continue-reading", get(continue_reading))
+        .route("/api/v1/recently-added", get(recently_added))
         .route(
             "/api/v1/me/sessions/{id}",
             axum::routing::delete(auth::delete_session),
@@ -81,7 +96,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/users/{id}",
             patch(auth::update_user).delete(auth::delete_user),
         )
-        .route("/api/v1/publications/{id}", get(get_publication))
+        .route(
+            "/api/v1/publications/{id}",
+            get(get_publication).patch(crate::edits::edit_publication),
+        )
+        .route(
+            "/api/v1/publications/{id}/edits",
+            axum::routing::delete(crate::edits::clear_edits),
+        )
         .route("/api/v1/publications/{id}/file", get(get_file))
         .route("/api/v1/publications/{id}/cover", get(get_cover))
         .route("/api/v1/publications/{id}/pages", get(list_pages))
@@ -89,6 +111,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/publications/{id}/progress",
             get(progress::get_progress).put(progress::save_progress),
+        )
+        .route(
+            "/api/v1/publications/{id}/annotations",
+            get(annotations::list_annotations).post(annotations::add_annotation),
+        )
+        .route(
+            "/api/v1/annotations/{id}",
+            patch(annotations::update_annotation).delete(annotations::delete_annotation),
         )
         .merge(crate::opds::router())
         .layer(axum::middleware::from_fn_with_state(
@@ -146,7 +176,7 @@ impl From<Library> for LibraryDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicationDto {
+pub(crate) struct PublicationDto {
     id: i64,
     series: SeriesRefDto,
     title: String,
@@ -160,9 +190,11 @@ struct PublicationDto {
 /// A publication with the metadata shown when it's opened.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicationDetailDto {
+pub(crate) struct PublicationDetailDto {
     #[serde(flatten)]
     summary: PublicationDto,
+    /// Fields an admin changed by hand, which rescans keep.
+    edited_fields: Vec<&'static str>,
     contributors: Vec<ContributorDto>,
     description: Option<String>,
     publisher: Option<String>,
@@ -308,6 +340,97 @@ struct PageQuery {
     limit: Option<u32>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentQuery {
+    library_id: Option<i64>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
+/// Newest publications first, across every readable library or one.
+async fn recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<RecentQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = recent_publications(&state, &current, query.library_id, after, limit).await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|p| p.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// One page of recently added publications for the API and OPDS.
+pub(crate) async fn recent_publications(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    after: Option<i64>,
+    limit: u32,
+) -> Result<Vec<PublicationSummary>, ApiError> {
+    if let Some(id) = library_id
+        && !current.user.can_read(id)
+    {
+        return Err(ApiError::library_not_found(id));
+    }
+    let user = current.user.clone();
+    let found = blocking(state, move |c| {
+        if let Some(id) = library_id
+            && c.library(id)?.is_none()
+        {
+            return Ok(None);
+        }
+        Ok(Some(c.recently_added(&user, library_id, after, limit)?))
+    })
+    .await?;
+    found.ok_or_else(|| ApiError::library_not_found(library_id.unwrap_or_default()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadingDto {
+    publication: PublicationDto,
+    progress: progress::ProgressDto,
+}
+
+/// Publications the user has started and not finished, most recently read
+/// first.
+async fn continue_reading(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<ReadingDto>>, ApiError> {
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let user = current.user.clone();
+    let items = blocking(&state, move |c| c.continue_reading(&user, after, limit)).await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|(p, _)| p.id.to_string()))
+        .flatten();
+    let items = items
+        .into_iter()
+        .map(|(publication, progress)| {
+            Ok(ReadingDto {
+                publication: publication.into(),
+                progress: progress.try_into()?,
+            })
+        })
+        .collect::<Result<_, ApiError>>()?;
+    Ok(Json(Page { items, next_cursor }))
+}
+
 async fn list_publications(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -350,18 +473,222 @@ async fn list_publications(
     }))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SeriesDto {
+    id: i64,
+    library_id: i64,
+    title: String,
+    publication_count: i64,
+    cover_publication_id: Option<i64>,
+}
+
+impl From<SeriesSummary> for SeriesDto {
+    fn from(s: SeriesSummary) -> Self {
+        Self {
+            id: s.id,
+            library_id: s.library_id,
+            title: s.title,
+            publication_count: s.publication_count,
+            cover_publication_id: s.cover_publication_id,
+        }
+    }
+}
+
+/// Reads a cursor, which is always the id of the last item on the previous
+/// page.
+pub(crate) fn parse_cursor(cursor: Option<&str>) -> Result<Option<i64>, ApiError> {
+    cursor
+        .map(|c| {
+            c.parse::<i64>()
+                .map_err(|_| ApiError::bad_request("cursor is not valid"))
+        })
+        .transpose()
+}
+
+/// Longer queries are almost certainly not typed by a person.
+const MAX_QUERY_CHARS: usize = 200;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchQuery {
+    q: Option<String>,
+    library_id: Option<i64>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
+async fn search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    let offset = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = search_publications(
+        &state,
+        &current,
+        query.q.as_deref().unwrap_or_default(),
+        query.library_id,
+        offset,
+        limit,
+    )
+    .await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| (offset.unwrap_or(0) + i64::from(limit)).to_string());
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// One page of search results for the API and OPDS. The cursor is the
+/// number of results already returned.
+pub(crate) async fn search_publications(
+    state: &AppState,
+    current: &CurrentUser,
+    query: &str,
+    library_id: Option<i64>,
+    offset: Option<i64>,
+    limit: u32,
+) -> Result<Vec<PublicationSummary>, ApiError> {
+    let query = query.trim().to_owned();
+    if query.is_empty() {
+        return Err(ApiError::bad_request("q is required"));
+    }
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::bad_request(format!(
+            "q is longer than {MAX_QUERY_CHARS} characters"
+        )));
+    }
+    let offset = u32::try_from(offset.unwrap_or(0))
+        .map_err(|_| ApiError::bad_request("cursor is not valid"))?;
+    if let Some(id) = library_id
+        && !current.user.can_read(id)
+    {
+        return Err(ApiError::library_not_found(id));
+    }
+    let user = current.user.clone();
+    let (library_found, items) = blocking(state, move |c| {
+        if let Some(id) = library_id
+            && c.library(id)?.is_none()
+        {
+            return Ok((false, Vec::new()));
+        }
+        Ok((true, c.search(&user, library_id, &query, offset, limit)?))
+    })
+    .await?;
+    match (library_found, library_id) {
+        (false, Some(id)) => Err(ApiError::library_not_found(id)),
+        _ => Ok(items),
+    }
+}
+
+async fn list_series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<SeriesDto>>, ApiError> {
+    if !current.user.can_read(id) {
+        return Err(ApiError::library_not_found(id));
+    }
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let (library, items) = blocking(&state, move |c| {
+        let library = c.library(id)?;
+        let items = match library {
+            Some(_) => c.series_list(id, after, limit)?,
+            None => Vec::new(),
+        };
+        Ok((library, items))
+    })
+    .await?;
+    if library.is_none() {
+        return Err(ApiError::library_not_found(id));
+    }
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|s| s.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// A series the user may open; others answer as not found.
+pub(crate) async fn readable_series(
+    state: &AppState,
+    current: &CurrentUser,
+    id: i64,
+) -> Result<SeriesSummary, ApiError> {
+    blocking(state, move |c| c.series(id))
+        .await?
+        .filter(|s| current.user.can_read(s.library_id))
+        .ok_or_else(|| ApiError::series_not_found(id))
+}
+
+async fn get_series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Json<SeriesDto>, ApiError> {
+    Ok(Json(readable_series(&state, &current, id).await?.into()))
+}
+
+async fn list_series_publications(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    readable_series(&state, &current, id).await?;
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = blocking(&state, move |c| c.series_publications(id, after, limit)).await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|p| p.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
 async fn get_publication(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<PublicationDetailDto>, ApiError> {
     check_publication(&state, &current, id).await?;
-    let found = blocking(&state, move |c| {
-        Ok(c.publication(id)?.zip(c.publication_details(id)?))
+    Ok(Json(publication_detail(&state, id).await?))
+}
+
+/// A publication with its metadata and which fields an admin edited.
+pub(crate) async fn publication_detail(
+    state: &AppState,
+    id: i64,
+) -> Result<PublicationDetailDto, ApiError> {
+    let found = blocking(state, move |c| {
+        let edited = c.edited_fields(id)?;
+        Ok(c.publication(id)?
+            .zip(c.publication_details(id)?)
+            .map(|found| (found, edited)))
     })
     .await?;
-    let (publication, details) = found.ok_or_else(|| ApiError::publication_not_found(id))?;
-    Ok(Json(PublicationDetailDto {
+    let ((publication, details), edited_fields) =
+        found.ok_or_else(|| ApiError::publication_not_found(id))?;
+    Ok(PublicationDetailDto {
+        edited_fields,
         summary: publication.into(),
         contributors: details
             .contributors
@@ -376,7 +703,7 @@ async fn get_publication(
         language: details.language,
         published: details.published,
         reading_direction: details.reading_direction,
-    }))
+    })
 }
 
 /// The media type of a publication's file.
@@ -385,6 +712,9 @@ pub(crate) fn file_media_type(format: &str) -> &'static str {
         "epub" => "application/epub+zip",
         "pdf" => "application/pdf",
         "cbz" => "application/vnd.comicbook+zip",
+        "cbt" => "application/x-cbt",
+        "cbr" => "application/vnd.comicbook-rar",
+        "cb7" => "application/x-cb7",
         _ => "application/octet-stream",
     }
 }
@@ -584,10 +914,10 @@ fn page_entry(page: PageRecord) -> PageEntry {
         data_offset: page.data_offset,
         compressed_size: page.compressed_size,
         size: page.size,
-        compression: if page.compression == "deflated" {
-            Compression::Deflated
-        } else {
-            Compression::Stored
+        compression: match page.compression {
+            "deflated" => Compression::Deflated,
+            "archive" => Compression::Archive,
+            _ => Compression::Stored,
         },
     }
 }
@@ -704,6 +1034,10 @@ impl ApiError {
 
     pub fn library_not_found(id: i64) -> Self {
         Self::not_found(format!("library {id} does not exist"))
+    }
+
+    pub fn series_not_found(id: i64) -> Self {
+        Self::not_found(format!("series {id} does not exist"))
     }
 
     pub fn publication_not_found(id: i64) -> Self {

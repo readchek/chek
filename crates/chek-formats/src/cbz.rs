@@ -67,7 +67,7 @@ pub(crate) fn inspect(path: &Path) -> Result<(Vec<PageEntry>, Metadata), FormatE
     Ok((pages, metadata))
 }
 
-fn is_page(name: &str) -> bool {
+pub(crate) fn is_page(name: &str) -> bool {
     // macOS archivers add resource forks that look like images.
     if name.starts_with("__MACOSX/") || name.rsplit('/').next().is_some_and(|f| f.starts_with('.'))
     {

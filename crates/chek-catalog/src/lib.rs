@@ -9,9 +9,13 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+mod annotations;
+mod edits;
 mod progress;
 mod users;
 
+pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
+pub use edits::{FileLocation, PublicationEdit};
 pub use progress::{Progress, ProgressSave};
 pub use users::{
     NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
@@ -29,6 +33,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_sort_titles.sql"),
     include_str!("../migrations/0008_metadata_series.sql"),
     include_str!("../migrations/0009_pdf_metadata.sql"),
+    include_str!("../migrations/0010_search.sql"),
+    include_str!("../migrations/0011_annotations.sql"),
+    include_str!("../migrations/0012_publication_edits.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +97,18 @@ pub struct PublicationSummary {
     pub page_count: Option<i64>,
     pub available: bool,
     pub has_cover: bool,
+}
+
+/// A series as listed in a library.
+#[derive(Debug, Clone)]
+pub struct SeriesSummary {
+    pub id: i64,
+    pub library_id: i64,
+    pub title: String,
+    pub publication_count: i64,
+    /// The first publication in reading order that has a cover, to show as
+    /// the series' cover.
+    pub cover_publication_id: Option<i64>,
 }
 
 /// Where a publication's file is and what the last scan recorded about it.
@@ -178,6 +197,14 @@ pub struct Catalog {
 const ORDER_KEY: &str =
     "s.sort_title, s.id, p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id";
 
+/// A series with its publication count and the first publication, in
+/// reading order, that has a cover.
+const SERIES_SELECT: &str = "SELECT s.id, s.library_id, s.title,
+        (SELECT count(*) FROM publication p WHERE p.series_id = s.id),
+        (SELECT p.id FROM publication p WHERE p.series_id = s.id AND p.cover IS NOT NULL
+         ORDER BY p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id LIMIT 1)
+     FROM series s";
+
 impl Catalog {
     /// Opens or creates the database at `path` and applies pending migrations.
     pub fn open(path: &Path) -> Result<Self> {
@@ -260,6 +287,19 @@ impl Catalog {
         )?)
     }
 
+    /// The publication for a file in a library, by its path relative to the
+    /// library's folder.
+    pub fn publication_at(&self, library_id: i64, relative_path: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT publication_id FROM content WHERE library_id = ?1 AND relative_path = ?2",
+                params![library_id, relative_path],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn file_stamp(&self, library_id: i64, relative_path: &str) -> Result<Option<FileStamp>> {
         let conn = self.conn();
         let stamp = conn
@@ -339,6 +379,29 @@ impl Catalog {
         after: Option<i64>,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
+        self.list_publications("s.library_id", library_id, after, limit)
+    }
+
+    /// Lists a series' publications in reading order, starting after the
+    /// publication id `after`.
+    pub fn series_publications(
+        &self,
+        series_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        self.list_publications("s.id", series_id, after, limit)
+    }
+
+    /// Publications whose `scope` column equals `scope_id`, in [`ORDER_KEY`]
+    /// order.
+    fn list_publications(
+        &self,
+        scope: &'static str,
+        scope_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
         // The cursor is the last publication's id; comparing whole sort keys
         // against that row's keeps pages stable and complete as long as the
         // row exists, and publications are never deleted, only marked
@@ -347,14 +410,119 @@ impl Catalog {
         let mut stmt = conn.prepare(&format!(
             "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
              FROM publication p JOIN series s ON s.id = p.series_id
-             WHERE s.library_id = ?1
+             WHERE {scope} = ?1
                AND (?2 IS NULL OR ({ORDER_KEY}) > (
                    SELECT {ORDER_KEY} FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?2))
              ORDER BY {ORDER_KEY}
              LIMIT ?3"
         ))?;
-        let rows = stmt.query_map(params![library_id, after, limit], summary_from_row)?;
+        let rows = stmt.query_map(params![scope_id, after, limit], summary_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Lists a library's series by title, starting after the series id
+    /// `after`.
+    pub fn series_list(
+        &self,
+        library_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<SeriesSummary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "{SERIES_SELECT}
+             WHERE s.library_id = ?1
+               AND (?2 IS NULL OR (s.sort_title, s.id) > (SELECT sort_title, id FROM series WHERE id = ?2))
+             ORDER BY s.sort_title, s.id
+             LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(params![library_id, after, limit], series_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Publications matching every word of `query` in their title, series,
+    /// contributors or publisher, best match first. Each word also matches
+    /// as the start of a longer word, so results appear while typing. Only
+    /// libraries `user` can read are searched, and only `library_id` when
+    /// given. Pages are by position, since relevance has no stable key.
+    pub fn search(
+        &self,
+        user: &User,
+        library_id: Option<i64>,
+        query: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        let Some(expression) = match_expression(query) else {
+            return Ok(Vec::new());
+        };
+        let conn = self.conn();
+        // bm25 weights favour a title match over a series, contributor or
+        // publisher match. Equal matches, such as every issue of a series,
+        // stay in reading order.
+        let mut stmt = conn.prepare(&format!(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
+             FROM publication_search f
+             JOIN publication p ON p.id = f.rowid
+             JOIN series s ON s.id = p.series_id
+             WHERE publication_search MATCH ?1
+               AND (?2 OR s.library_id IN (SELECT library_id FROM library_grant WHERE user_id = ?3))
+               AND (?4 IS NULL OR s.library_id = ?4)
+             ORDER BY bm25(publication_search, 10.0, 5.0, 2.0, 1.0), {ORDER_KEY}
+             LIMIT ?5 OFFSET ?6"
+        ))?;
+        let rows = stmt.query_map(
+            params![
+                expression,
+                user.role == Role::Admin,
+                user.id,
+                library_id,
+                limit,
+                offset
+            ],
+            summary_from_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Available publications in libraries `user` can read, newest first,
+    /// starting after the publication id `after`. Ids grow as scans find
+    /// files, so the newest id is the most recently added; a file changed in
+    /// place keeps its id and its place.
+    pub fn recently_added(
+        &self,
+        user: &User,
+        library_id: Option<i64>,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
+             FROM publication p JOIN series s ON s.id = p.series_id
+             WHERE p.available
+               AND (?1 OR s.library_id IN (SELECT library_id FROM library_grant WHERE user_id = ?2))
+               AND (?3 IS NULL OR s.library_id = ?3)
+               AND (?4 IS NULL OR p.id < ?4)
+             ORDER BY p.id DESC
+             LIMIT ?5",
+        )?;
+        let rows = stmt.query_map(
+            params![user.role == Role::Admin, user.id, library_id, after, limit],
+            summary_from_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn series(&self, id: i64) -> Result<Option<SeriesSummary>> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!("{SERIES_SELECT} WHERE s.id = ?1"),
+                [id],
+                series_from_row,
+            )
+            .optional()?)
     }
 
     pub fn publication(&self, id: i64) -> Result<Option<PublicationSummary>> {
@@ -535,6 +703,28 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
     })
 }
 
+/// Turns what a person typed into an FTS5 query: each word quoted, so
+/// characters FTS5 treats as syntax are searched as text, and marked as a
+/// prefix. `None` when nothing searchable is left.
+fn match_expression(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+fn series_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SeriesSummary> {
+    Ok(SeriesSummary {
+        id: row.get(0)?,
+        library_id: row.get(1)?,
+        title: row.get(2)?,
+        publication_count: row.get(3)?,
+        cover_publication_id: row.get(4)?,
+    })
+}
+
 fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PublicationSummary> {
     Ok(PublicationSummary {
         id: row.get(0)?,
@@ -552,6 +742,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PublicationSumm
 fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
     let compression = match row.get_ref(4)?.as_str_or_null()? {
         Some("deflated") => "deflated",
+        Some("archive") => "archive",
         _ => "stored",
     };
     Ok(PageRecord {
@@ -561,6 +752,24 @@ fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
         size: row.get::<_, i64>(3)? as u64,
         compression,
     })
+}
+
+/// Rewrites a publication's search index row from what's stored now.
+fn index_for_search(conn: &Connection, publication_id: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM publication_search WHERE rowid = ?1",
+        [publication_id],
+    )?;
+    conn.execute(
+        "INSERT INTO publication_search (rowid, title, series, contributors, publisher)
+         SELECT p.id, p.title, s.title,
+                (SELECT group_concat(c.name, ' ') FROM contributor c WHERE c.publication_id = p.id),
+                p.publisher
+         FROM publication p JOIN series s ON s.id = p.series_id
+         WHERE p.id = ?1",
+        [publication_id],
+    )?;
+    Ok(())
 }
 
 fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Result<()> {
@@ -649,6 +858,9 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
     for (position, c) in details.contributors.iter().enumerate() {
         insert_contributor.execute(params![publication_id, position as i64, c.name, c.role])?;
     }
+
+    edits::apply(tx, publication_id)?;
+    index_for_search(tx, publication_id)?;
 
     let mut insert = tx.prepare(
         "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)

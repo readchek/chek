@@ -54,6 +54,17 @@ pub fn natural_key(s: &str) -> String {
     key
 }
 
+/// The number a label starts with, ignoring a leading word such as "Vol." or
+/// "#": `"12"` → 12, `"Vol. 2"` → 2, `"1.5"` → 1.5.
+pub fn leading_number(label: &str) -> Option<f64> {
+    let start = label.find(|c: char| c.is_ascii_digit())?;
+    let digits = &label[start..];
+    let end = digits
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(digits.len());
+    digits[..end].trim_end_matches('.').parse().ok()
+}
+
 fn split_digits(s: &[u8]) -> (&[u8], &[u8]) {
     let end = s
         .iter()

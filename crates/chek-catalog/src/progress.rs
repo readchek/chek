@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use crate::{Catalog, Result};
+use crate::{Catalog, PublicationSummary, Result, Role, User, summary_from_row};
 
 /// A user's saved position in one publication.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +73,50 @@ impl Catalog {
         let saved = progress(&tx, user_id, publication_id)?;
         tx.commit()?;
         Ok(ProgressSave::Saved(saved))
+    }
+
+    /// Publications `user` has started and not finished, most recently read
+    /// first, starting after the publication id `after`. A position at the
+    /// very end of a publication counts as finished; one without a total
+    /// progression counts as started. Publications that are unavailable or
+    /// in libraries the user can no longer read are left out.
+    pub fn continue_reading(
+        &self,
+        user: &User,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<(PublicationSummary, Progress)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL,
+                    g.locator, g.revision, g.device, g.updated_at
+             FROM progress g
+             JOIN publication p ON p.id = g.publication_id
+             JOIN series s ON s.id = p.series_id
+             WHERE g.user_id = ?1
+               AND p.available
+               AND coalesce(json_extract(g.locator, '$.locations.totalProgression'), 0) < 1
+               AND (?2 OR s.library_id IN (SELECT library_id FROM library_grant WHERE user_id = ?1))
+               AND (?3 IS NULL OR (g.updated_at, g.publication_id) < (
+                   SELECT updated_at, publication_id FROM progress WHERE user_id = ?1 AND publication_id = ?3))
+             ORDER BY g.updated_at DESC, g.publication_id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![user.id, user.role == Role::Admin, after, limit],
+            |row| {
+                Ok((
+                    summary_from_row(row)?,
+                    Progress {
+                        locator: row.get(9)?,
+                        revision: row.get(10)?,
+                        device: row.get(11)?,
+                        updated_at: row.get(12)?,
+                    },
+                ))
+            },
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }
 

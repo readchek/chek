@@ -44,8 +44,10 @@ The clients' planned scope is described in [product direction](docs/product.md).
 
 ## Running the server
 
-Building needs [libvips](https://www.libvips.org) for cover thumbnails:
-`apt install libvips-dev` on Debian or Ubuntu, `brew install vips` on macOS.
+Building needs [libvips](https://www.libvips.org) for cover thumbnails and
+[libarchive](https://www.libarchive.org) for RAR and 7-Zip comics:
+`apt install libvips-dev libarchive-dev` on Debian or Ubuntu,
+`brew install vips libarchive` on macOS.
 
 ```sh
 cargo run --bin chek
@@ -85,7 +87,10 @@ outside your home network, and list the proxy's address or range in
 limits apply per client rather than to everyone behind the proxy. Behind
 Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 `CHEK_SETUP_TOKEN` (32 characters or more) replaces the logged setup token,
-for setting up a server without reading its log. `RUST_LOG` sets the log
+for setting up a server without reading its log. Admins can upload files
+into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
+needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
+(default 2 GiB). `RUST_LOG` sets the log
 level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an
 OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.

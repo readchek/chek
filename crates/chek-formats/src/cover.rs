@@ -24,7 +24,7 @@ pub fn cover_thumbnail(
     // `_with_opts` calls set every option of the newest libvips, which fails on
     // older ones, so sizing is computed here and saving takes a suffix string.
     let source = match format {
-        Format::Cbz => {
+        Format::Cbz | Format::Cbt | Format::Cbr | Format::Cb7 => {
             let Some(first) = pages.first() else {
                 return Ok(None);
             };

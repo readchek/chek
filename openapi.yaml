@@ -31,6 +31,8 @@ tags:
     description: Files, pages and covers.
   - name: Progress
     description: Reading positions synced between devices.
+  - name: Annotations
+    description: Bookmarks and highlights synced between devices.
   - name: OPDS
     description: |
       An [OPDS 2](https://drafts.opds.io/opds-2.0) catalog for other reader
@@ -452,6 +454,91 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/files/{path}:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - name: path
+        in: path
+        required: true
+        description: >-
+          Where to store the file, relative to the library's folder, with `/`
+          between folders, such as `Saga/Saga 01.cbz`. Missing folders are
+          created. Every part must be a plain name (no `.`, `..` or names
+          starting with `.`), and the file must end in `.epub`, `.pdf`,
+          `.cbz`, `.cbr`, `.cb7` or `.cbt`. A comic may be any comic archive
+          whatever its comic extension says.
+        schema:
+          type: string
+          maxLength: 1024
+    put:
+      tags: [Libraries]
+      operationId: uploadFile
+      summary: Upload a file into a folder library
+      description: >-
+        Admin only. The request body is the file's bytes, up to
+        `CHEK_MAX_UPLOAD_BYTES` (2 GiB by default). The file is checked against
+        its extension, moved into place and recorded like any file the scan
+        finds. If a scan of the library is running, recording waits for it,
+        and after 20 seconds the response is 202 while recording carries on.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "201":
+          description: The file was stored and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationSummary"
+        "202":
+          description: The file was stored and will be recorded once the running scan finishes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, status]
+                properties:
+                  path:
+                    type: string
+                  status:
+                    type: string
+                    enum: [queued]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            A file already exists at that path (`file_exists`), or the server
+            can't write to the library's folder (`library_read_only`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The file is larger than `CHEK_MAX_UPLOAD_BYTES`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: >-
+            The file was stored but can't be read, such as a damaged archive.
+            It stays in the folder like any other unreadable file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/libraries/{libraryId}/scan:
     parameters:
       - $ref: "#/components/parameters/LibraryId"
@@ -516,6 +603,231 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/series:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+    get:
+      tags: [Catalog]
+      operationId: listLibrarySeries
+      summary: List a library's series
+      description: Series in title order, with numbers inside titles compared by value.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of series.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Series"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/continue-reading:
+    get:
+      tags: [Progress]
+      operationId: listContinueReading
+      summary: List publications to continue
+      description: >-
+        Publications the user has a position in and hasn't finished, most
+        recently read first. A position whose `totalProgression` is 1 counts
+        as finished; one without it counts as started. Unavailable
+        publications and libraries the user can no longer read are left out.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications with the user's position in each.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [publication, progress]
+                      properties:
+                        publication:
+                          $ref: "#/components/schemas/PublicationSummary"
+                        progress:
+                          $ref: "#/components/schemas/Progress"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/recently-added:
+    get:
+      tags: [Catalog]
+      operationId: listRecentlyAdded
+      summary: List recently added publications
+      description: >-
+        Available publications, newest first, from every library the user can
+        read. A file changed in place keeps its original place.
+      parameters:
+        - name: libraryId
+          in: query
+          description: List only this library.
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search:
+    get:
+      tags: [Catalog]
+      operationId: searchPublications
+      summary: Search publications
+      description: >-
+        Matches every word of the query against titles, series names,
+        contributors and publishers, ignoring case and accents. Each word also
+        matches the start of a longer word, so results can follow typing.
+        Title matches rank first, and equal matches stay in reading order.
+        Only libraries the user can read are searched.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: What to search for, up to 200 characters.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: libraryId
+          in: query
+          description: Search only this library.
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of matches, best first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/series/{seriesId}:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+    get:
+      tags: [Catalog]
+      operationId: getSeries
+      summary: Get a series
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/series/{seriesId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+    get:
+      tags: [Catalog]
+      operationId: listSeriesPublications
+      summary: List a series' publications
+      description: >-
+        Numbered publications first in number order, then the rest by title.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}:
     parameters:
       - $ref: "#/components/parameters/PublicationId"
@@ -532,6 +844,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicationDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    patch:
+      tags: [Catalog]
+      operationId: editPublication
+      summary: Edit a publication's metadata
+      description: >-
+        Admin only. Fields left out stay as they are, `null` clears one, and a
+        blank string counts as `null`. Edited fields are written over what the
+        file says after every rescan, until they're cleared with
+        `DELETE /api/v1/publications/{publicationId}/edits`. Changing the
+        number changes where the publication sorts in its series.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                  description: Can't be cleared.
+                number:
+                  type: [string, "null"]
+                  maxLength: 1000
+                  description: The issue or volume label, such as `Vol. 2`; it sorts by the number it contains.
+                description:
+                  type: [string, "null"]
+                  maxLength: 20000
+                publisher:
+                  type: [string, "null"]
+                  maxLength: 1000
+                language:
+                  type: [string, "null"]
+                  maxLength: 35
+                  description: A BCP 47 language tag.
+                published:
+                  type: [string, "null"]
+                  pattern: "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                readingDirection:
+                  type: [string, "null"]
+                  enum: [ltr, rtl, null]
+                contributors:
+                  type: [array, "null"]
+                  maxItems: 50
+                  description: Replaces the whole list; `null` or `[]` lists nobody.
+                  items:
+                    $ref: "#/components/schemas/Contributor"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The publication as edited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/edits:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    delete:
+      tags: [Catalog]
+      operationId: clearPublicationEdits
+      summary: Undo a publication's edits
+      description: >-
+        Admin only. Drops every edit and reads the file's own metadata again.
+        If a scan of the library is running, reading waits for it, and after
+        20 seconds the response is 202 while reading carries on.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The publication with the file's own metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationDetail"
+        "202":
+          description: The edits are gone and the file will be read once the running scan finishes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [queued]
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -752,6 +1169,133 @@ paths:
                 $ref: "#/components/schemas/ProgressConflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/annotations:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Annotations]
+      operationId: listAnnotations
+      summary: List your bookmarks and highlights
+      description: >-
+        Every annotation you made in the publication, in reading order by
+        `totalProgression`. Ones without it come last, oldest first.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Your annotations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Annotation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Annotations]
+      operationId: addAnnotation
+      summary: Add a bookmark or highlight
+      description: >-
+        A highlight's locator must carry the highlighted text in
+        `text.highlight`. A publication holds up to 5,000 annotations per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kind, locator]
+              properties:
+                kind:
+                  $ref: "#/components/schemas/AnnotationKind"
+                locator:
+                  $ref: "#/components/schemas/Locator"
+                color:
+                  $ref: "#/components/schemas/AnnotationColor"
+                note:
+                  $ref: "#/components/schemas/AnnotationNote"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The new annotation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/annotations/{annotationId}:
+    parameters:
+      - name: annotationId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    patch:
+      tags: [Annotations]
+      operationId: updateAnnotation
+      summary: Change a bookmark or highlight
+      description: >-
+        Fields left out stay as they are, and `null` clears one. The last save
+        wins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                color:
+                  oneOf:
+                    - $ref: "#/components/schemas/AnnotationColor"
+                    - type: "null"
+                note:
+                  oneOf:
+                    - $ref: "#/components/schemas/AnnotationNote"
+                    - type: "null"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The changed annotation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Annotations]
+      operationId: deleteAnnotation
+      summary: Delete a bookmark or highlight
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The annotation was deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /opds/v2/catalog:
     get:
       tags: [OPDS]
@@ -790,8 +1334,175 @@ paths:
     get:
       tags: [OPDS]
       operationId: getOpdsLibrary
-      summary: OPDS feed of a library
-      description: Publications 50 at a time; a `next` link points to the following page.
+      summary: OPDS navigation feed of a library
+      description: >-
+        The library's series 50 at a time, each linking to its feed. The first
+        page starts with an "All publications" link; a `next` link points to
+        the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 navigation feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsLibraryPublications
+      summary: OPDS feed of a library's publications
+      description: Every publication, series by series, 50 at a time; a `next` link points to the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/continue-reading:
+    parameters:
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsContinueReading
+      summary: OPDS feed of publications to continue
+      description: The same publications as the API's continue reading list, 50 at a time. Linked from the catalog.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/recently-added:
+    parameters:
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsRecentlyAdded
+      summary: OPDS feed of recently added publications
+      description: Newest first across every library the user can read, 50 at a time. Linked from the catalog.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/recently-added:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsLibraryRecentlyAdded
+      summary: OPDS feed of a library's recently added publications
+      description: Newest first, 50 at a time. Linked from the library's feed.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/search:
+    parameters:
+      - $ref: "#/components/parameters/OpdsQuery"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: searchOpds
+      summary: OPDS search
+      description: >-
+        Searches every library the user can read, as the API's search does.
+        The catalog links here with a `search` link templated as
+        `{?query}`.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed of matches, best first.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/search:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/OpdsQuery"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: searchOpdsLibrary
+      summary: OPDS search in a library
+      description: Searches one library. The library's feed links here with a `search` link templated as `{?query}`.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed of matches, best first.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/series/{seriesId}:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsSeries
+      summary: OPDS feed of a series
+      description: The series' publications in reading order, 50 at a time; a `next` link points to the following page.
       responses:
         "401":
           $ref: "#/components/responses/OpdsUnauthorized"
@@ -909,12 +1620,28 @@ components:
       schema:
         type: integer
         format: int64
+    SeriesId:
+      name: seriesId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
     Cursor:
       name: cursor
       in: query
       description: Opaque cursor from the previous page's `nextCursor`.
       schema:
         type: string
+    OpdsQuery:
+      name: query
+      in: query
+      required: true
+      description: What to search for, up to 200 characters.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
     Limit:
       name: limit
       in: query
@@ -1079,6 +1806,27 @@ components:
         createdAt:
           type: string
           format: date-time
+    Series:
+      type: object
+      required: [id, libraryId, title, publicationCount]
+      properties:
+        id:
+          type: integer
+          format: int64
+        libraryId:
+          type: integer
+          format: int64
+        title:
+          type: string
+        publicationCount:
+          type: integer
+          format: int64
+        coverPublicationId:
+          type: [integer, "null"]
+          format: int64
+          description: >-
+            The first publication in the series that has a cover; fetch its
+            cover to show the series.
     ScanState:
       type: object
       required: [status, error, finishedAt]
@@ -1119,7 +1867,10 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz]
+          enum: [epub, pdf, cbz, cbt, cbr, cb7]
+          description: |
+            Comic archives get their format from their bytes, so a ZIP named
+            `.cbr` is `cbz`.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
@@ -1131,13 +1882,20 @@ components:
           description: Whether `/cover` has an image for this publication.
     PublicationDetail:
       description: |
-        A publication with metadata read from the file: the EPUB package
-        document, or `ComicInfo.xml` in a CBZ. PDFs carry none yet.
+        A publication with metadata read from the file (the EPUB package
+        document, `ComicInfo.xml` in a CBZ, or a PDF's document information),
+        with any fields an admin edited written over it.
       allOf:
         - $ref: "#/components/schemas/PublicationSummary"
         - type: object
-          required: [contributors, description, publisher, language, published, readingDirection]
+          required: [editedFields, contributors, description, publisher, language, published, readingDirection]
           properties:
+            editedFields:
+              type: array
+              description: Fields an admin changed by hand, which rescans keep.
+              items:
+                type: string
+                enum: [title, number, description, publisher, language, published, readingDirection, contributors]
             contributors:
               type: array
               description: People credited, in the order the file lists them.
@@ -1223,6 +1981,44 @@ components:
           type: string
         current:
           $ref: "#/components/schemas/Progress"
+    AnnotationKind:
+      type: string
+      enum: [bookmark, highlight]
+    AnnotationColor:
+      type: string
+      minLength: 1
+      maxLength: 32
+      description: A color name or value the client chooses, such as `yellow`.
+    AnnotationNote:
+      type: string
+      maxLength: 10000
+    Annotation:
+      type: object
+      required: [id, publicationId, kind, locator, color, note, device, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        publicationId:
+          type: integer
+          format: int64
+        kind:
+          $ref: "#/components/schemas/AnnotationKind"
+        locator:
+          $ref: "#/components/schemas/Locator"
+        color:
+          type: [string, "null"]
+        note:
+          type: [string, "null"]
+        device:
+          type: [string, "null"]
+          description: The device name of the session that last saved it.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     Locator:
       type: object
       description: |

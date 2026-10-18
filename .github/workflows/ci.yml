@@ -26,7 +26,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev libarchive-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets
       - run: cargo test --locked
