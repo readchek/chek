@@ -51,6 +51,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         basic_auth_cache: Arc::default(),
         password_limiter: Arc::default(),
         trusted_proxies: Arc::new(config.trusted_proxies),
+        client_ip_header: config.client_ip_header,
     };
     auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is

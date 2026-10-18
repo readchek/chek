@@ -82,7 +82,8 @@ Settings come from environment variables: `CHEK_BIND` (address, default
 HTTP, so put it behind a reverse proxy with HTTPS before reaching it from
 outside your home network, and list the proxy's address or range in
 `CHEK_TRUSTED_PROXIES` (comma-separated, such as `10.0.0.0/8`) so sign-in
-limits apply per client rather than to everyone behind the proxy.
+limits apply per client rather than to everyone behind the proxy. Behind
+Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 `CHEK_SETUP_TOKEN` (32 characters or more) replaces the logged setup token,
 for setting up a server without reading its log. `RUST_LOG` sets the log
 level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an

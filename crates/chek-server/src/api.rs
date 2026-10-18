@@ -36,6 +36,9 @@ pub struct AppState {
     pub password_limiter: Arc<crate::limit::PasswordLimiter>,
     /// Reverse proxies whose `X-Forwarded-For` is believed.
     pub trusted_proxies: Arc<Vec<crate::limit::IpRange>>,
+    /// A header those proxies set to the client's address, believed before
+    /// `X-Forwarded-For`.
+    pub client_ip_header: Option<axum::http::HeaderName>,
 }
 
 /// Starts a background scan of every folder library.

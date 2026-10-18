@@ -121,7 +121,7 @@ pub async fn trace_request(
         .extensions
         .get::<MatchedPath>()
         .map_or_else(|| "unmatched".to_owned(), |p| p.as_str().to_owned());
-    let client = client_ip(&parts, &state.trusted_proxies)
+    let client = client_ip(&parts, &state)
         .map(|ip| ip.to_string())
         .unwrap_or_default();
     let user_agent = parts

@@ -78,6 +78,11 @@ are in the planning doc; this page keeps the decisions next to the code.
   credentials aren't affected. Behind a reverse proxy, list its address or
   CIDR range in `CHEK_TRUSTED_PROXIES` so the client's address is read from
   `X-Forwarded-For`; otherwise every client shares the proxy's address.
+  Behind Cloudflare, set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP` as well,
+  since a tunnel or proxy in between may replace `X-Forwarded-For`. The
+  header is read only from trusted proxies, and only helps if every request
+  reaches those proxies through Cloudflare; a proxy reachable directly lets
+  clients send their own value.
 - Requests can also send HTTP Basic credentials, because OPDS reader apps
   can't hold session tokens. A passing check is remembered in memory, keyed
   by the password and the stored hash, so later requests skip Argon2; a

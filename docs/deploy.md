@@ -50,6 +50,16 @@ Sign in as `admin` or `demo`. OPDS apps use
 `DEMO_READER_PASSWORD` is only used when the `demo` account is created, so
 changing it later doesn't sign testers out. Change it through the API instead.
 
+## Behind Cloudflare
+
+With the domain proxied by Cloudflare or served through a Cloudflare tunnel,
+every request reaches the server from the same place, so all clients share
+one limit on wrong passwords. Add `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`
+to the environment so each client is limited on its own. Only do this if
+the server's Traefik can't be reached except through Cloudflare, for
+example with ports 80 and 443 closed to the internet; otherwise a client
+can send its own `CF-Connecting-IP` and dodge the limit.
+
 ## Logs and traces
 
 The server logs every request with its route, status and duration. To send

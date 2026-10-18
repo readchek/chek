@@ -14,6 +14,9 @@ services:
       # networks reach it. Traefik's address on them isn't fixed, so trust
       # the private ranges Docker assigns from.
       CHEK_TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # CF-Connecting-IP when the domain is behind Cloudflare; see
+      # docs/deploy.md.
+      CHEK_CLIENT_IP_HEADER: ${CHEK_CLIENT_IP_HEADER:-}
       # Set to an OTLP/HTTP collector, such as SigNoz's on port 4318, to send
       # it logs and request traces. Empty sends nothing.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
