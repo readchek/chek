@@ -41,16 +41,16 @@ bun run dev:website
 
 Open [localhost:18357](http://127.0.0.1:18357/).
 
-See the [development guide](docs/development.md) for API setup and code checks,
+See the [development guide](docs/development.md) for setup and code checks,
 and the [website guide](docs/website.md) for builds, deployment, and assets.
 
 ## Project structure
 
-This repository contains the backend and website. Chek Reader is developed separately.
+This repository currently contains only the landing page. The backend is being
+re-planned. Chek Reader is developed separately.
 
 ```text
 apps/
-  api/        Effect backend
   website/    Landing page
 docs/         Product, design, and development guides
 ```
