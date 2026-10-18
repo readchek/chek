@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::serve::ListenerExt;
 use chek_catalog::Catalog;
+use chek_library::ScanOptions;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -31,10 +32,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let app = api::router(api::AppState {
+    let state = api::AppState {
         catalog,
-        scan_workers: config.scan_workers,
-    });
+        scan: ScanOptions {
+            workers: config.scan_workers,
+            covers_dir: config.data_dir.join("covers"),
+        },
+    };
+    // Unchanged files are skipped by size and modification time, so this is
+    // cheap, and it catches whatever changed while the server was down.
+    api::scan_all_folders(&state).await?;
+    let app = api::router(state);
 
     // Without TCP_NODELAY, small responses wait on Nagle's algorithm and
     // delayed ACKs; the latency spike measured p99 at 84 ms instead of 50.

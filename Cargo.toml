@@ -16,10 +16,15 @@ chek-sources = { path = "crates/chek-sources" }
 
 axum = "0.8.9"
 blake3 = "1.8.7"
+flate2 = "1.1.10"
+libvips = "2.3.0"
+quick-xml = "0.42.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "fs"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

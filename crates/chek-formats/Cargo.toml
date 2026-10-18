@@ -1,12 +1,15 @@
 [package]
 name = "chek-formats"
-description = "Format detection and page indexes for the files Chek serves."
+description = "Format detection, page indexes and covers for the files Chek serves."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+flate2.workspace = true
+libvips.workspace = true
+quick-xml.workspace = true
 thiserror.workspace = true
 zip.workspace = true
 

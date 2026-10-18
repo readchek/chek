@@ -4,12 +4,17 @@
 //! async runtime run it on a blocking thread.
 
 mod cbz;
+mod cover;
+mod epub;
 mod natural;
 
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
+use flate2::read::DeflateDecoder;
+
+pub use cover::cover_thumbnail;
 pub use natural::natural_cmp;
 
 /// A publication format the server recognises.
@@ -75,10 +80,21 @@ pub enum FormatError {
     Archive(#[from] zip::result::ZipError),
     #[error("archive has more than {limit} entries")]
     TooManyEntries { limit: usize },
+    #[error("entry is larger than {limit} bytes")]
+    EntryTooLarge { limit: u64 },
+    #[error(
+        "entry is shorter than the page index says; the file may have changed since it was scanned"
+    )]
+    Truncated,
+    #[error("image processing failed: {0}")]
+    Image(String),
 }
 
 /// Archives with more entries than this are rejected rather than indexed.
 pub const MAX_ARCHIVE_ENTRIES: usize = 100_000;
+
+/// Pages and other archive entries larger than this are not read into memory.
+pub const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Picks a format from the file's extension, then checks its leading bytes so a
 /// renamed file is not served as something it isn't. Returns `None` for files
@@ -111,6 +127,46 @@ pub fn inspect(path: &Path, format: Format) -> Result<Inspection, FormatError> {
         Format::Epub | Format::Pdf => Vec::new(),
     };
     Ok(Inspection { format, pages })
+}
+
+/// Reads one page's image bytes straight from its offset in the archive,
+/// without reopening the archive's directory.
+pub fn read_page(path: &Path, page: &PageEntry) -> Result<Vec<u8>, FormatError> {
+    if page.size > MAX_ENTRY_BYTES || page.compressed_size > MAX_ENTRY_BYTES {
+        return Err(FormatError::EntryTooLarge {
+            limit: MAX_ENTRY_BYTES,
+        });
+    }
+    let mut file = File::open(path)?;
+    file.seek(SeekFrom::Start(page.data_offset))?;
+    let raw = file.take(page.compressed_size);
+    // The index's size bounds the read; one extra byte detects an entry that
+    // inflates to more than the index says.
+    let mut out = Vec::with_capacity(page.size as usize);
+    match page.compression {
+        Compression::Stored => raw.take(page.size + 1).read_to_end(&mut out)?,
+        Compression::Deflated => DeflateDecoder::new(raw)
+            .take(page.size + 1)
+            .read_to_end(&mut out)?,
+    };
+    if out.len() as u64 != page.size {
+        return Err(FormatError::Truncated);
+    }
+    Ok(out)
+}
+
+/// The media type of a page, from its entry name's extension.
+pub fn page_media_type(name: &str) -> &'static str {
+    let ext = name.rsplit_once('.').map_or("", |(_, ext)| ext);
+    match ext.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "avif" => "image/avif",
+        "jxl" => "image/jxl",
+        _ => "application/octet-stream",
+    }
 }
 
 fn read_prefix(path: &Path, buf: &mut [u8]) -> io::Result<usize> {

@@ -4,20 +4,40 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chek_catalog::{Catalog, CatalogError, Library, LibraryKind, PublicationSummary, ScanStatus};
+use chek_catalog::{
+    Catalog, CatalogError, Library, LibraryKind, PageRecord, PublicationFile, PublicationSummary,
+    ScanStatus,
+};
+use chek_formats::{Compression, PageEntry};
+use chek_library::ScanOptions;
 use serde::{Deserialize, Serialize};
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
 use tracing::error;
 
 #[derive(Clone)]
 pub struct AppState {
     pub catalog: Arc<Catalog>,
-    pub scan_workers: usize,
+    pub scan: ScanOptions,
+}
+
+/// Starts a background scan of every folder library.
+pub async fn scan_all_folders(state: &AppState) -> Result<(), CatalogError> {
+    let catalog = state.catalog.clone();
+    let libraries = tokio::task::spawn_blocking(move || catalog.libraries())
+        .await
+        .expect("listing libraries does not panic")?;
+    for library in libraries.iter().filter(|l| l.kind == LibraryKind::Folder) {
+        start_scan(state, library.id);
+    }
+    Ok(())
 }
 
 pub fn router(state: AppState) -> Router {
@@ -30,6 +50,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
         )
+        .route("/api/v1/publications/{id}", get(get_publication))
+        .route("/api/v1/publications/{id}/file", get(get_file))
+        .route("/api/v1/publications/{id}/cover", get(get_cover))
+        .route("/api/v1/publications/{id}/pages", get(list_pages))
+        .route("/api/v1/publications/{id}/pages/{index}", get(get_page))
         .with_state(state)
 }
 
@@ -89,6 +114,7 @@ struct PublicationDto {
     format: String,
     page_count: Option<i64>,
     available: bool,
+    has_cover: bool,
 }
 
 #[derive(Serialize)]
@@ -110,6 +136,7 @@ impl From<PublicationSummary> for PublicationDto {
             format: p.format,
             page_count: p.page_count,
             available: p.available,
+            has_cover: p.has_cover,
         }
     }
 }
@@ -246,12 +273,254 @@ async fn list_publications(
     }))
 }
 
-fn start_scan(state: &AppState, library_id: i64) {
+async fn get_publication(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<PublicationDto>, ApiError> {
+    let publication = blocking(&state, move |c| c.publication(id)).await?;
+    publication
+        .map(|p| Json(p.into()))
+        .ok_or_else(|| ApiError::publication_not_found(id))
+}
+
+/// The original file, with byte ranges and conditional requests.
+async fn get_file(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let (file, path) = current_file(&state, id).await?;
+    let mut response = ServeFile::new(&path)
+        .oneshot(request)
+        .await
+        .map_err(ApiError::internal)?
+        .map(Body::new);
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    if let Ok(etag) = HeaderValue::from_str(&format!("\"{}\"", file.hash)) {
+        headers.insert(header::ETAG, etag);
+    }
+    let name = file
+        .relative_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&file.relative_path);
+    if let Ok(disposition) = HeaderValue::from_str(&content_disposition(name)) {
+        headers.insert(header::CONTENT_DISPOSITION, disposition);
+    }
+    Ok(response)
+}
+
+async fn get_cover(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let file = blocking(&state, move |c| c.publication_file(id))
+        .await?
+        .ok_or_else(|| ApiError::publication_not_found(id))?;
+    let Some(cover) = file.cover else {
+        return Err(ApiError::not_found(format!(
+            "publication {id} has no cover"
+        )));
+    };
+    let etag = format!("\"{cover}\"");
+    if matches_etag(&headers, &etag) {
+        return Ok(not_modified(&etag));
+    }
+    let path = state.scan.covers_dir.join(format!("{cover}.jpg"));
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // The covers folder was cleared; the next scan of a changed file
+            // remakes it, so report it as missing for now.
+            return Err(ApiError::not_found(format!(
+                "publication {id} has no cover"
+            )));
+        }
+        Err(e) => return Err(ApiError::internal(e)),
+    };
+    Ok(image_response(bytes, "image/jpeg", &etag))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PageDto {
+    index: usize,
+    media_type: &'static str,
+    size: u64,
+}
+
+async fn list_pages(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Page<PageDto>>, ApiError> {
+    let (publication, pages) =
+        blocking(&state, move |c| Ok((c.publication(id)?, c.pages(id)?))).await?;
+    if publication.is_none() {
+        return Err(ApiError::publication_not_found(id));
+    }
+    Ok(Json(Page {
+        items: pages
+            .into_iter()
+            .enumerate()
+            .map(|(index, p)| PageDto {
+                index,
+                media_type: chek_formats::page_media_type(&p.entry_name),
+                size: p.size,
+            })
+            .collect(),
+        next_cursor: None,
+    }))
+}
+
+/// One comic page, read from its offset in the archive using the page index
+/// stored at scan time.
+async fn get_page(
+    State(state): State<AppState>,
+    Path((id, index)): Path<(i64, u32)>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let page = blocking(&state, move |c| c.page(id, index))
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("publication {id} has no page {index}")))?;
+    let (file, path) = current_file(&state, id).await?;
+    let etag = format!("\"{}-{index}\"", file.hash);
+    if matches_etag(&headers, &etag) {
+        return Ok(not_modified(&etag));
+    }
+
+    let media_type = chek_formats::page_media_type(&page.entry_name);
+    let entry = page_entry(page);
+    let bytes = tokio::task::spawn_blocking(move || chek_formats::read_page(&path, &entry))
+        .await
+        .map_err(ApiError::internal)?;
+    match bytes {
+        Ok(bytes) => Ok(image_response(bytes, media_type, &etag)),
+        // The file changed between the check and the read.
+        Err(chek_formats::FormatError::Truncated) => Err(content_changed(&state, file.library_id)),
+        Err(e) => Err(ApiError::internal(e)),
+    }
+}
+
+/// Loads a publication's file and checks it is still the file the last scan
+/// read. If it changed, a rescan starts and the request gets a conflict, since
+/// stored offsets and hashes no longer describe it.
+async fn current_file(state: &AppState, id: i64) -> Result<(PublicationFile, PathBuf), ApiError> {
+    let file = blocking(state, move |c| c.publication_file(id))
+        .await?
+        .ok_or_else(|| ApiError::publication_not_found(id))?;
+    if !file.available {
+        return Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            code: "unavailable",
+            message: format!("publication {id}'s file is missing from its library folder"),
+        });
+    }
+    let path = PathBuf::from(&file.root_path).join(&file.relative_path);
+    let stamp = {
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || chek_library::file_stamp(&path))
+            .await
+            .map_err(ApiError::internal)?
+    };
+    match (stamp, file.stamp) {
+        (Ok(on_disk), Some(scanned)) if on_disk == scanned => Ok((file, path)),
+        _ => Err(content_changed(state, file.library_id)),
+    }
+}
+
+fn content_changed(state: &AppState, library_id: i64) -> ApiError {
+    start_scan(state, library_id);
+    ApiError {
+        status: StatusCode::CONFLICT,
+        code: "content_changed",
+        message:
+            "the file changed since it was scanned; a rescan has started, so try again shortly"
+                .to_owned(),
+    }
+}
+
+fn page_entry(page: PageRecord) -> PageEntry {
+    PageEntry {
+        name: page.entry_name,
+        data_offset: page.data_offset,
+        compressed_size: page.compressed_size,
+        size: page.size,
+        compression: if page.compression == "deflated" {
+            Compression::Deflated
+        } else {
+            Compression::Stored
+        },
+    }
+}
+
+fn image_response(bytes: Vec<u8>, media_type: &'static str, etag: &str) -> Response {
+    let mut response = Response::new(Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(media_type));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=3600"),
+    );
+    if let Ok(etag) = HeaderValue::from_str(etag) {
+        headers.insert(header::ETAG, etag);
+    }
+    response
+}
+
+fn not_modified(etag: &str) -> Response {
+    let mut response = StatusCode::NOT_MODIFIED.into_response();
+    if let Ok(etag) = HeaderValue::from_str(etag) {
+        response.headers_mut().insert(header::ETAG, etag);
+    }
+    response
+}
+
+fn matches_etag(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(|tag| tag.trim().trim_start_matches("W/"))
+        .any(|tag| tag == etag || tag == "*")
+}
+
+/// `attachment` with the file's name, encoded per RFC 6266 so names outside
+/// ASCII survive.
+fn content_disposition(name: &str) -> String {
+    let mut encoded = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    let fallback: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+}
+
+pub fn start_scan(state: &AppState, library_id: i64) {
     let catalog = state.catalog.clone();
-    let workers = state.scan_workers;
+    let options = state.scan.clone();
     tokio::spawn(async move {
-        if let Err(e) = chek_library::scan(catalog, library_id, workers).await {
-            error!(library_id, error = %e, "scan failed");
+        match chek_library::scan(catalog, library_id, options).await {
+            Ok(_) | Err(chek_library::ScanError::AlreadyScanning(_)) => {}
+            Err(e) => error!(library_id, error = %e, "scan failed"),
         }
     });
 }
@@ -286,12 +555,20 @@ impl ApiError {
         }
     }
 
-    fn library_not_found(id: i64) -> Self {
+    fn not_found(message: String) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             code: "not_found",
-            message: format!("library {id} does not exist"),
+            message,
         }
+    }
+
+    fn library_not_found(id: i64) -> Self {
+        Self::not_found(format!("library {id} does not exist"))
+    }
+
+    fn publication_not_found(id: i64) -> Self {
+        Self::not_found(format!("publication {id} does not exist"))
     }
 
     fn internal(e: impl std::fmt::Display) -> Self {

@@ -35,6 +35,23 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-sources` | Extension host for WebAssembly sources (empty until extensions land) |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
+## Serving
+
+- Comic pages are read from the offset stored in the page index, so a request
+  never reopens the archive's directory. The page's original bytes are sent
+  unchanged.
+- Before serving a file or a page, the server compares the file's size and
+  modification time with what the scan recorded. If they differ, it starts a
+  rescan and answers `409 content_changed`, because stored offsets would no
+  longer match the file.
+- Covers are JPEG thumbnails that fit within 400 by 600 pixels, made by
+  libvips at scan time and stored in the data folder under `covers/`, named
+  by the file's content hash. CBZ covers come from the first page, EPUB covers
+  from the package's cover image and PDF covers from the first page.
+- Every folder library is rescanned at startup to catch changes made while
+  the server was down. Unchanged files are skipped by size and modification
+  time.
+
 ## Design rules from the spike
 
 - Page requests read from the page index stored at scan time instead of

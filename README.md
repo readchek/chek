@@ -33,7 +33,7 @@ finalized.
 ## Repositories
 
 This repository is the Chek server. It is in early development: it can scan a
-folder and list what it finds. See [server design](docs/server.md) for what is
+folder, list what it finds, and serve the files, comic pages and covers. See [server design](docs/server.md) for what is
 settled and what comes next.
 
 - [chek.page](https://github.com/readchek/chek.page): the landing page.
@@ -46,12 +46,16 @@ The clients' planned scope is described in [product direction](docs/product.md).
 The server has no sign-in yet, so it listens on `127.0.0.1:8080` by default.
 Don't expose it beyond a network you trust.
 
+Building needs [libvips](https://www.libvips.org) for cover thumbnails:
+`apt install libvips-dev` on Debian or Ubuntu, `brew install vips` on macOS.
+
 ```sh
 cargo run --bin chek
 curl -X POST localhost:8080/api/v1/libraries \
   -H 'content-type: application/json' \
   -d '{"name": "Comics", "path": "/path/to/comics"}'
 curl localhost:8080/api/v1/libraries/1/publications
+curl -o page.jpg localhost:8080/api/v1/publications/1/pages/0
 ```
 
 Settings come from environment variables: `CHEK_BIND` (address), `CHEK_DATA_DIR`
