@@ -4,12 +4,12 @@
 //!
 //! Spec: <https://drafts.opds.io/opds-2.0>.
 
-use axum::Router;
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
-use axum::middleware;
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::{Json, Router};
 use chek_catalog::{PublicationDetails, PublicationSummary};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -19,6 +19,8 @@ use crate::auth::CurrentUser;
 
 const FEED_TYPE: &str = "application/opds+json";
 const PUBLICATION_TYPE: &str = "application/opds-publication+json";
+const AUTH_TYPE: &str = "application/opds-authentication+json";
+const AUTH_PATH: &str = "/opds/v2/auth";
 const PAGE_SIZE: u32 = 50;
 
 pub fn router() -> Router<AppState> {
@@ -30,19 +32,74 @@ pub fn router() -> Router<AppState> {
         // send the credentials they used for the catalog.
         .route("/opds/v2/publications/{id}/file", get(api::get_file))
         .route("/opds/v2/publications/{id}/cover", get(api::get_cover))
-        .layer(middleware::map_response(challenge))
+        .route(AUTH_PATH, get(authentication))
+        .layer(middleware::from_fn(challenge))
 }
 
-/// Asks for Basic credentials on a 401, which is how reader apps learn to
-/// prompt for a name and password.
-async fn challenge(mut response: Response) -> Response {
-    if response.status() == StatusCode::UNAUTHORIZED {
-        response.headers_mut().insert(
-            header::WWW_AUTHENTICATE,
-            HeaderValue::from_static("Basic realm=\"Chek\", charset=\"UTF-8\""),
-        );
+/// Asks for credentials on a 401 in both ways reader apps understand: a
+/// Basic challenge, which KOReader follows, and an Authentication for OPDS
+/// document, without which Thorium rejects the catalog as unsupported.
+async fn challenge(request: Request, next: Next) -> Response {
+    let auth_url = auth_document_url(request.headers());
+    let response = next.run(request).await;
+    if response.status() != StatusCode::UNAUTHORIZED {
+        return response;
+    }
+    let mut response = (
+        StatusCode::UNAUTHORIZED,
+        [(header::CONTENT_TYPE, AUTH_TYPE)],
+        Json(auth_document(&auth_url)),
+    )
+        .into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::WWW_AUTHENTICATE,
+        HeaderValue::from_static("Basic realm=\"Chek\", charset=\"UTF-8\""),
+    );
+    if let Ok(link) = HeaderValue::from_str(&format!(
+        "<{auth_url}>; rel=\"http://opds-spec.org/auth/document\"; type=\"{AUTH_TYPE}\""
+    )) {
+        headers.insert(header::LINK, link);
     }
     response
+}
+
+/// The Authentication for OPDS document, served without credentials as the
+/// spec requires. Spec: <https://drafts.opds.io/authentication-for-opds-1.0>.
+async fn authentication(headers: HeaderMap) -> Response {
+    let url = auth_document_url(&headers);
+    document(AUTH_TYPE, auth_document(&url))
+}
+
+fn auth_document(url: &str) -> Value {
+    json!({
+        "id": url,
+        "title": "Chek",
+        "authentication": [{
+            "type": "http://opds-spec.org/auth/basic",
+            "labels": { "login": "Name", "password": "Password" },
+        }],
+    })
+}
+
+/// The document's absolute URL, which apps use as its id. Behind a proxy
+/// that terminates HTTPS, the scheme comes from `X-Forwarded-Proto`; it only
+/// names the document, so a client setting it gains nothing.
+fn auth_document_url(headers: &HeaderMap) -> String {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
+    let Some(host) = host else {
+        return AUTH_PATH.to_owned();
+    };
+    let scheme = match headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+    {
+        Some("https") => "https",
+        _ => "http",
+    };
+    format!("{scheme}://{host}{AUTH_PATH}")
 }
 
 async fn catalog(
