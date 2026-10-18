@@ -16,9 +16,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:trixie-slim
 # libvips makes cover thumbnails; its poppler module renders PDF covers.
-# libarchive reads RAR and 7-Zip comics.
+# libarchive reads RAR and 7-Zip comics. ca-certificates lets the server
+# check the HTTPS certificates of extension repositories and sources.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libvips42t64 libarchive13t64 \
+    && apt-get install -y --no-install-recommends libvips42t64 libarchive13t64 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home-dir /data chek \
     && mkdir -p /data && chown chek /data
