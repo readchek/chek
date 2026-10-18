@@ -1,0 +1,9 @@
+extends:
+  - recommended
+rules:
+  # The license is not chosen yet.
+  info-license: off
+  # The server's default address is loopback.
+  no-server-example.com: off
+  # Listing every library has no client error to report.
+  operation-4xx-response: off

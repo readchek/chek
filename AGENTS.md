@@ -6,9 +6,9 @@ scope and explicit decisions first. Guidance and skills do not authorize extra w
 ## Required references
 
 - [Product direction](docs/product.md): product scope and planned features.
+- [Server design](docs/server.md): the server's settled decisions and code layout.
 
-This repository is the Chek server. It has no code yet; its structure and stack
-are being re-planned. The landing page lives in
+This repository is the Chek server, written in Rust. The landing page lives in
 [readchek/chek.page](https://github.com/readchek/chek.page), and the reader and
 native Apple apps are developed separately.
 Research proposals are starting points to validate, not implemented capabilities
@@ -55,6 +55,20 @@ artifact generation are separate from source rewriting.
 **Do not write or add tests unless the user explicitly asks.** Relevant existing
 tests, compiler checks, validators, and manual verification may be run. Do not
 disguise new tests as temporary verification scripts.
+
+## Rust
+
+- One Cargo workspace; crates live in `crates/` and are split by responsibility,
+  as [Server design](docs/server.md) lists. Add a crate only for a new responsibility.
+- `openapi.yaml` is the API contract. Change it in the same pull request as the
+  handlers in `crates/chek-server/src/api.rs`.
+- Run before pushing: `cargo fmt --all`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test`, and `bunx @redocly/cli lint openapi.yaml`.
+- Catalog and scan code blocks; call it from async code through `spawn_blocking`.
+- Keep scan work capped below the core count so requests stay fast during scans.
+- Every listener sets `TCP_NODELAY`.
+- Debug builds keep line tables only for our crates. Run `cargo sweep` now and
+  then to clear stale build output rather than deleting `target/` wholesale.
 
 ## Bun
 

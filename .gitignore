@@ -21,3 +21,7 @@ prototypes/
 .cloudflare/
 
 .agents/
+
+# Rust build output and local server data.
+/target/
+/data/

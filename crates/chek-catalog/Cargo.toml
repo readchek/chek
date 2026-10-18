@@ -1,0 +1,14 @@
+[package]
+name = "chek-catalog"
+description = "Chek's data model, SQLite migrations and queries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

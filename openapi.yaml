@@ -1,0 +1,280 @@
+openapi: 3.1.0
+info:
+  title: Chek server API
+  version: 0.1.0
+  description: |
+    The contract between the Chek server and its clients. This file is written
+    by hand and is the source of truth: change it in the same pull request as
+    the server code, and clients generate their code from a tagged release.
+
+    The first milestone has no sign-in yet, so the server listens on loopback
+    by default. Library management becomes admin-only when accounts arrive.
+servers:
+  - url: http://localhost:8080
+# Sign-in arrives with accounts; until then no operation needs credentials.
+security: []
+tags:
+  - name: Health
+    description: Whether the server is up.
+  - name: Libraries
+    description: Folders and sources the server reads publications from.
+  - name: Catalog
+    description: Series and publications found in libraries.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Check that the server is running
+      responses:
+        "200":
+          description: The server is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /api/v1/libraries:
+    get:
+      tags: [Libraries]
+      operationId: listLibraries
+      summary: List libraries
+      responses:
+        "200":
+          description: Every library on the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Library"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Libraries]
+      operationId: addLibrary
+      summary: Add a folder library
+      description: Adds a folder on the server as a library and starts scanning it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, path]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                path:
+                  type: string
+                  description: Absolute path of a folder on the server.
+      responses:
+        "201":
+          description: The library was added and its first scan started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Library"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+    get:
+      tags: [Libraries]
+      operationId: getLibrary
+      summary: Get a library
+      responses:
+        "200":
+          description: The library, including the state of its last scan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Library"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/scan:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+    post:
+      tags: [Libraries]
+      operationId: scanLibrary
+      summary: Rescan a library
+      description: Starts a scan in the background. Poll the library to see when it finishes.
+      responses:
+        "202":
+          description: The scan started.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The library is already being scanned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+    get:
+      tags: [Catalog]
+      operationId: listLibraryPublications
+      summary: List a library's publications
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of publications.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+components:
+  parameters:
+    LibraryId:
+      name: libraryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from the previous page's `nextCursor`.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      description: Items per page. Values outside the range are clamped.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  responses:
+    BadRequest:
+      description: The request was malformed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: The resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: The server failed; details are in its log.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [bad_request, not_found, scan_in_progress, internal]
+        message:
+          type: string
+          description: Explains the problem to a developer.
+    Library:
+      type: object
+      required: [id, name, kind, path, scan, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [folder, source]
+        path:
+          type: [string, "null"]
+          description: The folder on the server, for folder libraries.
+        scan:
+          $ref: "#/components/schemas/ScanState"
+        createdAt:
+          type: string
+          format: date-time
+    ScanState:
+      type: object
+      required: [status, error, finishedAt]
+      properties:
+        status:
+          type: string
+          enum: [idle, scanning, failed]
+        error:
+          type: [string, "null"]
+          description: Why the last scan failed.
+        finishedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the last scan finished, whether or not it succeeded.
+    PublicationSummary:
+      type: object
+      required: [id, series, title, numberLabel, format, pageCount, available]
+      properties:
+        id:
+          type: integer
+          format: int64
+        series:
+          type: object
+          required: [id, title]
+          properties:
+            id:
+              type: integer
+              format: int64
+            title:
+              type: string
+        title:
+          type: string
+        numberLabel:
+          type: [string, "null"]
+          description: The volume or chapter number as written, such as "Vol. 3".
+        format:
+          type: string
+          enum: [epub, pdf, cbz]
+        pageCount:
+          type: [integer, "null"]
+          description: Number of pages for comic formats.
+        available:
+          type: boolean
+          description: False when the file is missing from disk. Missing files are kept so progress survives.
