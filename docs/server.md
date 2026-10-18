@@ -121,6 +121,16 @@ are in the planning doc; this page keeps the decisions next to the code.
 - A position records the device name of the session that saved it, so the
   app can say where the other position came from.
 
+## Observability
+
+- Every request is logged with its method, route, path, status, duration,
+  client address and user agent, inside a span named after the route (such
+  as `GET /opds/v2/libraries/{id}`) so traces group by endpoint.
+- With `OTEL_EXPORTER_OTLP_ENDPOINT` set, logs and spans also go to an
+  OpenTelemetry collector over OTLP/HTTP, configured by the standard `OTEL_*`
+  variables. The exporter has no TLS, since the collector is expected on the
+  same private network. Queued data is flushed on shutdown.
+
 ## Design rules from the spike
 
 - Page requests read from the page index stored at scan time instead of

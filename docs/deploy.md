@@ -50,6 +50,16 @@ Sign in as `admin` or `demo`. OPDS apps use
 `DEMO_READER_PASSWORD` is only used when the `demo` account is created, so
 changing it later doesn't sign testers out. Change it through the API instead.
 
+## Logs and traces
+
+The server logs every request with its route, status and duration. To send
+those logs and request traces to SigNoz or another OpenTelemetry collector,
+add `OTEL_EXPORTER_OTLP_ENDPOINT` to the environment with the collector's
+OTLP/HTTP address, such as `http://signoz-otel-collector:4318`, and redeploy.
+The collector must be on a Docker network the `chek` container shares;
+Dokploy puts `chek` on `dokploy-network`. Services show up as `chek-demo`
+unless `OTEL_SERVICE_NAME` says otherwise.
+
 ## Without Dokploy
 
 The same file runs anywhere with Docker. Put the three values in
