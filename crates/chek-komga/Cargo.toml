@@ -1,0 +1,16 @@
+[package]
+name = "chek-komga"
+description = "Client for reading a Komga server as a Chek source library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

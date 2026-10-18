@@ -32,7 +32,8 @@ are in the planning doc; this page keeps the decisions next to the code.
 | --- | --- |
 | `chek-catalog` | Data model, SQLite migrations and queries |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
-| `chek-library` | Folder scanning, change detection and scan jobs, with workers capped below the core count |
+| `chek-komga` | Client for Komga's REST API, which Komga source libraries read |
+| `chek-library` | Folder scanning, source syncing, change detection and scan jobs, with workers capped below the core count |
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
@@ -79,6 +80,34 @@ are in the planning doc; this page keeps the decisions next to the code.
   carries on.
 - `CHEK_MAX_UPLOAD_BYTES` caps each file, 2 GiB by default. Uploads need the
   library folder mounted read-write.
+
+## Komga libraries
+
+- An admin can add a Komga server as a source library, with its address and
+  one Komga account's API key, or email and password. Everyone granted the
+  Chek library reads what that account sees, optionally narrowed to some of
+  its Komga libraries. The account needs Komga's page streaming and file
+  download roles. The settings are checked before the library is added and
+  stored in the database, so use an account made for Chek. They are never
+  returned by the API.
+- A sync, which is how a source library scans, lists Komga's series and the
+  books Komga has finished analyzing, and records each book with Komga's
+  metadata: its title, number, summary, release date and authors, and its
+  series' publisher, language and reading direction. Comics also get their
+  page list, and every book gets a cover made from Komga's thumbnail. A book
+  is read again only when it, its file or its series changes in Komga.
+  Books gone from Komga are marked unavailable, like missing files.
+- Source libraries sync at startup, on request, and every
+  `CHEK_SOURCE_SYNC_MINUTES` (60 by default; 0 turns the timer off), since
+  Komga can't tell Chek when something changes.
+- Pages and files are fetched from Komga on each request and passed
+  through, so Komga keeps the only copy. Pages are the original images.
+  Komga sends a whole file even when asked for a range, so readers that open
+  ZIPs with range requests download the whole file from these libraries.
+- Progress, bookmarks and edits are kept in Chek against the publication,
+  as for files, and survive syncs. Progress isn't written back to Komga.
+- Komga's books are matched to publications by Komga's book id, so a book
+  moved to another series in Komga keeps its publication.
 
 ## Accounts
 

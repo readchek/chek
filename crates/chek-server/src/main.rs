@@ -10,6 +10,7 @@ mod installs;
 mod limit;
 mod opds;
 mod progress;
+mod remote;
 mod telemetry;
 mod upload;
 
@@ -51,6 +52,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         scan: ScanOptions {
             workers: config.scan_workers,
             covers_dir: config.data_dir.join("covers"),
+            http: chek_library::http_client()?,
         },
         setup_token: Arc::default(),
         basic_auth_cache: Arc::default(),
@@ -65,7 +67,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is
     // cheap, and it catches whatever changed while the server was down.
-    api::scan_all_folders(&state).await?;
+    // Sources are synced the same way, and then on a timer, since nothing
+    // tells Chek when a source changes.
+    api::scan_all_libraries(&state).await?;
+    if config.source_sync_minutes > 0 {
+        api::sync_sources_every(
+            state.clone(),
+            std::time::Duration::from_secs(config.source_sync_minutes * 60),
+        );
+    }
     let app = api::router(state);
 
     // Without TCP_NODELAY, small responses wait on Nagle's algorithm and
