@@ -1,6 +1,8 @@
 use std::env;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
+
+use crate::limit::IpRange;
 
 /// Server settings, read from `CHEK_*` environment variables.
 pub struct Config {
@@ -11,10 +13,18 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// `CHEK_SCAN_WORKERS`, default one fewer than the cores.
     pub scan_workers: usize,
-    /// `CHEK_TRUSTED_PROXIES`, comma-separated addresses of reverse proxies
-    /// whose `X-Forwarded-For` header names the real client. Default none.
-    pub trusted_proxies: Vec<IpAddr>,
+    /// `CHEK_TRUSTED_PROXIES`, comma-separated addresses or CIDR ranges of
+    /// reverse proxies whose `X-Forwarded-For` header names the real client.
+    /// Default none.
+    pub trusted_proxies: Vec<IpRange>,
+    /// `CHEK_SETUP_TOKEN`, the token that creates the first admin, for
+    /// deployments that set up the server without reading its log. Default
+    /// a random token, logged at startup.
+    pub setup_token: Option<String>,
 }
+
+/// Long enough that a chosen token can't be guessed like a password.
+const MIN_SETUP_TOKEN_LEN: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{name} is invalid: {reason}")]
@@ -39,14 +49,22 @@ impl Config {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(|s| {
-                    s.parse::<IpAddr>()
-                        .map(|ip| ip.to_canonical())
-                        .map_err(|e| ConfigError {
-                            name: "CHEK_TRUSTED_PROXIES",
-                            reason: format!("{s:?}: {e}"),
-                        })
+                    s.parse::<IpRange>().map_err(|e| ConfigError {
+                        name: "CHEK_TRUSTED_PROXIES",
+                        reason: format!("{s:?}: {e}"),
+                    })
                 })
                 .collect::<Result<_, _>>()?,
+            setup_token: match env::var("CHEK_SETUP_TOKEN") {
+                Ok(token) if token.len() < MIN_SETUP_TOKEN_LEN => {
+                    return Err(ConfigError {
+                        name: "CHEK_SETUP_TOKEN",
+                        reason: format!("use at least {MIN_SETUP_TOKEN_LEN} characters"),
+                    });
+                }
+                Ok(token) => Some(token),
+                Err(_) => None,
+            },
         })
     }
 }

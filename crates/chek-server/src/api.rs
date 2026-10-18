@@ -35,7 +35,7 @@ pub struct AppState {
     pub basic_auth_cache: Arc<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>>,
     pub password_limiter: Arc<crate::limit::PasswordLimiter>,
     /// Reverse proxies whose `X-Forwarded-For` is believed.
-    pub trusted_proxies: Arc<Vec<std::net::IpAddr>>,
+    pub trusted_proxies: Arc<Vec<crate::limit::IpRange>>,
 }
 
 /// Starts a background scan of every folder library.

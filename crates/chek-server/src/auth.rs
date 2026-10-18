@@ -172,18 +172,34 @@ fn unauthorized(message: &str) -> ApiError {
 }
 
 /// Logs a one-time setup token when the server has no accounts, so only
-/// someone who can read the server's log can create the first admin.
-pub async fn prepare_setup(state: &AppState) -> Result<(), CatalogError> {
+/// someone who can read the server's log can create the first admin. A
+/// token set in `CHEK_SETUP_TOKEN` is used instead and isn't logged, since
+/// whoever set it already knows it.
+pub async fn prepare_setup(
+    state: &AppState,
+    configured: Option<String>,
+) -> Result<(), CatalogError> {
     let catalog = state.catalog.clone();
     let users = tokio::task::spawn_blocking(move || catalog.user_count())
         .await
         .expect("counting users does not panic")?;
     if users == 0 {
-        let token = random_token();
-        warn!(
-            setup_token = %token,
-            "no accounts yet; create the first admin with POST /api/v1/setup and this setup token"
-        );
+        let token = match configured {
+            Some(token) => {
+                warn!(
+                    "no accounts yet; create the first admin with POST /api/v1/setup and CHEK_SETUP_TOKEN"
+                );
+                token
+            }
+            None => {
+                let token = random_token();
+                warn!(
+                    setup_token = %token,
+                    "no accounts yet; create the first admin with POST /api/v1/setup and this setup token"
+                );
+                token
+            }
+        };
         *state.setup_token.lock().unwrap_or_else(|e| e.into_inner()) = Some(token);
     }
     Ok(())
@@ -247,7 +263,9 @@ pub async fn setup(
         return Err(ApiError {
             status: StatusCode::FORBIDDEN,
             code: "forbidden",
-            message: "the setup token doesn't match the one in the server's log".to_owned(),
+            message:
+                "the setup token doesn't match the one in the server's log or CHEK_SETUP_TOKEN"
+                    .to_owned(),
         });
     }
     let name = valid_name(&body.name)?;

@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password_limiter: Arc::default(),
         trusted_proxies: Arc::new(config.trusted_proxies),
     };
-    auth::prepare_setup(&state).await?;
+    auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is
     // cheap, and it catches whatever changed while the server was down.
     api::scan_all_folders(&state).await?;
