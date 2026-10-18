@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::{annotations, browse, extensions, installs, progress};
+use crate::{annotations, browse, extensions, installs, oidc, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -43,6 +43,8 @@ pub struct AppState {
     pub max_upload_bytes: u64,
     /// Installed extension components and the sources loaded from them.
     pub extensions: Arc<chek_sources::Extensions>,
+    /// Sign-in providers and the sign-ins in progress with them.
+    pub oidc: Arc<crate::oidc::Oidc>,
 }
 
 /// Starts a background scan of every library.
@@ -105,9 +107,25 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/setup", post(auth::setup))
         .route("/api/v1/auth/sign-in", post(auth::sign_in))
         .route("/api/v1/auth/sign-out", post(auth::sign_out))
+        .route("/api/v1/auth/providers", get(oidc::list_providers))
+        .route(
+            "/api/v1/auth/providers/{id}/authorize",
+            post(oidc::authorize),
+        )
+        .route("/api/v1/auth/callback", get(oidc::callback))
+        .route("/api/v1/auth/exchange", post(oidc::exchange))
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", put(auth::change_password))
         .route("/api/v1/me/sessions", get(auth::list_sessions))
+        .route("/api/v1/me/identities", get(oidc::list_identities))
+        .route(
+            "/api/v1/me/identities/{provider}",
+            axum::routing::delete(oidc::unlink),
+        )
+        .route(
+            "/api/v1/me/identities/{provider}/authorize",
+            post(oidc::authorize_link),
+        )
         .route("/api/v1/me/continue-reading", get(continue_reading))
         .route("/api/v1/recently-added", get(recently_added))
         .route(

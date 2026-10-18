@@ -159,6 +159,163 @@ paths:
           description: Signed out.
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/auth/providers:
+    get:
+      tags: [Accounts]
+      operationId: listSignInProviders
+      summary: List sign-in providers
+      description: |
+        The OpenID Connect providers people can sign in with, such as
+        Authentik, Authelia or Google, for drawing sign-in buttons. Empty when
+        the server has none.
+      security: []
+      responses:
+        "200":
+          description: The providers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SignInProvider"
+  /api/v1/auth/providers/{providerId}/authorize:
+    parameters:
+      - $ref: "#/components/parameters/ProviderId"
+    post:
+      tags: [Accounts]
+      operationId: authorizeSignIn
+      summary: Start signing in with a provider
+      description: |
+        Returns the provider's sign-in page. Open it in a browser, such as
+        `ASWebAuthenticationSession`. After signing in, the browser is sent to
+        `redirectUri` with a one-time `code`, or with `error` and
+        `error_description` when sign-in failed. Trade the code for a session
+        with [exchangeSignInCode](#operation/exchangeSignInCode) within 5
+        minutes. The person has 10 minutes to sign in at the provider.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeRequest"
+      responses:
+        "200":
+          description: The page to open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/ProviderUnavailable"
+        "503":
+          $ref: "#/components/responses/TooManySignIns"
+  /api/v1/auth/callback:
+    get:
+      tags: [Accounts]
+      operationId: signInCallback
+      summary: Return from a provider
+      description: |
+        Where providers send people back to after signing in; register
+        `<CHEK_PUBLIC_URL>/api/v1/auth/callback` as the redirect URI with each
+        provider. Apps don't call it. It sends the browser on to the app's
+        `redirectUri`.
+      security: []
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Sent on to the app, with `code`, or `error` and `error_description`.
+          headers:
+            Location:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/v1/auth/exchange:
+    post:
+      tags: [Accounts]
+      operationId: exchangeSignInCode
+      summary: Finish signing in with a provider
+      description: |
+        Trades the one-time code from the redirect, and the PKCE verifier the
+        sign-in started with, for a session. Each code works once, even when
+        the verifier is wrong. A code from linking links the provider account
+        to the user who started it and returns that user without a token.
+
+        Someone signing in for the first time gets an account only when the
+        provider allows it (`CHEK_OIDC_<ID>_CREATE_USERS`); otherwise they
+        link the provider from an account they already have.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, codeVerifier]
+              properties:
+                code:
+                  type: string
+                codeVerifier:
+                  type: string
+                device:
+                  type: string
+                  description: A label for this session, such as "Living room iPad".
+      responses:
+        "200":
+          description: Signed in, or linked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  token:
+                    type: string
+                    description: "Send as `Authorization: Bearer <token>`. Absent after linking."
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: No account is linked to this provider account, and the provider doesn't create accounts (`not_linked`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The provider account is linked to someone else, or this user already has another account at the provider (`identity_taken`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/me:
     get:
       tags: [Accounts]
@@ -178,7 +335,7 @@ paths:
       tags: [Accounts]
       operationId: changePassword
       summary: Change your password
-      description: Signs out every other session of this user.
+      description: Signs out every other session of this user. Accounts made by a sign-in provider set their first password here.
       requestBody:
         required: true
         content:
@@ -186,10 +343,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [currentPassword, newPassword]
+              required: [newPassword]
               properties:
                 currentPassword:
                   type: string
+                  description: Required unless the account has no password yet, as accounts made by a sign-in provider don't.
                 newPassword:
                   $ref: "#/components/schemas/Password"
       responses:
@@ -731,6 +889,81 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/identities:
+    get:
+      tags: [Accounts]
+      operationId: listIdentities
+      summary: List your linked sign-in providers
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Your linked providers, oldest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Identity"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/identities/{providerId}:
+    parameters:
+      - $ref: "#/components/parameters/ProviderId"
+    delete:
+      tags: [Accounts]
+      operationId: unlinkIdentity
+      summary: Unlink a sign-in provider
+      description: Refused when it's the only way you can sign in; set a password first.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The provider was unlinked.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: It's the only way you can sign in (`last_sign_in`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/identities/{providerId}/authorize:
+    parameters:
+      - $ref: "#/components/parameters/ProviderId"
+    post:
+      tags: [Accounts]
+      operationId: authorizeLink
+      summary: Start linking a sign-in provider
+      description: |
+        Works like [authorizeSignIn](#operation/authorizeSignIn), for the
+        signed-in user. The link is made when the code is traded with
+        [exchangeSignInCode](#operation/exchangeSignInCode).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeRequest"
+      responses:
+        "200":
+          description: The page to open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/ProviderUnavailable"
+        "503":
+          $ref: "#/components/responses/TooManySignIns"
   /api/v1/me/continue-reading:
     get:
       tags: [Progress]
@@ -2177,6 +2410,13 @@ components:
       schema:
         type: string
   parameters:
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9-]{1,32}$"
     PublicationId:
       name: publicationId
       in: path
@@ -2300,6 +2540,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    ProviderUnavailable:
+      description: The sign-in provider couldn't be reached (`provider_unavailable`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManySignIns:
+      description: Too many sign-ins are in progress at once (`too_many_sign_ins`); try again in a few minutes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     SourceUnavailable:
       description: |
         The publication is from a source library, and its source couldn't be
@@ -2378,6 +2630,51 @@ components:
           description: "Send as `Authorization: Bearer <token>`."
         user:
           $ref: "#/components/schemas/User"
+    SignInProvider:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: For the sign-in button.
+    AuthorizeRequest:
+      type: object
+      additionalProperties: false
+      required: [redirectUri, codeChallenge]
+      properties:
+        redirectUri:
+          type: string
+          format: uri
+          description: |
+            Where to send the browser after sign-in. Must start with the
+            server's public URL or a prefix in `CHEK_OIDC_REDIRECTS`
+            (`chek://` by default).
+        codeChallenge:
+          type: string
+          minLength: 43
+          maxLength: 43
+          description: The base64url SHA-256 of a random PKCE code verifier (RFC 7636 S256), without padding.
+    AuthorizeResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The provider's sign-in page.
+    Identity:
+      type: object
+      required: [provider, name, createdAt]
+      properties:
+        provider:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
     Error:
       type: object
       required: [code, message]
@@ -2397,6 +2694,11 @@ components:
             - last_admin
             - progress_conflict
             - too_many_attempts
+            - not_linked
+            - identity_taken
+            - last_sign_in
+            - provider_unavailable
+            - too_many_sign_ins
             - repository_exists
             - repository_not_allowed
             - repository_unreadable

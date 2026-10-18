@@ -147,6 +147,50 @@ are in the planning doc; this page keeps the decisions next to the code.
   apps prompt for a name and password; KOReader follows the first and
   Thorium needs the second.
 
+## Sign-in providers
+
+- People can sign in through OpenID Connect providers, such as Authentik,
+  Authelia, Keycloak, Pocket ID or Google, as well as with a password. Each
+  provider is set up with environment variables:
+  - `CHEK_PUBLIC_URL`, the address people reach the server at. Register
+    `<CHEK_PUBLIC_URL>/api/v1/auth/callback` as the redirect URI with each
+    provider; the server logs it at startup.
+  - `CHEK_OIDC_PROVIDERS`, comma-separated ids such as `authentik,google`.
+  - Per provider, with the id upper-cased and `-` as `_`:
+    `CHEK_OIDC_<ID>_ISSUER` (https, except on loopback for testing),
+    `_CLIENT_ID`, `_CLIENT_SECRET` (left out for a public client), `_NAME`
+    (button label), `_SCOPES` (default `openid profile email`),
+    `_CREATE_USERS` (default `false`), `_ADMIN_GROUPS` (comma-separated) and
+    `_GROUPS_CLAIM` (default `groups`).
+- An app asks for the provider's page with a PKCE challenge of its own and a
+  redirect URI, opens the page in a browser, and gets a one-time code at its
+  redirect URI. It trades the code and its verifier for a session token. The
+  token never appears in a URL, and a code caught by another app is useless
+  without the verifier. Redirect URIs must start with the public URL or a
+  prefix in `CHEK_OIDC_REDIRECTS` (`chek://` by default), so a sign-in link
+  can't deliver someone's code to a stranger's site.
+- Chek trades the provider's code with its client secret and PKCE, and checks
+  the ID token's issuer, audience, expiry and nonce. The signature isn't
+  checked: the token comes straight from the provider over TLS, which OpenID
+  Connect Core 1.0 section 3.1.3.7 allows instead. Claims missing from the ID
+  token are read from userinfo, since Authelia puts them only there.
+- People are matched by the provider's subject id, never by email or name.
+  Someone unknown gets a new account only with `_CREATE_USERS=true`, named
+  from `preferred_username`, `name` or `email`, with a number added if taken.
+  It's an admin if they're in one of `_ADMIN_GROUPS` and a reader otherwise;
+  roles aren't changed on later sign-ins. Readers start with no libraries.
+- Otherwise people link a provider from their account. The link is made when
+  the app trades the code, not when the provider sends them back, so a
+  stranger can't link a victim's provider account to their own Chek account
+  by sending them a sign-in link.
+- Accounts made by a provider have no password, so OPDS apps, which sign in
+  with Basic auth, need one set first. Setting the first password doesn't
+  ask for a current one. A provider can't be unlinked while it's the only way
+  to sign in.
+- Sign-ins in progress live in memory for 10 minutes, and codes for 5, so a
+  restart cancels them. Provider discovery is fetched on first use, so a
+  provider that's down doesn't stop the server.
+
 ## OPDS
 
 - `/opds/v2/catalog` lists "Continue reading", "Recently added" and the

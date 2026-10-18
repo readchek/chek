@@ -12,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 mod annotations;
 mod edits;
 mod extensions;
+mod identities;
 mod progress;
 mod remote;
 mod sources;
@@ -20,6 +21,7 @@ mod users;
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use edits::{FileLocation, PublicationEdit};
 pub use extensions::{ExtensionInstall, ExtensionRepository};
+pub use identities::{Identity, LinkOutcome, UnlinkOutcome};
 pub use progress::{Progress, ProgressSave};
 pub use remote::{RemoteContent, RemoteItem};
 pub use sources::{RemoteChapter, RemoteSeries};
@@ -45,6 +47,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0013_remote_content.sql"),
     include_str!("../migrations/0014_extension_repositories.sql"),
     include_str!("../migrations/0015_extension_installs.sql"),
+    include_str!("../migrations/0016_identities.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

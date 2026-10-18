@@ -92,8 +92,11 @@ into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
 needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
 (default 2 GiB). Admins can also add a Komga server as a library, which
 Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages and
-files from; see [Komga libraries](docs/server.md#komga-libraries). `RUST_LOG` sets the log
-level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an
+files from; see [Komga libraries](docs/server.md#komga-libraries). People can
+sign in through OpenID Connect providers such as Authentik, Authelia or
+Google, set up with `CHEK_PUBLIC_URL`, `CHEK_OIDC_PROVIDERS` and
+`CHEK_OIDC_<ID>_*`; see [Sign-in providers](docs/server.md#sign-in-providers).
+`RUST_LOG` sets the log level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an
 OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.
 
