@@ -25,6 +25,7 @@ opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_urlencoded.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true

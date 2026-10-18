@@ -29,6 +29,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_sort_titles.sql"),
     include_str!("../migrations/0008_metadata_series.sql"),
     include_str!("../migrations/0009_pdf_metadata.sql"),
+    include_str!("../migrations/0010_search.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -420,6 +421,51 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Publications matching every word of `query` in their title, series,
+    /// contributors or publisher, best match first. Each word also matches
+    /// as the start of a longer word, so results appear while typing. Only
+    /// libraries `user` can read are searched, and only `library_id` when
+    /// given. Pages are by position, since relevance has no stable key.
+    pub fn search(
+        &self,
+        user: &User,
+        library_id: Option<i64>,
+        query: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        let Some(expression) = match_expression(query) else {
+            return Ok(Vec::new());
+        };
+        let conn = self.conn();
+        // bm25 weights favour a title match over a series, contributor or
+        // publisher match. Equal matches, such as every issue of a series,
+        // stay in reading order.
+        let mut stmt = conn.prepare(&format!(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
+             FROM publication_search f
+             JOIN publication p ON p.id = f.rowid
+             JOIN series s ON s.id = p.series_id
+             WHERE publication_search MATCH ?1
+               AND (?2 OR s.library_id IN (SELECT library_id FROM library_grant WHERE user_id = ?3))
+               AND (?4 IS NULL OR s.library_id = ?4)
+             ORDER BY bm25(publication_search, 10.0, 5.0, 2.0, 1.0), {ORDER_KEY}
+             LIMIT ?5 OFFSET ?6"
+        ))?;
+        let rows = stmt.query_map(
+            params![
+                expression,
+                user.role == Role::Admin,
+                user.id,
+                library_id,
+                limit,
+                offset
+            ],
+            summary_from_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn series(&self, id: i64) -> Result<Option<SeriesSummary>> {
         Ok(self
             .conn()
@@ -609,6 +655,18 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
     })
 }
 
+/// Turns what a person typed into an FTS5 query: each word quoted, so
+/// characters FTS5 treats as syntax are searched as text, and marked as a
+/// prefix. `None` when nothing searchable is left.
+fn match_expression(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
 fn series_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SeriesSummary> {
     Ok(SeriesSummary {
         id: row.get(0)?,
@@ -733,6 +791,20 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
     for (position, c) in details.contributors.iter().enumerate() {
         insert_contributor.execute(params![publication_id, position as i64, c.name, c.role])?;
     }
+
+    tx.execute(
+        "DELETE FROM publication_search WHERE rowid = ?1",
+        [publication_id],
+    )?;
+    tx.execute(
+        "INSERT INTO publication_search (rowid, title, series, contributors, publisher)
+         SELECT p.id, p.title, s.title,
+                (SELECT group_concat(c.name, ' ') FROM contributor c WHERE c.publication_id = p.id),
+                p.publisher
+         FROM publication p JOIN series s ON s.id = p.series_id
+         WHERE p.id = ?1",
+        [publication_id],
+    )?;
 
     let mut insert = tx.prepare(
         "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)

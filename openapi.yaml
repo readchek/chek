@@ -551,6 +551,58 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/search:
+    get:
+      tags: [Catalog]
+      operationId: searchPublications
+      summary: Search publications
+      description: >-
+        Matches every word of the query against titles, series names,
+        contributors and publishers, ignoring case and accents. Each word also
+        matches the start of a longer word, so results can follow typing.
+        Title matches rank first, and equal matches stay in reading order.
+        Only libraries the user can read are searched.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: What to search for, up to 200 characters.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: libraryId
+          in: query
+          description: Search only this library.
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of matches, best first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/series/{seriesId}:
     parameters:
       - $ref: "#/components/parameters/SeriesId"
@@ -925,6 +977,56 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /opds/v2/search:
+    parameters:
+      - $ref: "#/components/parameters/OpdsQuery"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: searchOpds
+      summary: OPDS search
+      description: >-
+        Searches every library the user can read, as the API's search does.
+        The catalog links here with a `search` link templated as
+        `{?query}`.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed of matches, best first.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/search:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/OpdsQuery"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: searchOpdsLibrary
+      summary: OPDS search in a library
+      description: Searches one library. The library's feed links here with a `search` link templated as `{?query}`.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed of matches, best first.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /opds/v2/series/{seriesId}:
     parameters:
       - $ref: "#/components/parameters/SeriesId"
@@ -1064,6 +1166,15 @@ components:
       description: Opaque cursor from the previous page's `nextCursor`.
       schema:
         type: string
+    OpdsQuery:
+      name: query
+      in: query
+      required: true
+      description: What to search for, up to 200 characters.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
     Limit:
       name: limit
       in: query
