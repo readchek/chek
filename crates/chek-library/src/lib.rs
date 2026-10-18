@@ -370,7 +370,10 @@ fn scan_file(
             |s| s.to_string_lossy().into_owned(),
         )
     });
-    let sort_number = metadata.number.as_deref().and_then(leading_number);
+    let sort_number = metadata
+        .number
+        .as_deref()
+        .and_then(chek_formats::leading_number);
 
     catalog.record_file(
         library_id,
@@ -416,17 +419,6 @@ fn scan_file(
         },
     )?;
     Ok(FileOutcome::Recorded)
-}
-
-/// The number a label starts with, ignoring a leading word such as "Vol." or
-/// "#": `"12"` → 12, `"Vol. 2"` → 2, `"1.5"` → 1.5.
-fn leading_number(label: &str) -> Option<f64> {
-    let start = label.find(|c: char| c.is_ascii_digit())?;
-    let digits = &label[start..];
-    let end = digits
-        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .unwrap_or(digits.len());
-    digits[..end].trim_end_matches('.').parse().ok()
 }
 
 /// A series named in a file's metadata groups every file with that name in

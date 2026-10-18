@@ -10,10 +10,12 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 mod annotations;
+mod edits;
 mod progress;
 mod users;
 
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
+pub use edits::{FileLocation, PublicationEdit};
 pub use progress::{Progress, ProgressSave};
 pub use users::{
     NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
@@ -33,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009_pdf_metadata.sql"),
     include_str!("../migrations/0010_search.sql"),
     include_str!("../migrations/0011_annotations.sql"),
+    include_str!("../migrations/0012_publication_edits.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -750,6 +753,24 @@ fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
     })
 }
 
+/// Rewrites a publication's search index row from what's stored now.
+fn index_for_search(conn: &Connection, publication_id: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM publication_search WHERE rowid = ?1",
+        [publication_id],
+    )?;
+    conn.execute(
+        "INSERT INTO publication_search (rowid, title, series, contributors, publisher)
+         SELECT p.id, p.title, s.title,
+                (SELECT group_concat(c.name, ' ') FROM contributor c WHERE c.publication_id = p.id),
+                p.publisher
+         FROM publication p JOIN series s ON s.id = p.series_id
+         WHERE p.id = ?1",
+        [publication_id],
+    )?;
+    Ok(())
+}
+
 fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Result<()> {
     let series_id: i64 = tx.query_row(
         "INSERT INTO series (library_id, title, sort_title, path_key) VALUES (?1, ?2, ?3, ?4)
@@ -837,19 +858,8 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         insert_contributor.execute(params![publication_id, position as i64, c.name, c.role])?;
     }
 
-    tx.execute(
-        "DELETE FROM publication_search WHERE rowid = ?1",
-        [publication_id],
-    )?;
-    tx.execute(
-        "INSERT INTO publication_search (rowid, title, series, contributors, publisher)
-         SELECT p.id, p.title, s.title,
-                (SELECT group_concat(c.name, ' ') FROM contributor c WHERE c.publication_id = p.id),
-                p.publisher
-         FROM publication p JOIN series s ON s.id = p.series_id
-         WHERE p.id = ?1",
-        [publication_id],
-    )?;
+    edits::apply(tx, publication_id)?;
+    index_for_search(tx, publication_id)?;
 
     let mut insert = tx.prepare(
         "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)

@@ -847,6 +847,111 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+    patch:
+      tags: [Catalog]
+      operationId: editPublication
+      summary: Edit a publication's metadata
+      description: >-
+        Admin only. Fields left out stay as they are, `null` clears one, and a
+        blank string counts as `null`. Edited fields are written over what the
+        file says after every rescan, until they're cleared with
+        `DELETE /api/v1/publications/{publicationId}/edits`. Changing the
+        number changes where the publication sorts in its series.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                  description: Can't be cleared.
+                number:
+                  type: [string, "null"]
+                  maxLength: 1000
+                  description: The issue or volume label, such as `Vol. 2`; it sorts by the number it contains.
+                description:
+                  type: [string, "null"]
+                  maxLength: 20000
+                publisher:
+                  type: [string, "null"]
+                  maxLength: 1000
+                language:
+                  type: [string, "null"]
+                  maxLength: 35
+                  description: A BCP 47 language tag.
+                published:
+                  type: [string, "null"]
+                  pattern: "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                readingDirection:
+                  type: [string, "null"]
+                  enum: [ltr, rtl, null]
+                contributors:
+                  type: [array, "null"]
+                  maxItems: 50
+                  description: Replaces the whole list; `null` or `[]` lists nobody.
+                  items:
+                    $ref: "#/components/schemas/Contributor"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The publication as edited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/edits:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    delete:
+      tags: [Catalog]
+      operationId: clearPublicationEdits
+      summary: Undo a publication's edits
+      description: >-
+        Admin only. Drops every edit and reads the file's own metadata again.
+        If a scan of the library is running, reading waits for it, and after
+        20 seconds the response is 202 while reading carries on.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The publication with the file's own metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationDetail"
+        "202":
+          description: The edits are gone and the file will be read once the running scan finishes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [queued]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/file:
     parameters:
       - $ref: "#/components/parameters/PublicationId"
@@ -1773,13 +1878,20 @@ components:
           description: Whether `/cover` has an image for this publication.
     PublicationDetail:
       description: |
-        A publication with metadata read from the file: the EPUB package
-        document, or `ComicInfo.xml` in a CBZ. PDFs carry none yet.
+        A publication with metadata read from the file (the EPUB package
+        document, `ComicInfo.xml` in a CBZ, or a PDF's document information),
+        with any fields an admin edited written over it.
       allOf:
         - $ref: "#/components/schemas/PublicationSummary"
         - type: object
-          required: [contributors, description, publisher, language, published, readingDirection]
+          required: [editedFields, contributors, description, publisher, language, published, readingDirection]
           properties:
+            editedFields:
+              type: array
+              description: Fields an admin changed by hand, which rescans keep.
+              items:
+                type: string
+                enum: [title, number, description, publisher, language, published, readingDirection, contributors]
             contributors:
               type: array
               description: People credited, in the order the file lists them.
