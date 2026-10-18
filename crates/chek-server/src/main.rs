@@ -5,6 +5,7 @@ mod api;
 mod auth;
 mod config;
 mod edits;
+mod extensions;
 mod limit;
 mod opds;
 mod progress;

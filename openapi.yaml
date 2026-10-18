@@ -33,6 +33,12 @@ tags:
     description: Reading positions synced between devices.
   - name: Annotations
     description: Bookmarks and highlights synced between devices.
+  - name: Extensions
+    description: |
+      Repositories of source extensions and the extensions they offer.
+      Repositories without an owner make up the admin's allow list, which
+      everyone sees. While an admin allows any repository, other users may
+      add their own, which only they see.
   - name: OPDS
     description: |
       An [OPDS 2](https://drafts.opds.io/opds-2.0) catalog for other reader
@@ -1296,6 +1302,184 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/extension-repositories:
+    get:
+      tags: [Extensions]
+      operationId: listExtensionRepositories
+      summary: List the repositories the user can see
+      description: The allow list first, then the user's own, each in the order they were added.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The repositories.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExtensionRepository"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Extensions]
+      operationId: addExtensionRepository
+      summary: Add a repository
+      description: >-
+        An admin adds to the allow list. Other users add a repository of their
+        own, which needs `allowAnyRepository`. The server fetches the index
+        first and refuses a repository whose index it can't read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: The HTTPS URL of the repository's `index.json`.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The added repository.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtensionRepository"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Only an admin can add repositories while just the allow list is allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The repository has already been added to this list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/RepositoryUnreadable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/extension-repositories/{repositoryId}:
+    parameters:
+      - $ref: "#/components/parameters/RepositoryId"
+    delete:
+      tags: [Extensions]
+      operationId: deleteExtensionRepository
+      summary: Remove a repository
+      description: Only an admin can remove a repository from the allow list.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The repository was removed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/extension-repositories/{repositoryId}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/RepositoryId"
+    post:
+      tags: [Extensions]
+      operationId: refreshExtensionRepository
+      summary: Fetch a repository's index again
+      description: >-
+        A failed fetch is recorded in `fetchError`, and the repository keeps
+        its last good index.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The repository after the fetch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtensionRepository"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/extensions:
+    get:
+      tags: [Extensions]
+      operationId: listExtensions
+      summary: List the extensions the user can install
+      description: Every extension in the indexes of the repositories that are `usable`.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The extensions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AvailableExtension"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings:
+    get:
+      tags: [Extensions]
+      operationId: getSettings
+      summary: Read the server's settings
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [Extensions]
+      operationId: updateSettings
+      summary: Change the server's settings
+      description: Admins only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The settings as saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
   /opds/v2/catalog:
     get:
       tags: [OPDS]
@@ -1627,6 +1811,13 @@ components:
       schema:
         type: integer
         format: int64
+    RepositoryId:
+      name: repositoryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
     Cursor:
       name: cursor
       in: query
@@ -1716,6 +1907,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    RepositoryUnreadable:
+      description: The repository's index couldn't be fetched or isn't valid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Internal:
       description: The server failed; details are in its log.
       content:
@@ -1782,10 +1979,78 @@ components:
             - last_admin
             - progress_conflict
             - too_many_attempts
+            - repository_exists
+            - repository_not_allowed
+            - repository_unreadable
             - internal
         message:
           type: string
           description: Explains the problem to a developer.
+    ExtensionRepository:
+      type: object
+      required: [id, url, name, allowListed, usable, extensionCount, fetchedAt, fetchError, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        url:
+          type: string
+          format: uri
+        name:
+          type: [string, "null"]
+          description: What the repository's index calls it.
+        allowListed:
+          type: boolean
+          description: On the admin's allow list rather than added by the user.
+        usable:
+          type: boolean
+          description: >-
+            Whether its extensions can be installed and run. A user's own
+            repository isn't while the admin allows only the allow list.
+        extensionCount:
+          type: integer
+        fetchedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the index was last fetched successfully.
+        fetchError:
+          type: [string, "null"]
+          description: Why the last fetch failed, if it did.
+        createdAt:
+          type: string
+          format: date-time
+    AvailableExtension:
+      type: object
+      required: [repositoryId, id, name, version, sites, languages]
+      properties:
+        repositoryId:
+          type: integer
+          format: int64
+        id:
+          type: string
+          description: The extension's reverse-DNS id, such as `org.example.comics`.
+        name:
+          type: string
+        version:
+          type: string
+        sites:
+          type: array
+          description: Hosts the extension may reach, such as `api.example.org` or `*.example.org`.
+          items:
+            type: string
+        languages:
+          type: array
+          description: BCP 47 tags of the languages the source serves; empty for any.
+          items:
+            type: string
+    Settings:
+      type: object
+      additionalProperties: false
+      required: [allowAnyRepository]
+      properties:
+        allowAnyRepository:
+          type: boolean
+          description: Whether users other than admins may add repositories that aren't on the allow list.
     Library:
       type: object
       required: [id, name, kind, path, scan, createdAt]

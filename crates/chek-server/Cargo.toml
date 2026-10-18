@@ -18,6 +18,7 @@ blake3.workspace = true
 chek-catalog.workspace = true
 chek-formats.workspace = true
 chek-library.workspace = true
+chek-sources.workspace = true
 getrandom.workspace = true
 http-body-util.workspace = true
 opentelemetry.workspace = true

@@ -229,10 +229,25 @@ are in the planning doc; this page keeps the decisions next to the code.
   second of a tight loop) and 100 requests. Response bodies are capped at
   16 MiB and images at 32 MiB, and each request times out after 30 seconds.
   Going over a limit fails that call, not the server.
-- Not yet decided or built: the repository index and installing, the admin
-  allow list, source libraries in the catalog, and the API. A site name can
-  still resolve to a private address; the allow list of repositories is the
-  guard until the host checks resolved addresses.
+- A site name can still resolve to a private address; the allow list of
+  repositories is the guard until the host checks resolved addresses.
+
+## Extension repositories
+
+- A repository is an `index.json` served over HTTPS that lists its
+  extensions: id, name, version, the component file relative to the index,
+  its SHA-256 digest, sites and languages. Indexes are capped at 1 MiB and
+  1,000 extensions.
+- Repositories without an owner are the admin's allow list, which everyone
+  sees. It starts with the official repository,
+  `https://chek.page/extensions/index.json`, which an admin can remove.
+- The `allowAnyRepository` setting, off by default, lets other users add
+  repositories of their own, which only they see. Turning it off again keeps
+  those repositories but marks them unusable, so nothing is installed or run
+  from them.
+- The server fetches an index when the repository is added, and refuses one
+  it can't read. A refresh that fails records why and keeps the last good
+  index.
 
 ## Observability
 
