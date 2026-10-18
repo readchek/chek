@@ -4,7 +4,7 @@
 
 FROM rust:1.97-slim-trixie AS build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libvips-dev \
+    && apt-get install -y --no-install-recommends libvips-dev libarchive-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
@@ -16,8 +16,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:trixie-slim
 # libvips makes cover thumbnails; its poppler module renders PDF covers.
+# libarchive reads RAR and 7-Zip comics.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libvips42t64 \
+    && apt-get install -y --no-install-recommends libvips42t64 libarchive13t64 \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home-dir /data chek \
     && mkdir -p /data && chown chek /data

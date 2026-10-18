@@ -82,7 +82,10 @@ pub async fn upload(
             .await
             .map_err(ApiError::internal)?
     };
-    if !matches!(check, Ok(Some(found)) if found == format) {
+    // A comic may be any comic archive whatever its extension says, as scans
+    // accept it.
+    if !matches!(check, Ok(Some(found)) if found == format || (found.is_comic() && format.is_comic()))
+    {
         remove(&temp).await;
         return Err(ApiError::bad_request(format!(
             "the body is not a {} file",
@@ -170,7 +173,7 @@ fn checked_path(path: &str) -> Result<(String, Format), ApiError> {
         .extension()
         .and_then(|e| e.to_str())
         .and_then(Format::from_extension)
-        .ok_or_else(|| invalid("must end in .epub, .pdf, .cbz or .cbt"))?;
+        .ok_or_else(|| invalid("must end in .epub, .pdf, .cbz, .cbr, .cb7 or .cbt"))?;
     Ok((parts.join("/"), format))
 }
 

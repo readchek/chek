@@ -44,13 +44,21 @@ are in the planning doc; this page keeps the decisions next to the code.
 - CBZ (ZIP) and CBT (tar) comics are indexed this way. Tar stores entries
   uncompressed after their headers, so CBT pages are served like stored ZIP
   entries; ustar, GNU long-name and pax headers are read.
+- CBR (RAR 4 and 5) and CB7 (7-Zip) comics are read through libarchive.
+  Their entries are compressed, often as one solid stream, so they have no
+  offsets to serve from: a page request walks the archive's headers to the
+  page and decompresses it. In a solid archive that means decompressing
+  every earlier page too, so late pages of large solid archives are slower.
+- Comic archives are often saved under the wrong comic extension, such as a
+  ZIP named `.cbr`, so a file with any comic extension takes its format from
+  its bytes.
 - Before serving a file or a page, the server compares the file's size and
   modification time with what the scan recorded. If they differ, it starts a
   rescan and answers `409 content_changed`, because stored offsets would no
   longer match the file.
 - Covers are JPEG thumbnails that fit within 400 by 600 pixels, made by
   libvips at scan time and stored in the data folder under `covers/`, named
-  by the file's content hash. CBZ and CBT covers come from the first page, EPUB covers
+  by the file's content hash. Comic covers come from the first page, EPUB covers
   from the package's cover image and PDF covers from the first page.
 - Every folder library is rescanned at startup to catch changes made while
   the server was down. Unchanged files are skipped by size and modification
@@ -126,7 +134,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 - Scans read metadata from the file itself: the EPUB package document
   (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
-  CBZs and CBTs. PDFs give the title, authors and subject from their document
+  comic archives. PDFs give the title, authors and subject from their document
   information, read through libvips' poppler loader; a title that's only a
   source file's name, such as `Microsoft Word - draft.docx`, is ignored. A
   file without metadata keeps its file name as its title.

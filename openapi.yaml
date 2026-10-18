@@ -465,7 +465,8 @@ paths:
           between folders, such as `Saga/Saga 01.cbz`. Missing folders are
           created. Every part must be a plain name (no `.`, `..` or names
           starting with `.`), and the file must end in `.epub`, `.pdf`,
-          `.cbz` or `.cbt`.
+          `.cbz`, `.cbr`, `.cb7` or `.cbt`. A comic may be any comic archive
+          whatever its comic extension says.
         schema:
           type: string
           maxLength: 1024
@@ -1866,7 +1867,10 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz, cbt]
+          enum: [epub, pdf, cbz, cbt, cbr, cb7]
+          description: |
+            Comic archives get their format from their bytes, so a ZIP named
+            `.cbr` is `cbz`.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
