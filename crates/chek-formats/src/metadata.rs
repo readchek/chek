@@ -11,6 +11,8 @@ use quick_xml::events::{BytesStart, Event};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Metadata {
     pub title: Option<String>,
+    /// The name of the series the publication belongs to.
+    pub series: Option<String>,
     /// The publication's number in its series, as written: `"3"`, `"1.5"`,
     /// `"Vol. 2"`.
     pub number: Option<String>,
@@ -160,6 +162,7 @@ pub(crate) fn comic_info(xml: &[u8]) -> Metadata {
     };
     Metadata {
         title: field("Title"),
+        series: field("Series"),
         number,
         contributors,
         summary: fields
@@ -191,6 +194,7 @@ pub(crate) fn epub_package(package: &[u8]) -> Metadata {
     let mut refinements: Vec<(String, String, String)> = Vec::new();
     let mut collections: Vec<(Option<String>, String)> = Vec::new();
     let mut calibre_index = None;
+    let mut calibre_series = None;
     loop {
         let event = reader.read_event_into(&mut buf);
         let (e, has_body) = match event {
@@ -213,9 +217,14 @@ pub(crate) fn epub_package(package: &[u8]) -> Metadata {
                 };
             continue;
         }
-        // EPUB 2: `<meta name="calibre:series_index" content="3"/>`.
-        if local == "meta" && attribute(&e, "name").as_deref() == Some("calibre:series_index") {
-            calibre_index = attribute(&e, "content");
+        // EPUB 2: `<meta name="calibre:series" content="Name"/>` and
+        // `<meta name="calibre:series_index" content="3"/>`.
+        if local == "meta" {
+            match attribute(&e, "name").as_deref() {
+                Some("calibre:series") => calibre_series = attribute(&e, "content"),
+                Some("calibre:series_index") => calibre_index = attribute(&e, "content"),
+                _ => {}
+            }
         }
         // Only Dublin Core elements and EPUB 3 metas carry text we want;
         // reading any other element's text would swallow its children.
@@ -296,11 +305,17 @@ pub(crate) fn epub_package(package: &[u8]) -> Metadata {
         push_contributor(&mut metadata.contributors, &creator.name, role);
     }
     // A collection is a series unless it says it's a set of works.
-    let series_position = collections
-        .iter()
-        .filter_map(|(id, _)| id.as_deref())
-        .filter(|id| refined(id, "collection-type").is_none_or(|t| t == "series"))
-        .find_map(|id| refined(id, "group-position"));
+    let series = collections.iter().find(|(id, _)| {
+        id.as_deref()
+            .is_none_or(|id| refined(id, "collection-type").is_none_or(|t| t == "series"))
+    });
+    let series_position = series
+        .and_then(|(id, _)| id.as_deref())
+        .and_then(|id| refined(id, "group-position"));
+    metadata.series = series
+        .map(|(_, name)| name.clone())
+        .or(calibre_series)
+        .and_then(|n| clean(&n, MAX_FIELD_CHARS));
     metadata.number = series_position
         .or(calibre_index)
         .and_then(|n| clean(&n, MAX_FIELD_CHARS));
