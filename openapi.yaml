@@ -34,7 +34,8 @@ tags:
   - name: OPDS
     description: |
       An [OPDS 2](https://drafts.opds.io/opds-2.0) catalog for other reader
-      apps. Unauthenticated requests get a Basic challenge.
+      apps. Unauthenticated requests get a Basic challenge and an
+      Authentication for OPDS document.
 paths:
   /health:
     get:
@@ -763,6 +764,20 @@ paths:
                 $ref: "#/components/schemas/OpdsDocument"
         "500":
           $ref: "#/components/responses/Internal"
+  /opds/v2/auth:
+    get:
+      tags: [OPDS]
+      operationId: getOpdsAuthentication
+      summary: OPDS authentication document
+      description: How to sign in to the catalog. Needs no credentials.
+      security: []
+      responses:
+        "200":
+          description: The Authentication for OPDS document.
+          content:
+            application/opds-authentication+json:
+              schema:
+                $ref: "#/components/schemas/OpdsAuthentication"
   /opds/v2/libraries/{libraryId}:
     parameters:
       - $ref: "#/components/parameters/LibraryId"
@@ -814,7 +829,7 @@ paths:
       tags: [OPDS]
       operationId: getOpdsPublicationFile
       summary: Download a publication from OPDS
-      description: The same as `/api/v1/publications/{publicationId}/file`, with a Basic challenge on 401.
+      description: The same as `/api/v1/publications/{publicationId}/file`, with an OPDS sign-in challenge on 401.
       responses:
         "401":
           $ref: "#/components/responses/OpdsUnauthorized"
@@ -842,7 +857,7 @@ paths:
       tags: [OPDS]
       operationId: getOpdsPublicationCover
       summary: Get a cover from OPDS
-      description: The same as `/api/v1/publications/{publicationId}/cover`, with a Basic challenge on 401.
+      description: The same as `/api/v1/publications/{publicationId}/cover`, with an OPDS sign-in challenge on 401.
       responses:
         "401":
           $ref: "#/components/responses/OpdsUnauthorized"
@@ -912,16 +927,22 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     OpdsUnauthorized:
-      description: No valid credentials; the challenge asks for a name and password.
+      description: |
+        No valid credentials. The Basic challenge and the Authentication for
+        OPDS document both ask for a name and password.
       headers:
         WWW-Authenticate:
           schema:
             type: string
           example: Basic realm="Chek", charset="UTF-8"
-      content:
-        application/json:
+        Link:
           schema:
-            $ref: "#/components/schemas/Error"
+            type: string
+          example: <https://chek.example/opds/v2/auth>; rel="http://opds-spec.org/auth/document"; type="application/opds-authentication+json"
+      content:
+        application/opds-authentication+json:
+          schema:
+            $ref: "#/components/schemas/OpdsAuthentication"
     Forbidden:
       description: The signed-in user may not do this.
       content:
@@ -1243,6 +1264,34 @@ components:
               type: string
             after:
               type: string
+    OpdsAuthentication:
+      type: object
+      description: |
+        An [Authentication for OPDS](https://drafts.opds.io/authentication-for-opds-1.0)
+        document offering HTTP Basic sign-in.
+      required: [id, title, authentication]
+      properties:
+        id:
+          type: string
+          format: uri
+        title:
+          type: string
+        authentication:
+          type: array
+          items:
+            type: object
+            required: [type]
+            properties:
+              type:
+                type: string
+                example: http://opds-spec.org/auth/basic
+              labels:
+                type: object
+                properties:
+                  login:
+                    type: string
+                  password:
+                    type: string
     OpdsDocument:
       type: object
       description: |

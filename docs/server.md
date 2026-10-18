@@ -82,7 +82,9 @@ are in the planning doc; this page keeps the decisions next to the code.
   can't hold session tokens. A passing check is remembered in memory, keyed
   by the password and the stored hash, so later requests skip Argon2; a
   password change changes the hash and forgets it. OPDS routes answer 401
-  with a Basic challenge so apps prompt for a name and password.
+  with both a Basic challenge and an Authentication for OPDS document, so
+  apps prompt for a name and password; KOReader follows the first and
+  Thorium needs the second.
 
 ## OPDS
 
