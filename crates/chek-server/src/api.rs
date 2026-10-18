@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
+use crate::progress;
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -72,6 +73,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/publications/{id}/cover", get(get_cover))
         .route("/api/v1/publications/{id}/pages", get(list_pages))
         .route("/api/v1/publications/{id}/pages/{index}", get(get_page))
+        .route(
+            "/api/v1/publications/{id}/progress",
+            get(progress::get_progress).put(progress::save_progress),
+        )
         .with_state(state)
 }
 
@@ -448,7 +453,7 @@ async fn get_page(
 
 /// Fails with not found unless the publication exists in a library the user
 /// may read. Publications in other libraries look the same as missing ones.
-async fn check_publication(
+pub async fn check_publication(
     state: &AppState,
     current: &CurrentUser,
     id: i64,

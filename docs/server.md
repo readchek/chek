@@ -67,6 +67,19 @@ are in the planning doc; this page keeps the decisions next to the code.
   out the user's other sessions.
 - The server keeps at least one admin; demoting or deleting the last one fails.
 
+## Reading progress
+
+- Each user has one position per publication, stored as a Readium Locator
+  so readers built on Readium can use it as is. The server checks the fields
+  it relies on and keeps the rest as sent, up to 16 KiB.
+- Every save names the revision it builds on. If another device saved in
+  between, the save is refused with `409 progress_conflict` and that
+  device's position, and the app asks the reader which one to keep. The
+  server never picks the position furthest along, because going back to
+  reread is as deliberate as moving forward.
+- A position records the device name of the session that saved it, so the
+  app can say where the other position came from.
+
 ## Design rules from the spike
 
 - Page requests read from the page index stored at scan time instead of

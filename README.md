@@ -33,8 +33,9 @@ finalized.
 ## Repositories
 
 This repository is the Chek server. It is in early development: it can scan a
-folder, list what it finds, and serve the files, comic pages and covers. See [server design](docs/server.md) for what is
-settled and what comes next.
+folder, list what it finds, serve the files, comic pages and covers, and sync
+each reader's position between devices. See [server design](docs/server.md) for
+what is settled and what comes next.
 
 - [chek.page](https://github.com/readchek/chek.page): the landing page.
 - [chek-reader](https://github.com/readchek/chek-reader): the reading engine for Apple platforms.
