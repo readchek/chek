@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::progress;
+use crate::{annotations, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -98,6 +98,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/publications/{id}/progress",
             get(progress::get_progress).put(progress::save_progress),
+        )
+        .route(
+            "/api/v1/publications/{id}/annotations",
+            get(annotations::list_annotations).post(annotations::add_annotation),
+        )
+        .route(
+            "/api/v1/annotations/{id}",
+            patch(annotations::update_annotation).delete(annotations::delete_annotation),
         )
         .merge(crate::opds::router())
         .layer(axum::middleware::from_fn_with_state(

@@ -31,6 +31,8 @@ tags:
     description: Files, pages and covers.
   - name: Progress
     description: Reading positions synced between devices.
+  - name: Annotations
+    description: Bookmarks and highlights synced between devices.
   - name: OPDS
     description: |
       An [OPDS 2](https://drafts.opds.io/opds-2.0) catalog for other reader
@@ -977,6 +979,133 @@ paths:
                 $ref: "#/components/schemas/ProgressConflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/annotations:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Annotations]
+      operationId: listAnnotations
+      summary: List your bookmarks and highlights
+      description: >-
+        Every annotation you made in the publication, in reading order by
+        `totalProgression`. Ones without it come last, oldest first.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Your annotations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Annotation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Annotations]
+      operationId: addAnnotation
+      summary: Add a bookmark or highlight
+      description: >-
+        A highlight's locator must carry the highlighted text in
+        `text.highlight`. A publication holds up to 5,000 annotations per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kind, locator]
+              properties:
+                kind:
+                  $ref: "#/components/schemas/AnnotationKind"
+                locator:
+                  $ref: "#/components/schemas/Locator"
+                color:
+                  $ref: "#/components/schemas/AnnotationColor"
+                note:
+                  $ref: "#/components/schemas/AnnotationNote"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The new annotation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/annotations/{annotationId}:
+    parameters:
+      - name: annotationId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    patch:
+      tags: [Annotations]
+      operationId: updateAnnotation
+      summary: Change a bookmark or highlight
+      description: >-
+        Fields left out stay as they are, and `null` clears one. The last save
+        wins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                color:
+                  oneOf:
+                    - $ref: "#/components/schemas/AnnotationColor"
+                    - type: "null"
+                note:
+                  oneOf:
+                    - $ref: "#/components/schemas/AnnotationNote"
+                    - type: "null"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The changed annotation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Annotations]
+      operationId: deleteAnnotation
+      summary: Delete a bookmark or highlight
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The annotation was deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /opds/v2/catalog:
     get:
       tags: [OPDS]
@@ -1652,6 +1781,44 @@ components:
           type: string
         current:
           $ref: "#/components/schemas/Progress"
+    AnnotationKind:
+      type: string
+      enum: [bookmark, highlight]
+    AnnotationColor:
+      type: string
+      minLength: 1
+      maxLength: 32
+      description: A color name or value the client chooses, such as `yellow`.
+    AnnotationNote:
+      type: string
+      maxLength: 10000
+    Annotation:
+      type: object
+      required: [id, publicationId, kind, locator, color, note, device, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        publicationId:
+          type: integer
+          format: int64
+        kind:
+          $ref: "#/components/schemas/AnnotationKind"
+        locator:
+          $ref: "#/components/schemas/Locator"
+        color:
+          type: [string, "null"]
+        note:
+          type: [string, "null"]
+        device:
+          type: [string, "null"]
+          description: The device name of the session that last saved it.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     Locator:
       type: object
       description: |
