@@ -408,8 +408,17 @@ paths:
     post:
       tags: [Libraries]
       operationId: addLibrary
-      summary: Add a folder library
-      description: Adds a folder on the server as a library and starts scanning it. Admin only.
+      summary: Add a library
+      description: |
+        Admin only. Adds a folder on the server as a library and starts
+        scanning it, or adds a Komga server as a source library and starts
+        syncing it. Send either `path` or `komga`.
+
+        A Komga library reads Komga's series and books with one Komga
+        account, and serves their pages and files through Komga. The account
+        needs the page streaming and file download roles. The address and
+        credentials are checked before the library is added, and stored on
+        the server; they are never returned.
       requestBody:
         required: true
         content:
@@ -417,7 +426,7 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [name, path]
+              required: [name]
               properties:
                 name:
                   type: string
@@ -425,6 +434,8 @@ paths:
                 path:
                   type: string
                   description: Absolute path of a folder on the server.
+                komga:
+                  $ref: "#/components/schemas/NewKomgaSource"
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -437,7 +448,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Library"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            The request was malformed, or Komga couldn't be reached with the
+            settings given (`source_check_failed`, with the reason).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/libraries/{libraryId}:
@@ -930,7 +947,9 @@ paths:
       description: >-
         Admin only. Drops every edit and reads the file's own metadata again.
         If a scan of the library is running, reading waits for it, and after
-        20 seconds the response is 202 while reading carries on.
+        20 seconds the response is 202 while reading carries on. A
+        publication from a source library answers 202 at once, and a sync of
+        its library reads it again.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -943,7 +962,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicationDetail"
         "202":
-          description: The edits are gone and the file will be read once the running scan finishes.
+          description: The edits are gone and the file will be read once the running scan finishes, or by the next sync of a source library.
           content:
             application/json:
               schema:
@@ -968,7 +987,9 @@ paths:
       summary: Download the original file
       description: |
         Serves the file as it is on disk. Supports `Range` for partial reads and
-        `If-Modified-Since` for revalidation.
+        `If-Modified-Since` for revalidation. A publication from a source
+        library is streamed from its source, which may send the whole file
+        instead of a range, as Komga does.
       parameters:
         - name: Range
           in: header
@@ -1013,6 +1034,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ContentChanged"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "416":
           description: The range is outside the file.
         "500":
@@ -1105,6 +1128,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ContentChanged"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/progress:
@@ -1748,6 +1773,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ContentChanged"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /opds/v2/publications/{publicationId}/cover:
@@ -1895,6 +1922,14 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: The resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SourceUnavailable:
+      description: |
+        The publication is from a source library, and its source couldn't be
+        read; the message says why.
       content:
         application/json:
           schema:
@@ -2066,11 +2101,55 @@ components:
         path:
           type: [string, "null"]
           description: The folder on the server, for folder libraries.
+        source:
+          $ref: "#/components/schemas/LibrarySource"
         scan:
           $ref: "#/components/schemas/ScanState"
         createdAt:
           type: string
           format: date-time
+    LibrarySource:
+      type: object
+      description: Where a source library reads from. Present only on source libraries.
+      required: [type, url]
+      properties:
+        type:
+          type: string
+          enum: [komga]
+        url:
+          type: string
+          description: The Komga server's address.
+        libraryIds:
+          type: array
+          description: The Komga libraries read; absent when every library the account sees is read.
+          items:
+            type: string
+    NewKomgaSource:
+      type: object
+      additionalProperties: false
+      description: |
+        A Komga server to read, with an API key, or a name and password, for
+        one Komga account. Everyone granted the Chek library reads what that
+        account can see.
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Komga's address, including any path it is served under.
+          example: http://komga:25600
+        apiKey:
+          type: string
+          description: An API key made in Komga for the account.
+        username:
+          type: string
+          description: The account's email address, with `password`.
+        password:
+          type: string
+        libraryIds:
+          type: array
+          description: Komga library ids to read; leave out to read every library the account sees.
+          items:
+            type: string
     Series:
       type: object
       required: [id, libraryId, title, publicationCount]
