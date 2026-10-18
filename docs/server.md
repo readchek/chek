@@ -272,7 +272,27 @@ are in the planning doc; this page keeps the decisions next to the code.
   which carry the image request the extension made. The server fetches the
   image, held to the extension's sites, and sends its bytes unchanged with
   `nosniff`, so the app never contacts a source's sites itself.
-- Nothing is stored yet; following a series into a library is separate.
+- Browsing stores nothing; following a series into a source library does.
+
+## Source libraries
+
+- An admin makes a source library from an extension they installed. It runs
+  on that admin's install, so readers granted the library read it without
+  installing anything. If the admin uninstalls the extension, or its
+  repository stops being usable, the library's pages and scans fail with
+  `source_unavailable` until it's installed again.
+- Following a series stores it with the source's id as its remote id, and
+  each chapter as a publication with format `remote`, backed by remote
+  content keyed by the chapter's id. Chapters sort like files: by number,
+  then by title. The series' cover becomes every chapter's cover thumbnail.
+- A scan of a source library follows each series again. Chapters the source
+  no longer lists are marked unavailable, not deleted, so progress
+  survives; a chapter whose version changed has its page list dropped.
+- A chapter's page list is asked of the source the first time it's read
+  and stored as the image requests the extension returned. Pages are
+  fetched through the source on every read, with no cache on the server
+  yet. Since sources often hand out page links that expire, a failed fetch
+  asks for the page list again and retries once.
 
 ## Observability
 

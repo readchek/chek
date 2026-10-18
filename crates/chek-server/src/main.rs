@@ -11,6 +11,7 @@ mod installs;
 mod limit;
 mod opds;
 mod progress;
+mod source_libraries;
 mod telemetry;
 mod upload;
 

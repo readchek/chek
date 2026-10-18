@@ -13,12 +13,14 @@ mod annotations;
 mod edits;
 mod extensions;
 mod progress;
+mod sources;
 mod users;
 
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use edits::{FileLocation, PublicationEdit};
 pub use extensions::{ExtensionInstall, ExtensionRepository};
 pub use progress::{Progress, ProgressSave};
+pub use sources::{RemoteChapter, RemoteContent, RemoteSeries};
 pub use users::{
     NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
 };
@@ -40,6 +42,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0012_publication_edits.sql"),
     include_str!("../migrations/0013_extension_repositories.sql"),
     include_str!("../migrations/0014_extension_installs.sql"),
+    include_str!("../migrations/0015_source_libraries.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

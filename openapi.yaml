@@ -552,7 +552,10 @@ paths:
       tags: [Libraries]
       operationId: scanLibrary
       summary: Rescan a library
-      description: Starts a scan in the background. Poll the library to see when it finishes. Admin only.
+      description: >-
+        Starts a scan in the background. Poll the library to see when it
+        finishes. A source library's scan updates every series it follows
+        from the source. Admin only.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -640,6 +643,89 @@ paths:
                     description: Pass as `cursor` to get the next page. Absent on the last page.
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Libraries]
+      operationId: followSeries
+      summary: Follow a series into a source library
+      description: >-
+        Reads the series and its chapters from the library's source and adds
+        a publication per chapter. Following a series again updates it.
+        Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [seriesId]
+              properties:
+                seriesId:
+                  type: string
+                  description: The source's own series id, as search returns it.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The followed series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/SourceUnavailable"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/source-libraries:
+    post:
+      tags: [Libraries]
+      operationId: addSourceLibrary
+      summary: Add a source library
+      description: >-
+        Makes a library whose series come from an extension the admin
+        installed. The library runs on that admin's install, so readers
+        granted it don't need the extension. If the admin uninstalls it, the
+        library's pages and scans fail with `source_unavailable` until it's
+        installed again. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, extensionId]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                extensionId:
+                  type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The library.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Library"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1051,7 +1137,10 @@ paths:
       tags: [Reading]
       operationId: listPublicationPages
       summary: List a comic's pages
-      description: The page index in reading order. Empty for formats without pages, such as EPUB.
+      description: >-
+        The page index in reading order. Empty for formats without pages, such
+        as EPUB. A source chapter's pages are asked of its source the first
+        time and stored.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1069,6 +1158,10 @@ paths:
                       $ref: "#/components/schemas/PageInfo"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/SourceUnavailable"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/pages/{pageIndex}:
@@ -1085,7 +1178,10 @@ paths:
       tags: [Reading]
       operationId: getPublicationPage
       summary: Get a comic page
-      description: The page's original image bytes, read straight from the archive.
+      description: >-
+        The page's original image bytes, read straight from the archive, or
+        fetched through the source for a source chapter. Source pages have no
+        ETag.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1104,7 +1200,13 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/ContentChanged"
+          description: The file changed since it was scanned, or a source library's extension is no longer installed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/progress:
@@ -2203,6 +2305,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    SourceUnavailable:
+      description: >-
+        The extension the source library runs on is no longer installed by
+        the admin who made it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     SourceFailed:
       description: >-
         The extension reported an error, went over a limit, or the image
@@ -2288,6 +2398,7 @@ components:
             - repository_unreadable
             - extension_invalid
             - source_failed
+            - source_unavailable
             - internal
         message:
           type: string
@@ -2535,10 +2646,11 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz, cbt, cbr, cb7]
+          enum: [epub, pdf, cbz, cbt, cbr, cb7, remote]
           description: |
             Comic archives get their format from their bytes, so a ZIP named
-            `.cbr` is `cbz`.
+            `.cbr` is `cbz`. `remote` is a chapter in a source library: it
+            has pages but no file.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
@@ -2616,9 +2728,12 @@ components:
           type: string
           example: image/jpeg
         size:
-          type: integer
+          type: [integer, "null"]
           format: int64
-          description: The image's size in bytes.
+          description: >-
+            The image's size in bytes. Null for pages from a source, whose
+            size isn't known until they're fetched; their `mediaType` is
+            guessed from the page's URL.
     Progress:
       type: object
       required: [revision, locator, device, updatedAt]

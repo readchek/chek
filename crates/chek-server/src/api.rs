@@ -71,7 +71,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
         )
-        .route("/api/v1/libraries/{id}/series", get(list_series))
+        .route(
+            "/api/v1/libraries/{id}/series",
+            get(list_series).post(crate::source_libraries::follow_series),
+        )
+        .route(
+            "/api/v1/source-libraries",
+            post(crate::source_libraries::add_source_library),
+        )
         .route("/api/v1/series/{id}", get(get_series))
         .route(
             "/api/v1/series/{id}/publications",
@@ -162,7 +169,7 @@ const MAX_PAGE_SIZE: u32 = 200;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct LibraryDto {
+pub(crate) struct LibraryDto {
     id: i64,
     name: String,
     kind: &'static str,
@@ -359,7 +366,10 @@ async fn scan_library(
             message: format!("library {id} is already being scanned"),
         });
     }
-    start_scan(&state, id);
+    match library.kind {
+        LibraryKind::Folder => start_scan(&state, id),
+        LibraryKind::Source => crate::source_libraries::start_sync(&state, id),
+    }
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -504,7 +514,7 @@ async fn list_publications(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SeriesDto {
+pub(crate) struct SeriesDto {
     id: i64,
     library_id: i64,
     title: String,
@@ -799,10 +809,8 @@ pub(crate) async fn get_cover(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
-    let file = blocking(&state, move |c| c.publication_file(id))
-        .await?
-        .ok_or_else(|| ApiError::publication_not_found(id))?;
-    let Some(cover) = file.cover else {
+    // Source chapters have covers but no file, so the cover is read on its own.
+    let Some(cover) = blocking(&state, move |c| c.publication_cover(id)).await? else {
         return Err(ApiError::not_found(format!(
             "publication {id} has no cover"
         )));
@@ -831,7 +839,8 @@ pub(crate) async fn get_cover(
 struct PageDto {
     index: usize,
     media_type: &'static str,
-    size: u64,
+    /// `None` for pages from a source, whose size isn't known until fetched.
+    size: Option<u64>,
 }
 
 async fn list_pages(
@@ -840,6 +849,21 @@ async fn list_pages(
     Path(id): Path<i64>,
 ) -> Result<Json<Page<PageDto>>, ApiError> {
     check_publication(&state, &current, id).await?;
+    if let Some(remote) = blocking(&state, move |c| c.remote_content(id)).await? {
+        let types = crate::source_libraries::page_types(&state, id, remote).await?;
+        return Ok(Json(Page {
+            items: types
+                .into_iter()
+                .enumerate()
+                .map(|(index, media_type)| PageDto {
+                    index,
+                    media_type,
+                    size: None,
+                })
+                .collect(),
+            next_cursor: None,
+        }));
+    }
     let pages = blocking(&state, move |c| c.pages(id)).await?;
     Ok(Json(Page {
         items: pages
@@ -848,7 +872,7 @@ async fn list_pages(
             .map(|(index, p)| PageDto {
                 index,
                 media_type: chek_formats::page_media_type(&p.entry_name),
-                size: p.size,
+                size: Some(p.size),
             })
             .collect(),
         next_cursor: None,
@@ -864,6 +888,9 @@ async fn get_page(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
+    if let Some(remote) = blocking(&state, move |c| c.remote_content(id)).await? {
+        return crate::source_libraries::get_page(&state, id, index, remote).await;
+    }
     let page = blocking(&state, move |c| c.page(id, index))
         .await?
         .ok_or_else(|| ApiError::not_found(format!("publication {id} has no page {index}")))?;
@@ -903,9 +930,19 @@ pub async fn check_publication(
 /// read. If it changed, a rescan starts and the request gets a conflict, since
 /// stored offsets and hashes no longer describe it.
 async fn current_file(state: &AppState, id: i64) -> Result<(PublicationFile, PathBuf), ApiError> {
-    let file = blocking(state, move |c| c.publication_file(id))
-        .await?
-        .ok_or_else(|| ApiError::publication_not_found(id))?;
+    let (file, remote) = blocking(state, move |c| {
+        Ok((c.publication_file(id)?, c.remote_content(id)?.is_some()))
+    })
+    .await?;
+    let file = match file {
+        Some(file) => file,
+        None if remote => {
+            return Err(ApiError::not_found(format!(
+                "publication {id} comes from a source and has no file; read its pages instead"
+            )));
+        }
+        None => return Err(ApiError::publication_not_found(id)),
+    };
     if !file.available {
         return Err(ApiError {
             status: StatusCode::NOT_FOUND,

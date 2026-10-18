@@ -297,22 +297,30 @@ pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
 
 /// A link to the image route that fetches `image` through extension `id`.
 pub(crate) fn image_url(id: &str, image: &Image) -> String {
+    format!(
+        "/api/v1/me/extensions/{id}/image?ref={}",
+        URL_SAFE_NO_PAD.encode(image_json(image))
+    )
+}
+
+fn decode_image(reference: &str) -> Result<Image, ApiError> {
+    let invalid = || ApiError::bad_request("ref is not a valid image reference");
+    let json = URL_SAFE_NO_PAD.decode(reference).map_err(|_| invalid())?;
+    image_from_json(&json).ok_or_else(invalid)
+}
+
+/// An image request as JSON, the form links and stored pages keep it in.
+pub(crate) fn image_json(image: &Image) -> String {
     let reference = ImageRef {
         url: image.url.clone(),
         headers: image.headers.clone(),
     };
-    let json = serde_json::to_vec(&reference).unwrap_or_default();
-    format!(
-        "/api/v1/me/extensions/{id}/image?ref={}",
-        URL_SAFE_NO_PAD.encode(json)
-    )
+    serde_json::to_string(&reference).unwrap_or_default()
 }
 
-pub(crate) fn decode_image(reference: &str) -> Result<Image, ApiError> {
-    let invalid = || ApiError::bad_request("ref is not a valid image reference");
-    let json = URL_SAFE_NO_PAD.decode(reference).map_err(|_| invalid())?;
-    let reference: ImageRef = serde_json::from_slice(&json).map_err(|_| invalid())?;
-    Ok(Image {
+pub(crate) fn image_from_json(json: &[u8]) -> Option<Image> {
+    let reference: ImageRef = serde_json::from_slice(json).ok()?;
+    Some(Image {
         url: reference.url,
         headers: reference.headers,
     })
