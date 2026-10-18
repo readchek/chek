@@ -20,6 +20,8 @@ tags:
     description: Folders and sources the server reads publications from.
   - name: Catalog
     description: Series and publications found in libraries.
+  - name: Reading
+    description: Files, pages and covers.
 paths:
   /health:
     get:
@@ -160,8 +162,178 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Catalog]
+      operationId: getPublication
+      summary: Get a publication
+      responses:
+        "200":
+          description: The publication.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/file:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Reading]
+      operationId: getPublicationFile
+      summary: Download the original file
+      description: |
+        Serves the file as it is on disk. Supports `Range` for partial reads and
+        `If-Modified-Since` for revalidation.
+      parameters:
+        - name: Range
+          in: header
+          schema:
+            type: string
+          example: bytes=0-65535
+      responses:
+        "200":
+          description: The whole file.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/epub+zip:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: The requested byte range.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The client's copy is current.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ContentChanged"
+        "416":
+          description: The range is outside the file.
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/cover:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Reading]
+      operationId: getPublicationCover
+      summary: Get the cover thumbnail
+      description: A JPEG that fits within 400 by 600 pixels, made when the file is scanned.
+      responses:
+        "200":
+          description: The cover.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The client's copy is current.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/pages:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Reading]
+      operationId: listPublicationPages
+      summary: List a comic's pages
+      description: The page index in reading order. Empty for formats without pages, such as EPUB.
+      responses:
+        "200":
+          description: Every page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PageInfo"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/pages/{pageIndex}:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+      - name: pageIndex
+        in: path
+        required: true
+        description: Zero-based position in reading order.
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      tags: [Reading]
+      operationId: getPublicationPage
+      summary: Get a comic page
+      description: The page's original image bytes, read straight from the archive.
+      responses:
+        "200":
+          description: The page image.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The client's copy is current.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ContentChanged"
+        "500":
+          $ref: "#/components/responses/Internal"
 components:
+  headers:
+    ETag:
+      description: Changes whenever the file's content changes. Send it back in `If-None-Match`.
+      schema:
+        type: string
   parameters:
+    PublicationId:
+      name: publicationId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
     LibraryId:
       name: libraryId
       in: path
@@ -197,6 +369,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    ContentChanged:
+      description: |
+        The file changed on disk since it was scanned. A rescan has started;
+        retry after it finishes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Internal:
       description: The server failed; details are in its log.
       content:
@@ -210,7 +390,7 @@ components:
       properties:
         code:
           type: string
-          enum: [bad_request, not_found, scan_in_progress, internal]
+          enum: [bad_request, not_found, unavailable, scan_in_progress, content_changed, internal]
         message:
           type: string
           description: Explains the problem to a developer.
@@ -250,7 +430,7 @@ components:
           description: When the last scan finished, whether or not it succeeded.
     PublicationSummary:
       type: object
-      required: [id, series, title, numberLabel, format, pageCount, available]
+      required: [id, series, title, numberLabel, format, pageCount, available, hasCover]
       properties:
         id:
           type: integer
@@ -278,3 +458,20 @@ components:
         available:
           type: boolean
           description: False when the file is missing from disk. Missing files are kept so progress survives.
+        hasCover:
+          type: boolean
+          description: Whether `/cover` has an image for this publication.
+    PageInfo:
+      type: object
+      required: [index, mediaType, size]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        mediaType:
+          type: string
+          example: image/jpeg
+        size:
+          type: integer
+          format: int64
+          description: The image's size in bytes.

@@ -67,6 +67,9 @@ disguise new tests as temporary verification scripts.
 - Catalog and scan code blocks; call it from async code through `spawn_blocking`.
 - Keep scan work capped below the core count so requests stay fast during scans.
 - Every listener sets `TCP_NODELAY`.
+- Image work goes through libvips (`libvips-dev` to build). Call its
+  operations without `_with_opts`: those set every option of the newest
+  libvips and fail on older versions.
 - Debug builds keep line tables only for our crates. Run `cargo sweep` now and
   then to clear stale build output rather than deleting `target/` wholesale.
 

@@ -11,7 +11,10 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 /// Migrations in order. A database records how many it has applied in
 /// `PRAGMA user_version`, so each one runs exactly once.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_catalog.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_catalog.sql"),
+    include_str!("../migrations/0002_covers.sql"),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -69,6 +72,23 @@ pub struct PublicationSummary {
     pub format: String,
     pub page_count: Option<i64>,
     pub available: bool,
+    pub has_cover: bool,
+}
+
+/// Where a publication's file is and what the last scan recorded about it.
+#[derive(Debug, Clone)]
+pub struct PublicationFile {
+    pub publication_id: i64,
+    pub library_id: i64,
+    pub root_path: String,
+    pub relative_path: String,
+    pub format: String,
+    /// `None` until the next scan reads the file again.
+    pub stamp: Option<FileStamp>,
+    pub hash: String,
+    pub available: bool,
+    /// The cover thumbnail's name in the covers folder.
+    pub cover: Option<String>,
 }
 
 /// The size and modification time recorded for a file, which a scan compares
@@ -90,9 +110,11 @@ pub struct ScannedFile {
     pub stamp: FileStamp,
     pub hash: String,
     pub pages: Vec<PageRecord>,
+    /// The cover thumbnail's name in the covers folder, if one was made.
+    pub cover: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageRecord {
     pub entry_name: String,
     pub data_offset: u64,
@@ -195,14 +217,16 @@ impl Catalog {
                  WHERE library_id = ?1 AND relative_path = ?2",
                 params![library_id, relative_path],
                 |row| {
-                    Ok(FileStamp {
-                        size: row.get::<_, i64>(0)? as u64,
-                        modified_at: row.get(1)?,
-                    })
+                    let size: Option<i64> = row.get(0)?;
+                    let modified_at: Option<i64> = row.get(1)?;
+                    Ok(size.zip(modified_at).map(|(size, modified_at)| FileStamp {
+                        size: size as u64,
+                        modified_at,
+                    }))
                 },
             )
             .optional()?;
-        Ok(stamp)
+        Ok(stamp.flatten())
     }
 
     /// Records a new or changed file. An existing file keeps its publication
@@ -257,25 +281,93 @@ impl Catalog {
     ) -> Result<Vec<PublicationSummary>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
              FROM publication p JOIN series s ON s.id = p.series_id
              WHERE s.library_id = ?1 AND p.id > ?2
              ORDER BY p.id
              LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![library_id, after.unwrap_or(0), limit], |row| {
-            Ok(PublicationSummary {
-                id: row.get(0)?,
-                series_id: row.get(1)?,
-                series_title: row.get(2)?,
-                title: row.get(3)?,
-                number_label: row.get(4)?,
-                format: row.get(5)?,
-                page_count: row.get(6)?,
-                available: row.get(7)?,
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![library_id, after.unwrap_or(0), limit],
+            summary_from_row,
+        )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn publication(&self, id: i64) -> Result<Option<PublicationSummary>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
+                 FROM publication p JOIN series s ON s.id = p.series_id
+                 WHERE p.id = ?1",
+                [id],
+                summary_from_row,
+            )
+            .optional()?)
+    }
+
+    /// The file behind a publication. `None` when the publication doesn't
+    /// exist or isn't backed by a local file.
+    pub fn publication_file(&self, publication_id: i64) -> Result<Option<PublicationFile>> {
+        let file = self
+            .conn()
+            .query_row(
+                "SELECT p.id, l.id, l.root_path, c.relative_path, p.format, c.size, c.modified_at, c.hash, p.available, p.cover
+                 FROM publication p
+                 JOIN content c ON c.publication_id = p.id
+                 JOIN library l ON l.id = c.library_id
+                 WHERE p.id = ?1 AND c.kind = 'file' AND l.root_path IS NOT NULL",
+                [publication_id],
+                |row| {
+                    Ok(PublicationFile {
+                        publication_id: row.get(0)?,
+                        library_id: row.get(1)?,
+                        root_path: row.get(2)?,
+                        relative_path: row.get(3)?,
+                        format: row.get(4)?,
+                        stamp: row
+                            .get::<_, Option<i64>>(5)?
+                            .zip(row.get::<_, Option<i64>>(6)?)
+                            .map(|(size, modified_at)| FileStamp {
+                                size: size as u64,
+                                modified_at,
+                            }),
+                        hash: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
+                        available: row.get(8)?,
+                        cover: row.get(9)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(file)
+    }
+
+    /// A publication's page index in reading order.
+    pub fn pages(&self, publication_id: i64) -> Result<Vec<PageRecord>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT pg.entry_name, pg.data_offset, pg.compressed_size, pg.size, pg.compression
+             FROM page pg JOIN content c ON c.id = pg.content_id
+             WHERE c.publication_id = ?1 AND pg.entry_name IS NOT NULL
+             ORDER BY pg.page_index",
+        )?;
+        let rows = stmt.query_map([publication_id], page_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// One page of a publication, by its zero-based index.
+    pub fn page(&self, publication_id: i64, index: u32) -> Result<Option<PageRecord>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT pg.entry_name, pg.data_offset, pg.compressed_size, pg.size, pg.compression
+                 FROM page pg JOIN content c ON c.id = pg.content_id
+                 WHERE c.publication_id = ?1 AND pg.page_index = ?2 AND pg.entry_name IS NOT NULL",
+                params![publication_id, index],
+                page_from_row,
+            )
+            .optional()?)
     }
 }
 
@@ -331,6 +423,34 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
     })
 }
 
+fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PublicationSummary> {
+    Ok(PublicationSummary {
+        id: row.get(0)?,
+        series_id: row.get(1)?,
+        series_title: row.get(2)?,
+        title: row.get(3)?,
+        number_label: row.get(4)?,
+        format: row.get(5)?,
+        page_count: row.get(6)?,
+        available: row.get(7)?,
+        has_cover: row.get(8)?,
+    })
+}
+
+fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
+    let compression = match row.get_ref(4)?.as_str_or_null()? {
+        Some("deflated") => "deflated",
+        _ => "stored",
+    };
+    Ok(PageRecord {
+        entry_name: row.get(0)?,
+        data_offset: row.get::<_, i64>(1)? as u64,
+        compressed_size: row.get::<_, i64>(2)? as u64,
+        size: row.get::<_, i64>(3)? as u64,
+        compression,
+    })
+}
+
 fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Result<()> {
     let series_id: i64 = tx.query_row(
         "INSERT INTO series (library_id, title, sort_title, path_key) VALUES (?1, ?2, ?3, ?4)
@@ -352,9 +472,9 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
     let content_id = match existing {
         Some((content_id, publication_id)) => {
             tx.execute(
-                "UPDATE publication SET series_id = ?2, title = ?3, format = ?4, page_count = ?5, available = 1
+                "UPDATE publication SET series_id = ?2, title = ?3, format = ?4, page_count = ?5, available = 1, cover = ?6
                  WHERE id = ?1",
-                params![publication_id, series_id, file.title, file.format, page_count],
+                params![publication_id, series_id, file.title, file.format, page_count, file.cover],
             )?;
             tx.execute(
                 "UPDATE content SET size = ?2, hash = ?3, modified_at = ?4 WHERE id = ?1",
@@ -370,8 +490,8 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         }
         None => {
             tx.execute(
-                "INSERT INTO publication (series_id, title, format, page_count) VALUES (?1, ?2, ?3, ?4)",
-                params![series_id, file.title, file.format, page_count],
+                "INSERT INTO publication (series_id, title, format, page_count, cover) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![series_id, file.title, file.format, page_count, file.cover],
             )?;
             let publication_id = tx.last_insert_rowid();
             tx.execute(
