@@ -93,9 +93,11 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 ## OPDS
 
-- `/opds/v2/catalog` lists the libraries the user may open; each library is a
-  feed of its publications, 50 per page. Files and covers are served under
-  `/opds/v2` too, so apps send the credentials they used for the catalog.
+- `/opds/v2/catalog` lists the libraries the user may open. Each library is a
+  navigation feed of its series, led by an "All publications" link, and each
+  series is a feed of its publications in reading order, 50 per page.
+  Publications link back to their series feed. Files and covers are served
+  under `/opds/v2` too, so apps send the credentials they used for the catalog.
 - Publication metadata follows the Readium Web Publication model, so roles
   such as penciler or translator keep their own keys.
 
@@ -118,6 +120,9 @@ are in the planning doc; this page keeps the decisions next to the code.
   it to another series, which changes its series id; reading progress is
   kept per publication, so it isn't lost. Series left empty are removed at
   the end of a scan.
+- The API lists a library's series in title order with a publication count
+  and the publication whose cover stands for the series, and lists each
+  series' publications on their own.
 - Metadata that can't be parsed is ignored rather than failing the file,
   since pages and the file are still readable. Text fields are cut at 1,000
   characters and summaries at 20,000.
