@@ -72,6 +72,10 @@ curl localhost:8080/api/v1/libraries/1/publications -H "Authorization: Bearer $T
 Admins add readers with `POST /api/v1/users` and choose which libraries each
 one may open. The API is described in [openapi.yaml](openapi.yaml).
 
+Reader apps that speak OPDS 2, such as Thorium or KOReader, can browse and
+download from `http://<server>:8080/opds/v2/catalog` with a Chek name and
+password.
+
 Settings come from environment variables: `CHEK_BIND` (address, default
 `127.0.0.1:8080`), `CHEK_DATA_DIR` (database and covers, default `./data`) and
 `CHEK_SCAN_WORKERS` (default one fewer than the cores). The server speaks plain

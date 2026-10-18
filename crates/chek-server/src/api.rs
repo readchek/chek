@@ -31,6 +31,8 @@ pub struct AppState {
     pub scan: ScanOptions,
     /// Present until the first admin is created; see [`crate::auth::setup`].
     pub setup_token: Arc<std::sync::Mutex<Option<String>>>,
+    /// Basic auth checks that passed; see [`crate::auth`].
+    pub basic_auth_cache: Arc<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>>,
 }
 
 /// Starts a background scan of every folder library.
@@ -77,6 +79,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/publications/{id}/progress",
             get(progress::get_progress).put(progress::save_progress),
         )
+        .merge(crate::opds::router())
         .with_state(state)
 }
 
@@ -361,8 +364,18 @@ async fn get_publication(
     }))
 }
 
+/// The media type of a publication's file.
+pub(crate) fn file_media_type(format: &str) -> &'static str {
+    match format {
+        "epub" => "application/epub+zip",
+        "pdf" => "application/pdf",
+        "cbz" => "application/vnd.comicbook+zip",
+        _ => "application/octet-stream",
+    }
+}
+
 /// The original file, with byte ranges and conditional requests.
-async fn get_file(
+pub(crate) async fn get_file(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
@@ -376,6 +389,17 @@ async fn get_file(
         .map_err(ApiError::internal)?
         .map(Body::new);
     let headers = response.headers_mut();
+    // ServeFile guesses from the extension and calls a CBZ a RAR comic, so
+    // the type comes from the detected format instead.
+    let guessed = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok());
+    if guessed.is_some_and(|t| !t.starts_with("multipart/")) {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(file_media_type(&file.format)),
+        );
+    }
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-cache"),
@@ -394,7 +418,7 @@ async fn get_file(
     Ok(response)
 }
 
-async fn get_cover(
+pub(crate) async fn get_cover(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
@@ -663,11 +687,11 @@ impl ApiError {
         }
     }
 
-    fn library_not_found(id: i64) -> Self {
+    pub fn library_not_found(id: i64) -> Self {
         Self::not_found(format!("library {id} does not exist"))
     }
 
-    fn publication_not_found(id: i64) -> Self {
+    pub fn publication_not_found(id: i64) -> Self {
         Self::not_found(format!("publication {id} does not exist"))
     }
 

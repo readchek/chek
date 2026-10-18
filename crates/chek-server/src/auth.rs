@@ -15,7 +15,7 @@ use axum::extract::{FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use chek_catalog::{CatalogError, NewUser, Role, User, UserChanges, UserUpdate};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -29,13 +29,16 @@ const SESSION_REFRESH_SECONDS: i64 = 60 * 60;
 const MIN_PASSWORD_CHARS: usize = 8;
 const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_NAME_CHARS: usize = 64;
+/// Basic auth checks remembered at once; the set is emptied when full.
+const MAX_BASIC_AUTH_CACHE: usize = 10_000;
 
 /// The signed-in user making a request.
 pub struct CurrentUser {
     pub user: User,
     /// The device name given at sign-in.
     pub device: Option<String>,
-    token_hash: String,
+    /// The session token's hash; `None` for a request signed with Basic auth.
+    token_hash: Option<String>,
 }
 
 impl CurrentUser {
@@ -59,18 +62,24 @@ impl FromRequestParts<AppState> for CurrentUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let token = parts
+        let credentials = parts
             .headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| {
-                unauthorized(
+            .and_then(|v| v.split_once(' '))
+            .map(|(scheme, value)| (scheme, value.trim()))
+            .filter(|(_, value)| !value.is_empty());
+        let token = match credentials {
+            Some((scheme, token)) if scheme.eq_ignore_ascii_case("Bearer") => token,
+            Some((scheme, encoded)) if scheme.eq_ignore_ascii_case("Basic") => {
+                return basic_user(state, encoded).await;
+            }
+            _ => {
+                return Err(unauthorized(
                     "sign in and send the session token as `Authorization: Bearer <token>`",
-                )
-            })?;
+                ));
+            }
+        };
         let token_hash = hash_token(token);
         let lookup = token_hash.clone();
         let now = now();
@@ -84,9 +93,57 @@ impl FromRequestParts<AppState> for CurrentUser {
         Ok(Self {
             user: session.user,
             device: session.device,
-            token_hash,
+            token_hash: Some(token_hash),
         })
     }
+}
+
+/// Signs a request in with HTTP Basic credentials, which OPDS reader apps
+/// send instead of session tokens. Checking an Argon2 hash on every page
+/// request would be slow, so a successful check is remembered for that exact
+/// password and stored hash; changing the password changes the hash and
+/// forgets it.
+async fn basic_user(state: &AppState, encoded: &str) -> Result<CurrentUser, ApiError> {
+    let invalid = || unauthorized("the name or password is wrong");
+    let decoded = STANDARD.decode(encoded).map_err(|_| invalid())?;
+    let decoded = String::from_utf8(decoded).map_err(|_| invalid())?;
+    let (name, password) = decoded.split_once(':').ok_or_else(invalid)?;
+    let (name, password) = (name.trim().to_owned(), password.to_owned());
+    let found = blocking(state, move |c| c.user_by_name(&name)).await?;
+    let Some(found) = found else {
+        // Same cost as a real check, so timing doesn't reveal which names exist.
+        verify_password(password, dummy_hash().to_owned()).await?;
+        return Err(invalid());
+    };
+    let key = *blake3::Hasher::new()
+        .update(found.password_hash.as_bytes())
+        .update(&[0])
+        .update(password.as_bytes())
+        .finalize()
+        .as_bytes();
+    let known = state
+        .basic_auth_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&key);
+    if !known {
+        if !verify_password(password, found.password_hash).await? {
+            return Err(invalid());
+        }
+        let mut cache = state
+            .basic_auth_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= MAX_BASIC_AUTH_CACHE {
+            cache.clear();
+        }
+        cache.insert(key);
+    }
+    Ok(CurrentUser {
+        user: found.user,
+        device: None,
+        token_hash: None,
+    })
 }
 
 fn unauthorized(message: &str) -> ApiError {
@@ -249,7 +306,10 @@ pub async fn sign_out(
     State(state): State<AppState>,
     current: CurrentUser,
 ) -> Result<StatusCode, ApiError> {
-    blocking(&state, move |c| c.delete_session(&current.token_hash)).await?;
+    // Basic auth has no session to end.
+    if let Some(token_hash) = current.token_hash {
+        blocking(&state, move |c| c.delete_session(&token_hash)).await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -292,7 +352,7 @@ pub async fn change_password(
                 ..UserChanges::default()
             },
         )?;
-        c.delete_user_sessions(user_id, Some(&keep))
+        c.delete_user_sessions(user_id, keep.as_deref())
     })
     .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -395,7 +455,9 @@ pub async fn update_user(
     };
     let role = body.role.map(Role::from);
     let library_ids = body.library_ids;
-    let keep = (id == current.user.id).then_some(current.token_hash);
+    let keep = (id == current.user.id)
+        .then_some(current.token_hash)
+        .flatten();
     let update = blocking(&state, move |c| {
         let update = c.update_user(
             id,
