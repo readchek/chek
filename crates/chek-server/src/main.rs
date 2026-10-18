@@ -3,6 +3,7 @@
 mod annotations;
 mod api;
 mod auth;
+mod browse;
 mod config;
 mod edits;
 mod extensions;

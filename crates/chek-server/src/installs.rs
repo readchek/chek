@@ -207,7 +207,7 @@ fn invalid_extension(error: chek_sources::Error) -> ApiError {
     }
 }
 
-fn not_usable() -> ApiError {
+pub(crate) fn not_usable() -> ApiError {
     ApiError {
         status: StatusCode::FORBIDDEN,
         code: "repository_not_allowed",
@@ -217,6 +217,6 @@ fn not_usable() -> ApiError {
     }
 }
 
-fn not_installed(id: &str) -> ApiError {
+pub(crate) fn not_installed(id: &str) -> ApiError {
     ApiError::not_found(format!("extension {id:?} isn't installed"))
 }

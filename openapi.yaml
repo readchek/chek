@@ -1532,6 +1532,194 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/search:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: searchSource
+      summary: Search a source
+      description: >-
+        One page of the source's series matching `q`. Without `q`, the series
+        the source shows first, such as its popular ones.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: page
+          in: query
+          description: Counts from 1.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Matching series.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, hasMore]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteSeriesItem"
+                  hasMore:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/series:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteSeries
+      summary: Read a series from a source
+      parameters:
+        - $ref: "#/components/parameters/RemoteSeriesId"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSeries"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/chapters:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemoteChapters
+      summary: List a series' chapters from a source
+      parameters:
+        - $ref: "#/components/parameters/RemoteSeriesId"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The chapters in reading order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteChapter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/pages:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemotePages
+      summary: List a chapter's pages from a source
+      parameters:
+        - name: chapterId
+          in: query
+          required: true
+          description: The source's own chapter id.
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The pages in reading order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [index, url]
+                      properties:
+                        index:
+                          type: integer
+                        url:
+                          $ref: "#/components/schemas/RemoteImageUrl"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/image:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteImage
+      summary: Fetch a cover or page through a source
+      description: >-
+        Follow the `coverUrl` and page `url` links the other source routes
+        return rather than building them. The server fetches the image from
+        the source's declared sites and sends its bytes unchanged.
+      parameters:
+        - name: ref
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The image.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/settings:
     get:
       tags: [Extensions]
@@ -1912,6 +2100,13 @@ components:
       description: The extension's reverse-DNS id.
       schema:
         type: string
+    RemoteSeriesId:
+      name: seriesId
+      in: query
+      required: true
+      description: The source's own series id.
+      schema:
+        type: string
     RepositoryId:
       name: repositoryId
       in: path
@@ -2008,6 +2203,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    SourceFailed:
+      description: >-
+        The extension reported an error, went over a limit, or the image
+        couldn't be fetched.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     RepositoryUnreadable:
       description: The repository's index couldn't be fetched or isn't valid.
       content:
@@ -2084,6 +2287,7 @@ components:
             - repository_not_allowed
             - repository_unreadable
             - extension_invalid
+            - source_failed
             - internal
         message:
           type: string
@@ -2148,6 +2352,68 @@ components:
           description: BCP 47 tags of the languages the source serves; empty for any.
           items:
             type: string
+    RemoteImageUrl:
+      type: string
+      description: A path on this server, relative to its base URL, that serves the image.
+      example: /api/v1/me/extensions/org.example.comics/image?ref=eyJ1cmwiOi
+    RemoteSeriesItem:
+      type: object
+      required: [id, title, coverUrl]
+      properties:
+        id:
+          type: string
+          description: The source's own series id.
+        title:
+          type: string
+        coverUrl:
+          oneOf:
+            - $ref: "#/components/schemas/RemoteImageUrl"
+            - type: "null"
+    RemoteSeries:
+      type: object
+      required: [id, title, summary, coverUrl, contributors, readingDirection]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: [string, "null"]
+        coverUrl:
+          oneOf:
+            - $ref: "#/components/schemas/RemoteImageUrl"
+            - type: "null"
+        contributors:
+          type: array
+          items:
+            type: object
+            required: [name, role]
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+        readingDirection:
+          type: [string, "null"]
+          enum: [ltr, rtl, ttb, null]
+    RemoteChapter:
+      type: object
+      required: [id, title, number, version, published]
+      properties:
+        id:
+          type: string
+          description: The source's own chapter id.
+        title:
+          type: string
+        number:
+          type: [string, "null"]
+          description: The chapter or volume number as the source writes it.
+        version:
+          type: [string, "null"]
+          description: Changes when the chapter's pages change.
+        published:
+          type: [string, "null"]
+          description: An RFC 3339 date or date-time.
     InstalledExtension:
       type: object
       required: [id, name, version, repositoryId, sites, languages, installedAt, usable, update]

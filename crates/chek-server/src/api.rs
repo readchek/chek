@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::{annotations, extensions, installs, progress};
+use crate::{annotations, browse, extensions, installs, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -140,6 +140,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/me/extensions/{id}",
             put(installs::install).delete(installs::uninstall),
         )
+        .route("/api/v1/me/extensions/{id}/search", get(browse::search))
+        .route("/api/v1/me/extensions/{id}/series", get(browse::series))
+        .route("/api/v1/me/extensions/{id}/chapters", get(browse::chapters))
+        .route("/api/v1/me/extensions/{id}/pages", get(browse::pages))
+        .route("/api/v1/me/extensions/{id}/image", get(browse::image))
         .route(
             "/api/v1/settings",
             get(extensions::get_settings).put(extensions::update_settings),

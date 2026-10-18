@@ -263,6 +263,17 @@ are in the planning doc; this page keeps the decisions next to the code.
   reports when the index lists a different version. Removing a repository
   removes every install from it.
 
+## Browsing sources
+
+- The API can search a source through an extension the user installed, and
+  read a series, its chapters and a chapter's pages. Each call runs the
+  extension on a blocking thread.
+- Covers and pages come back as links to `/api/v1/me/extensions/{id}/image`,
+  which carry the image request the extension made. The server fetches the
+  image, held to the extension's sites, and sends its bytes unchanged with
+  `nosniff`, so the app never contacts a source's sites itself.
+- Nothing is stored yet; following a series into a library is separate.
+
 ## Observability
 
 - Every request is logged with its method, route, path, status, duration,
