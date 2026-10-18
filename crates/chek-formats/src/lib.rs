@@ -17,7 +17,7 @@ use flate2::read::DeflateDecoder;
 
 pub use cover::cover_thumbnail;
 pub use metadata::{Contributor, Metadata, ReadingDirection, Role};
-pub use natural::natural_cmp;
+pub use natural::{natural_cmp, natural_key};
 
 /// A publication format the server recognises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
