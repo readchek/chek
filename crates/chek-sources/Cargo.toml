@@ -7,6 +7,10 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+reqwest.workspace = true
+thiserror.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,147 @@
+// The contract between the Chek server and a source extension.
+//
+// An extension is a WebAssembly component that targets the `source` world. It
+// runs with an empty WASI environment: no files, no environment variables, no
+// sockets and no clock beyond what WASI always gives. The only way out is the
+// `http` interface, and the server lets it reach only the sites the
+// extension's manifest declares.
+//
+// Every call starts from a fresh instance, so an extension can't keep state
+// between calls.
+package chek:source@0.1.0;
+
+interface types {
+    type header = tuple<string, string>;
+
+    // An image the server fetches itself, such as a cover or a page. The
+    // server sends the headers as given and checks the URL against the
+    // manifest's sites like any other request.
+    record image {
+        url: string,
+        headers: list<header>,
+    }
+
+    enum reading-direction {
+        ltr,
+        rtl,
+        ttb,
+    }
+
+    record manifest {
+        // Stable and unique across repositories, in reverse-DNS form such
+        // as `org.example.comics`.
+        id: string,
+        name: string,
+        version: string,
+        // Hosts the extension may reach, such as `api.example.org`, or
+        // `*.example.org` for any subdomain of example.org. Requests use
+        // HTTPS only.
+        sites: list<string>,
+        // BCP 47 tags of the languages the source serves, empty if any.
+        languages: list<string>,
+    }
+
+    record series-item {
+        // The source's own id, stored as the series' remote id.
+        id: string,
+        title: string,
+        cover: option<image>,
+    }
+
+    record series-page {
+        items: list<series-item>,
+        has-more: bool,
+    }
+
+    record contributor {
+        name: string,
+        // A Readium contributor role, such as `author` or `artist`.
+        role: string,
+    }
+
+    record series {
+        id: string,
+        title: string,
+        summary: option<string>,
+        cover: option<image>,
+        contributors: list<contributor>,
+        reading-direction: option<reading-direction>,
+    }
+
+    record chapter {
+        // The source's own id, stored as the content's remote id.
+        id: string,
+        title: string,
+        // The chapter or volume number as the source writes it, such as
+        // `12` or `12.5`.
+        number: option<string>,
+        // Changes when the chapter's pages change, so the server knows to
+        // fetch the page list again.
+        version: option<string>,
+        // When the chapter was published, as an RFC 3339 date or date-time.
+        published: option<string>,
+    }
+
+    variant error {
+        // The source has no item with this id.
+        not-found,
+        // A request failed; the text says why.
+        network(string),
+        // The site answered with something the extension couldn't read.
+        parse(string),
+        other(string),
+    }
+}
+
+interface http {
+    use types.{header};
+
+    enum method {
+        get,
+        post,
+    }
+
+    record request {
+        method: method,
+        url: string,
+        headers: list<header>,
+        body: option<list<u8>>,
+    }
+
+    record response {
+        status: u16,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    variant http-error {
+        // The URL isn't HTTPS or its host isn't one of the manifest's sites.
+        not-allowed(string),
+        // The response body is larger than the server accepts.
+        too-large,
+        // This call has made as many requests as it may.
+        too-many-requests,
+        timeout,
+        failed(string),
+    }
+
+    // Sends a request and waits for the whole response. Redirects are
+    // followed only to allowed sites.
+    fetch: func(request: request) -> result<response, http-error>;
+}
+
+world source {
+    import http;
+    use types.{manifest, series-page, series, chapter, image, error};
+
+    // Called without network access, before anything else.
+    export manifest: func() -> manifest;
+    // A page of the source's series matching `query`, counting pages from 1.
+    // An empty query lists what the source shows first, such as popular series.
+    export search: func(query: string, page: u32) -> result<series-page, error>;
+    export series: func(id: string) -> result<series, error>;
+    // The series' chapters in reading order.
+    export chapters: func(series-id: string) -> result<list<chapter>, error>;
+    // The chapter's pages in reading order.
+    export pages: func(chapter-id: string) -> result<list<image>, error>;
+}
