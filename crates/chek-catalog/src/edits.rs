@@ -153,7 +153,8 @@ impl Catalog {
 
     /// Forgets a publication's edits and its file's stamp, so the next read
     /// of the file brings its own metadata back. Returns where the file is,
-    /// or `None` when the publication has no file.
+    /// or `None` when the publication has no file, such as one from a source,
+    /// which its library's next sync reads again.
     pub fn clear_edits(&self, publication_id: i64) -> Result<Option<FileLocation>> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -163,6 +164,11 @@ impl Catalog {
         )?;
         tx.execute(
             "UPDATE content SET modified_at = NULL WHERE publication_id = ?1 AND kind = 'file'",
+            [publication_id],
+        )?;
+        // A source's item is read again by the library's next sync.
+        tx.execute(
+            "UPDATE content SET remote_version = NULL WHERE publication_id = ?1 AND kind = 'remote'",
             [publication_id],
         )?;
         let location = tx

@@ -12,7 +12,7 @@ use chek_catalog::{ContributorRecord, PublicationEdit};
 use chek_formats::{MAX_FIELD_CHARS, MAX_SUMMARY_CHARS, Role};
 use serde::{Deserialize, Deserializer};
 
-use crate::api::{ApiError, AppState, blocking, publication_detail};
+use crate::api::{ApiError, AppState, blocking, publication_detail, start_scan};
 use crate::auth::CurrentUser;
 
 /// The most contributors a scan keeps from a file, and so the most an edit
@@ -92,9 +92,16 @@ pub async fn clear_edits(
         return Err(ApiError::publication_not_found(id));
     }
     let Some(location) = blocking(&state, move |c| c.clear_edits(id)).await? else {
-        return Err(ApiError::bad_request(
-            "this publication has no file to read its metadata from",
-        ));
+        // A source's publication is read again by its library's next sync.
+        let library_id = blocking(&state, move |c| c.publication_library(id))
+            .await?
+            .ok_or_else(|| ApiError::publication_not_found(id))?;
+        start_scan(&state, library_id);
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "status": "queued" })),
+        )
+            .into_response());
     };
     let reread = tokio::spawn(chek_library::add_file(
         state.catalog.clone(),

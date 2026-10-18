@@ -11,6 +11,7 @@ repository = "https://github.com/readchek/chek"
 [workspace.dependencies]
 chek-catalog = { path = "crates/chek-catalog" }
 chek-formats = { path = "crates/chek-formats" }
+chek-komga = { path = "crates/chek-komga" }
 chek-library = { path = "crates/chek-library" }
 chek-sources = { path = "crates/chek-sources" }
 
@@ -29,7 +30,7 @@ opentelemetry-appender-tracing = "0.33.1"
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "logs"] }
 opentelemetry_sdk = "0.33.1"
 quick-xml = "0.42.0"
-reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "query", "rustls", "stream"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
