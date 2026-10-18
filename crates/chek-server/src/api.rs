@@ -96,7 +96,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/users/{id}",
             patch(auth::update_user).delete(auth::delete_user),
         )
-        .route("/api/v1/publications/{id}", get(get_publication))
+        .route(
+            "/api/v1/publications/{id}",
+            get(get_publication).patch(crate::edits::edit_publication),
+        )
+        .route(
+            "/api/v1/publications/{id}/edits",
+            axum::routing::delete(crate::edits::clear_edits),
+        )
         .route("/api/v1/publications/{id}/file", get(get_file))
         .route("/api/v1/publications/{id}/cover", get(get_cover))
         .route("/api/v1/publications/{id}/pages", get(list_pages))
@@ -183,9 +190,11 @@ pub(crate) struct PublicationDto {
 /// A publication with the metadata shown when it's opened.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicationDetailDto {
+pub(crate) struct PublicationDetailDto {
     #[serde(flatten)]
     summary: PublicationDto,
+    /// Fields an admin changed by hand, which rescans keep.
+    edited_fields: Vec<&'static str>,
     contributors: Vec<ContributorDto>,
     description: Option<String>,
     publisher: Option<String>,
@@ -661,12 +670,25 @@ async fn get_publication(
     Path(id): Path<i64>,
 ) -> Result<Json<PublicationDetailDto>, ApiError> {
     check_publication(&state, &current, id).await?;
-    let found = blocking(&state, move |c| {
-        Ok(c.publication(id)?.zip(c.publication_details(id)?))
+    Ok(Json(publication_detail(&state, id).await?))
+}
+
+/// A publication with its metadata and which fields an admin edited.
+pub(crate) async fn publication_detail(
+    state: &AppState,
+    id: i64,
+) -> Result<PublicationDetailDto, ApiError> {
+    let found = blocking(state, move |c| {
+        let edited = c.edited_fields(id)?;
+        Ok(c.publication(id)?
+            .zip(c.publication_details(id)?)
+            .map(|found| (found, edited)))
     })
     .await?;
-    let (publication, details) = found.ok_or_else(|| ApiError::publication_not_found(id))?;
-    Ok(Json(PublicationDetailDto {
+    let ((publication, details), edited_fields) =
+        found.ok_or_else(|| ApiError::publication_not_found(id))?;
+    Ok(PublicationDetailDto {
+        edited_fields,
         summary: publication.into(),
         contributors: details
             .contributors
@@ -681,7 +703,7 @@ async fn get_publication(
         language: details.language,
         published: details.published,
         reading_direction: details.reading_direction,
-    }))
+    })
 }
 
 /// The media type of a publication's file.

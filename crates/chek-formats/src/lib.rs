@@ -17,8 +17,10 @@ use std::path::Path;
 use flate2::read::DeflateDecoder;
 
 pub use cover::cover_thumbnail;
-pub use metadata::{Contributor, Metadata, ReadingDirection, Role};
-pub use natural::{natural_cmp, natural_key};
+pub use metadata::{
+    Contributor, MAX_FIELD_CHARS, MAX_SUMMARY_CHARS, Metadata, ReadingDirection, Role,
+};
+pub use natural::{leading_number, natural_cmp, natural_key};
 
 /// A publication format the server recognises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

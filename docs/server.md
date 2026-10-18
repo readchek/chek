@@ -162,6 +162,12 @@ are in the planning doc; this page keeps the decisions next to the code.
   characters and summaries at 20,000.
 - Changing what a scan reads forces a rescan of every file through a
   migration that clears the stored file stamps.
+- Admins can edit a publication's title, number, description, publisher,
+  language, publication date, reading direction and contributors. Edits are
+  stored apart from what the file says and written over it each time the
+  file is read, so rescans keep them, and the API lists which fields were
+  edited. Undoing edits drops them all and reads the file again. Files are
+  never rewritten. Series can't be edited yet.
 
 ## Reading progress
 

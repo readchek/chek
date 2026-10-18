@@ -63,6 +63,24 @@ impl Role {
         }
     }
 
+    /// The role named by [`Role::as_str`], for roles sent through the API.
+    pub fn parse(s: &str) -> Option<Self> {
+        [
+            Role::Author,
+            Role::Illustrator,
+            Role::Penciler,
+            Role::Inker,
+            Role::Colorist,
+            Role::Letterer,
+            Role::CoverArtist,
+            Role::Editor,
+            Role::Translator,
+            Role::Contributor,
+        ]
+        .into_iter()
+        .find(|role| role.as_str() == s)
+    }
+
     /// Maps a MARC relator code, as EPUB uses for roles.
     fn from_marc(code: &str) -> Self {
         match code.trim().to_ascii_lowercase().as_str() {
@@ -93,8 +111,8 @@ impl ReadingDirection {
 }
 
 /// Text fields longer than this are cut, so one odd file can't bloat the catalog.
-pub(crate) const MAX_FIELD_CHARS: usize = 1_000;
-const MAX_SUMMARY_CHARS: usize = 20_000;
+pub const MAX_FIELD_CHARS: usize = 1_000;
+pub const MAX_SUMMARY_CHARS: usize = 20_000;
 const MAX_CONTRIBUTORS: usize = 50;
 
 /// Parses a `ComicInfo.xml` document, the de facto metadata for comic archives.
