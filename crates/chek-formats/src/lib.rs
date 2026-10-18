@@ -8,6 +8,7 @@ mod cover;
 mod epub;
 mod metadata;
 mod natural;
+mod pdf;
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -130,7 +131,7 @@ pub fn inspect(path: &Path, format: Format) -> Result<Inspection, FormatError> {
         // A book whose package can't be read is still served as a file, as
         // before metadata existed, just without metadata.
         Format::Epub => (Vec::new(), epub::metadata(path).unwrap_or_default()),
-        Format::Pdf => (Vec::new(), Metadata::default()),
+        Format::Pdf => (Vec::new(), pdf::metadata(path).unwrap_or_default()),
     };
     Ok(Inspection {
         format,

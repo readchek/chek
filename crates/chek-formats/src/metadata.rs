@@ -1,5 +1,6 @@
 //! Publication metadata read from the file itself: the EPUB package
-//! document, or `ComicInfo.xml` in a comic archive.
+//! document, or `ComicInfo.xml` in a comic archive. PDFs are read in
+//! [`crate::pdf`].
 
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
@@ -90,7 +91,7 @@ impl ReadingDirection {
 }
 
 /// Text fields longer than this are cut, so one odd file can't bloat the catalog.
-const MAX_FIELD_CHARS: usize = 1_000;
+pub(crate) const MAX_FIELD_CHARS: usize = 1_000;
 const MAX_SUMMARY_CHARS: usize = 20_000;
 const MAX_CONTRIBUTORS: usize = 50;
 
@@ -310,7 +311,7 @@ fn is_dublin_core(e: &BytesStart<'_>) -> bool {
     e.name().prefix().is_some_and(|p| p.as_ref() == "dc")
 }
 
-fn push_contributor(contributors: &mut Vec<Contributor>, name: &str, role: Role) {
+pub(crate) fn push_contributor(contributors: &mut Vec<Contributor>, name: &str, role: Role) {
     if contributors.len() >= MAX_CONTRIBUTORS {
         return;
     }
@@ -320,7 +321,7 @@ fn push_contributor(contributors: &mut Vec<Contributor>, name: &str, role: Role)
 }
 
 /// Trims, collapses runs of whitespace, drops empty values and cuts long ones.
-fn clean(value: &str, max_chars: usize) -> Option<String> {
+pub(crate) fn clean(value: &str, max_chars: usize) -> Option<String> {
     cut(
         value.split_whitespace().collect::<Vec<_>>().join(" "),
         max_chars,
@@ -329,7 +330,7 @@ fn clean(value: &str, max_chars: usize) -> Option<String> {
 
 /// Like [`clean`] but keeps line breaks, which plain-text summaries use for
 /// paragraphs.
-fn clean_summary(value: &str) -> Option<String> {
+pub(crate) fn clean_summary(value: &str) -> Option<String> {
     let lines: Vec<String> = value
         .trim()
         .lines()
