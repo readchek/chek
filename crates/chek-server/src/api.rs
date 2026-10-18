@@ -713,6 +713,8 @@ pub(crate) fn file_media_type(format: &str) -> &'static str {
         "pdf" => "application/pdf",
         "cbz" => "application/vnd.comicbook+zip",
         "cbt" => "application/x-cbt",
+        "cbr" => "application/vnd.comicbook-rar",
+        "cb7" => "application/x-cb7",
         _ => "application/octet-stream",
     }
 }
@@ -912,10 +914,10 @@ fn page_entry(page: PageRecord) -> PageEntry {
         data_offset: page.data_offset,
         compressed_size: page.compressed_size,
         size: page.size,
-        compression: if page.compression == "deflated" {
-            Compression::Deflated
-        } else {
-            Compression::Stored
+        compression: match page.compression {
+            "deflated" => Compression::Deflated,
+            "archive" => Compression::Archive,
+            _ => Compression::Stored,
         },
     }
 }

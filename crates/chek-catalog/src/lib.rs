@@ -742,6 +742,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PublicationSumm
 fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
     let compression = match row.get_ref(4)?.as_str_or_null()? {
         Some("deflated") => "deflated",
+        Some("archive") => "archive",
         _ => "stored",
     };
     Ok(PageRecord {

@@ -44,8 +44,10 @@ The clients' planned scope is described in [product direction](docs/product.md).
 
 ## Running the server
 
-Building needs [libvips](https://www.libvips.org) for cover thumbnails:
-`apt install libvips-dev` on Debian or Ubuntu, `brew install vips` on macOS.
+Building needs [libvips](https://www.libvips.org) for cover thumbnails and
+[libarchive](https://www.libarchive.org) for RAR and 7-Zip comics:
+`apt install libvips-dev libarchive-dev` on Debian or Ubuntu,
+`brew install vips libarchive` on macOS.
 
 ```sh
 cargo run --bin chek
