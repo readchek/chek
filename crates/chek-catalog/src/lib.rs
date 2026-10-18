@@ -12,11 +12,13 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 mod annotations;
 mod edits;
 mod progress;
+mod remote;
 mod users;
 
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use edits::{FileLocation, PublicationEdit};
 pub use progress::{Progress, ProgressSave};
+pub use remote::{RemoteContent, RemoteItem};
 pub use users::{
     NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
 };
@@ -36,6 +38,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010_search.sql"),
     include_str!("../migrations/0011_annotations.sql"),
     include_str!("../migrations/0012_publication_edits.sql"),
+    include_str!("../migrations/0013_remote_content.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +82,9 @@ pub struct Library {
     pub name: String,
     pub kind: LibraryKind,
     pub root_path: Option<String>,
+    /// How a source library reaches its source, as JSON. It can hold
+    /// credentials, so it never leaves the server.
+    pub source_config: Option<String>,
     pub scan_status: ScanStatus,
     pub scan_error: Option<String>,
     pub scanned_at: Option<String>,
@@ -236,6 +242,16 @@ impl Catalog {
         conn.execute(
             "INSERT INTO library (name, kind, root_path) VALUES (?1, 'folder', ?2)",
             params![name, root_path],
+        )?;
+        let id = conn.last_insert_rowid();
+        Ok(library_by_id(&conn, id)?.expect("library was just inserted"))
+    }
+
+    pub fn add_source_library(&self, name: &str, source_config: &str) -> Result<Library> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO library (name, kind, source_config) VALUES (?1, 'source', ?2)",
+            params![name, source_config],
         )?;
         let id = conn.last_insert_rowid();
         Ok(library_by_id(&conn, id)?.expect("library was just inserted"))
@@ -669,7 +685,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
-const LIBRARY_SELECT: &str = "SELECT id, name, kind, root_path, scan_status, scan_error, scanned_at, created_at FROM library";
+const LIBRARY_SELECT: &str = "SELECT id, name, kind, root_path, scan_status, scan_error, scanned_at, created_at, source_config FROM library";
 
 fn library_by_id(conn: &Connection, id: i64) -> Result<Option<Library>> {
     Ok(conn
@@ -700,6 +716,7 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
         scan_error: row.get(5)?,
         scanned_at: row.get(6)?,
         created_at: row.get(7)?,
+        source_config: row.get(8)?,
     })
 }
 
@@ -743,6 +760,7 @@ fn page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
     let compression = match row.get_ref(4)?.as_str_or_null()? {
         Some("deflated") => "deflated",
         Some("archive") => "archive",
+        Some("remote") => "remote",
         _ => "stored",
     };
     Ok(PageRecord {
@@ -831,21 +849,52 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         }
     };
 
-    let details = &file.details;
+    record_details(
+        tx,
+        publication_id,
+        content_id,
+        &Recorded {
+            sort_title: &file.sort_title,
+            number_label: file.number_label.as_deref(),
+            sort_number: file.sort_number,
+            details: &file.details,
+            pages: &file.pages,
+        },
+    )
+}
+
+/// What [`record_details`] writes, from a scanned file or a source's item.
+pub(crate) struct Recorded<'a> {
+    pub sort_title: &'a str,
+    pub number_label: Option<&'a str>,
+    pub sort_number: Option<f64>,
+    pub details: &'a PublicationDetails,
+    pub pages: &'a [PageRecord],
+}
+
+/// Writes a recorded publication's metadata, contributors and page index,
+/// then applies its edits and refreshes its search entry.
+pub(crate) fn record_details(
+    tx: &Transaction<'_>,
+    publication_id: i64,
+    content_id: i64,
+    recorded: &Recorded<'_>,
+) -> Result<()> {
+    let details = recorded.details;
     tx.execute(
         "UPDATE publication SET number_label = ?2, sort_number = ?3, summary = ?4, publisher = ?5,
              language = ?6, published = ?7, reading_direction = ?8, sort_title = ?9
          WHERE id = ?1",
         params![
             publication_id,
-            file.number_label,
-            file.sort_number,
+            recorded.number_label,
+            recorded.sort_number,
             details.summary,
             details.publisher,
             details.language,
             details.published,
             details.reading_direction,
-            file.sort_title
+            recorded.sort_title
         ],
     )?;
     tx.execute(
@@ -866,7 +915,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
-    for (index, page) in file.pages.iter().enumerate() {
+    for (index, page) in recorded.pages.iter().enumerate() {
         insert.execute(params![
             content_id,
             index as i64,
