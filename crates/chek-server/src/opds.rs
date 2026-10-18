@@ -33,6 +33,12 @@ pub fn router() -> Router<AppState> {
         )
         .route("/opds/v2/libraries/{id}/search", get(library_search))
         .route("/opds/v2/search", get(search))
+        .route("/opds/v2/continue-reading", get(continue_reading))
+        .route("/opds/v2/recently-added", get(recently_added))
+        .route(
+            "/opds/v2/libraries/{id}/recently-added",
+            get(library_recently_added),
+        )
         .route("/opds/v2/series/{id}", get(series))
         .route("/opds/v2/publications/{id}", get(publication))
         // The same handlers as the API, under this prefix so reader apps
@@ -114,18 +120,16 @@ async fn catalog(
     current: CurrentUser,
 ) -> Result<Response, ApiError> {
     let libraries = blocking(&state, |c| c.libraries()).await?;
-    let navigation: Vec<Value> = libraries
-        .into_iter()
-        .filter(|l| current.user.can_read(l.id))
-        .map(|l| {
-            json!({
-                "href": format!("/opds/v2/libraries/{}", l.id),
-                "title": l.name,
-                "type": FEED_TYPE,
-                "rel": "subsection",
-            })
-        })
-        .collect();
+    let mut navigation = vec![
+        subsection("/opds/v2/continue-reading", "Continue reading"),
+        subsection("/opds/v2/recently-added", "Recently added"),
+    ];
+    navigation.extend(
+        libraries
+            .into_iter()
+            .filter(|l| current.user.can_read(l.id))
+            .map(|l| subsection(&format!("/opds/v2/libraries/{}", l.id), &l.name)),
+    );
     Ok(document(
         FEED_TYPE,
         json!({
@@ -140,9 +144,83 @@ async fn catalog(
     ))
 }
 
+fn subsection(href: &str, title: &str) -> Value {
+    json!({ "href": href, "title": title, "type": FEED_TYPE, "rel": "subsection" })
+}
+
 #[derive(Deserialize)]
 struct FeedQuery {
     cursor: Option<String>,
+}
+
+/// Publications the user has started and not finished, most recently read
+/// first.
+async fn continue_reading(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let user = current.user.clone();
+    let entries = blocking(&state, move |c| {
+        let reading = c.continue_reading(&user, after, PAGE_SIZE)?;
+        with_details(c, reading.into_iter().map(|(p, _)| p).collect())
+    })
+    .await?;
+    Ok(publications_feed(
+        "Continue reading",
+        "/opds/v2/continue-reading",
+        "/opds/v2/catalog",
+        (after, next_after_last(&entries)),
+        entries,
+    ))
+}
+
+/// Newest publications first across every library the user can read.
+async fn recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    recent_feed(&state, &current, None, query).await
+}
+
+/// Newest publications first in one library.
+async fn library_recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<FeedQuery>,
+) -> Result<Response, ApiError> {
+    recent_feed(&state, &current, Some(id), query).await
+}
+
+async fn recent_feed(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    query: FeedQuery,
+) -> Result<Response, ApiError> {
+    let after = api::parse_cursor(query.cursor.as_deref())?;
+    let found = api::recent_publications(state, current, library_id, after, PAGE_SIZE).await?;
+    let entries = blocking(state, move |c| with_details(c, found)).await?;
+    let (base, up) = match library_id {
+        Some(id) => (
+            format!("/opds/v2/libraries/{id}/recently-added"),
+            format!("/opds/v2/libraries/{id}"),
+        ),
+        None => (
+            "/opds/v2/recently-added".to_owned(),
+            "/opds/v2/catalog".to_owned(),
+        ),
+    };
+    Ok(publications_feed(
+        "Recently added",
+        &base,
+        &up,
+        (after, next_after_last(&entries)),
+        entries,
+    ))
 }
 
 /// A library as a navigation feed of its series, led by a link to every
@@ -172,12 +250,14 @@ async fn library(
         .flatten();
     let mut navigation = Vec::new();
     if after.is_none() {
-        navigation.push(json!({
-            "href": format!("{base}/publications"),
-            "title": "All publications",
-            "type": FEED_TYPE,
-            "rel": "subsection",
-        }));
+        navigation.push(subsection(
+            &format!("{base}/publications"),
+            "All publications",
+        ));
+        navigation.push(subsection(
+            &format!("{base}/recently-added"),
+            "Recently added",
+        ));
     }
     navigation.extend(series.into_iter().map(|s| {
         json!({

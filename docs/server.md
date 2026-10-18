@@ -93,8 +93,9 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 ## OPDS
 
-- `/opds/v2/catalog` lists the libraries the user may open. Each library is a
-  navigation feed of its series, led by an "All publications" link, and each
+- `/opds/v2/catalog` lists "Continue reading", "Recently added" and the
+  libraries the user may open. Each library is a navigation feed of its
+  series, led by "All publications" and "Recently added" links, and each
   series is a feed of its publications in reading order, 50 per page.
   Publications link back to their series feed. The catalog and each library
   carry a templated `search` link. Files and covers are served
@@ -158,6 +159,11 @@ are in the planning doc; this page keeps the decisions next to the code.
   reread is as deliberate as moving forward.
 - A position records the device name of the session that saved it, so the
   app can say where the other position came from.
+- Continue reading lists publications with a saved position that hasn't
+  reached the end (a `totalProgression` below 1, or none), most recently
+  saved first. Recently added lists publications by id, newest first, since
+  ids grow as scans find new files; a file changed in place keeps its place.
+  Both leave out unavailable publications and libraries the user can't read.
 
 ## Observability
 
