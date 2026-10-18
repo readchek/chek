@@ -4,14 +4,17 @@ use std::path::Path;
 
 use zip::CompressionMethod;
 
+use crate::epub::{MAX_XML_BYTES, read_entry};
+use crate::metadata::{self, Metadata};
 use crate::{Compression, FormatError, MAX_ARCHIVE_ENTRIES, PageEntry, natural_cmp};
 
 const IMAGE_EXTENSIONS: [&str; 7] = ["jpg", "jpeg", "png", "webp", "gif", "avif", "jxl"];
 
-/// Lists the archive's images in reading order. Entries the server can't read
-/// back directly (encrypted, or compressed with anything but deflate) are left
-/// out so every indexed page can be served from its offset.
-pub(crate) fn page_index(path: &Path) -> Result<Vec<PageEntry>, FormatError> {
+/// Lists the archive's images in reading order and reads its `ComicInfo.xml`.
+/// Entries the server can't read back directly (encrypted, or compressed with
+/// anything but deflate) are left out so every indexed page can be served
+/// from its offset.
+pub(crate) fn inspect(path: &Path) -> Result<(Vec<PageEntry>, Metadata), FormatError> {
     let mut archive = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
     if archive.len() > MAX_ARCHIVE_ENTRIES {
         return Err(FormatError::TooManyEntries {
@@ -20,12 +23,17 @@ pub(crate) fn page_index(path: &Path) -> Result<Vec<PageEntry>, FormatError> {
     }
 
     let mut pages = Vec::new();
+    let mut comic_info = None;
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i)?;
         // A name that isn't valid text can't be a page we'd want to show.
         let Ok(name) = entry.name() else {
             continue;
         };
+        if name.eq_ignore_ascii_case("ComicInfo.xml") {
+            comic_info = Some(name.into_owned());
+            continue;
+        }
         if entry.is_dir() || entry.encrypted() || !is_page(&name) {
             continue;
         }
@@ -46,7 +54,17 @@ pub(crate) fn page_index(path: &Path) -> Result<Vec<PageEntry>, FormatError> {
         });
     }
     pages.sort_by(|a, b| natural_cmp(&a.name, &b.name));
-    Ok(pages)
+    // Pages are what make the archive readable, so a ComicInfo.xml that
+    // can't be read leaves the metadata empty instead of failing the file.
+    let metadata = comic_info
+        .and_then(|name| {
+            read_entry(&mut archive, &name, MAX_XML_BYTES)
+                .ok()
+                .flatten()
+        })
+        .map(|xml| metadata::comic_info(&xml))
+        .unwrap_or_default();
+    Ok((pages, metadata))
 }
 
 fn is_page(name: &str) -> bool {

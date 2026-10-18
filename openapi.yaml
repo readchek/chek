@@ -470,11 +470,11 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "200":
-          description: The publication.
+          description: The publication with its metadata.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PublicationSummary"
+                $ref: "#/components/schemas/PublicationDetail"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -896,9 +896,12 @@ components:
               type: string
         title:
           type: string
+          description: From the file's metadata, or its file name when it has none.
         numberLabel:
           type: [string, "null"]
-          description: The volume or chapter number as written, such as "Vol. 3".
+          description: |
+            The number in its series as the file's metadata writes it, such as
+            "3", "1.5" or "Vol. 3".
         format:
           type: string
           enum: [epub, pdf, cbz]
@@ -911,6 +914,56 @@ components:
         hasCover:
           type: boolean
           description: Whether `/cover` has an image for this publication.
+    PublicationDetail:
+      description: |
+        A publication with metadata read from the file: the EPUB package
+        document, or `ComicInfo.xml` in a CBZ. PDFs carry none yet.
+      allOf:
+        - $ref: "#/components/schemas/PublicationSummary"
+        - type: object
+          required: [contributors, description, publisher, language, published, readingDirection]
+          properties:
+            contributors:
+              type: array
+              description: People credited, in the order the file lists them.
+              items:
+                $ref: "#/components/schemas/Contributor"
+            description:
+              type: [string, "null"]
+              description: May contain HTML, as EPUB descriptions often do.
+            publisher:
+              type: [string, "null"]
+            language:
+              type: [string, "null"]
+              description: A BCP 47 language tag.
+              example: en
+            published:
+              type: [string, "null"]
+              description: "`YYYY`, `YYYY-MM` or `YYYY-MM-DD`."
+              example: "2014-06"
+            readingDirection:
+              type: [string, "null"]
+              enum: [ltr, rtl, null]
+              description: Set when the file says; right to left for manga marked so.
+    Contributor:
+      type: object
+      required: [name, role]
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+            - author
+            - illustrator
+            - penciler
+            - inker
+            - colorist
+            - letterer
+            - coverArtist
+            - editor
+            - translator
+            - contributor
     PageInfo:
       type: object
       required: [index, mediaType, size]

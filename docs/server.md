@@ -67,6 +67,20 @@ are in the planning doc; this page keeps the decisions next to the code.
   out the user's other sessions.
 - The server keeps at least one admin; demoting or deleting the last one fails.
 
+## Metadata
+
+- Scans read metadata from the file itself: the EPUB package document
+  (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
+  CBZs. PDFs carry none yet. A file without metadata keeps its file name as
+  its title.
+- Series stay grouped by folder. A metadata series name doesn't regroup
+  files, so series ids stay stable when tags change.
+- Metadata that can't be parsed is ignored rather than failing the file,
+  since pages and the file are still readable. Text fields are cut at 1,000
+  characters and summaries at 20,000.
+- Changing what a scan reads forces a rescan of every file through a
+  migration that clears the stored file stamps.
+
 ## Reading progress
 
 - Each user has one position per publication, stored as a Readium Locator

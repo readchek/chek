@@ -139,6 +139,26 @@ struct PublicationDto {
     has_cover: bool,
 }
 
+/// A publication with the metadata shown when it's opened.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicationDetailDto {
+    #[serde(flatten)]
+    summary: PublicationDto,
+    contributors: Vec<ContributorDto>,
+    description: Option<String>,
+    publisher: Option<String>,
+    language: Option<String>,
+    published: Option<String>,
+    reading_direction: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ContributorDto {
+    name: String,
+    role: String,
+}
+
 #[derive(Serialize)]
 struct SeriesRefDto {
     id: i64,
@@ -316,12 +336,29 @@ async fn get_publication(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
-) -> Result<Json<PublicationDto>, ApiError> {
+) -> Result<Json<PublicationDetailDto>, ApiError> {
     check_publication(&state, &current, id).await?;
-    let publication = blocking(&state, move |c| c.publication(id)).await?;
-    publication
-        .map(|p| Json(p.into()))
-        .ok_or_else(|| ApiError::publication_not_found(id))
+    let found = blocking(&state, move |c| {
+        Ok(c.publication(id)?.zip(c.publication_details(id)?))
+    })
+    .await?;
+    let (publication, details) = found.ok_or_else(|| ApiError::publication_not_found(id))?;
+    Ok(Json(PublicationDetailDto {
+        summary: publication.into(),
+        contributors: details
+            .contributors
+            .into_iter()
+            .map(|c| ContributorDto {
+                name: c.name,
+                role: c.role,
+            })
+            .collect(),
+        description: details.summary,
+        publisher: details.publisher,
+        language: details.language,
+        published: details.published,
+        reading_direction: details.reading_direction,
+    }))
 }
 
 /// The original file, with byte ranges and conditional requests.

@@ -1,30 +1,24 @@
-//! Just enough EPUB to find the cover image: the container points at the
-//! package document, and the package's manifest marks the cover.
+//! Just enough EPUB to find the cover and metadata: the container points at
+//! the package document, whose manifest marks the cover.
 
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
 use quick_xml::Reader;
-use quick_xml::XmlVersion;
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::Event;
 use zip::ZipArchive;
 
+use crate::metadata::{self, Metadata, attribute};
 use crate::{FormatError, MAX_ENTRY_BYTES};
 
 /// XML documents larger than this are not parsed.
-const MAX_XML_BYTES: u64 = 4 * 1024 * 1024;
+pub(crate) const MAX_XML_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Returns the cover image's bytes, or `None` when the book doesn't mark one.
 pub(crate) fn cover_image(path: &Path) -> Result<Option<Vec<u8>>, FormatError> {
     let mut archive = ZipArchive::new(BufReader::new(File::open(path)?))?;
-    let Some(container) = read_entry(&mut archive, "META-INF/container.xml", MAX_XML_BYTES)? else {
-        return Ok(None);
-    };
-    let Some(package_path) = first_attribute(&container, "rootfile", "full-path") else {
-        return Ok(None);
-    };
-    let Some(package) = read_entry(&mut archive, &package_path, MAX_XML_BYTES)? else {
+    let Some((package_path, package)) = package(&mut archive)? else {
         return Ok(None);
     };
     let Some(href) = cover_href(&package) else {
@@ -37,7 +31,28 @@ pub(crate) fn cover_image(path: &Path) -> Result<Option<Vec<u8>>, FormatError> {
     read_entry(&mut archive, &entry, MAX_ENTRY_BYTES)
 }
 
-fn read_entry<R: Read + std::io::Seek>(
+/// Reads the book's metadata from its package document.
+pub(crate) fn metadata(path: &Path) -> Result<Metadata, FormatError> {
+    let mut archive = ZipArchive::new(BufReader::new(File::open(path)?))?;
+    Ok(package(&mut archive)?
+        .map(|(_, package)| metadata::epub_package(&package))
+        .unwrap_or_default())
+}
+
+/// The package document's path and bytes, found through the container file.
+fn package<R: Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+) -> Result<Option<(String, Vec<u8>)>, FormatError> {
+    let Some(container) = read_entry(archive, "META-INF/container.xml", MAX_XML_BYTES)? else {
+        return Ok(None);
+    };
+    let Some(package_path) = first_attribute(&container, "rootfile", "full-path") else {
+        return Ok(None);
+    };
+    Ok(read_entry(archive, &package_path, MAX_XML_BYTES)?.map(|p| (package_path, p)))
+}
+
+pub(crate) fn read_entry<R: Read + std::io::Seek>(
     archive: &mut ZipArchive<R>,
     name: &str,
     limit: u64,
@@ -128,18 +143,6 @@ fn first_attribute(xml: &[u8], element: &str, name: &str) -> Option<String> {
         }
         buf.clear();
     }
-}
-
-fn attribute(element: &BytesStart<'_>, name: &str) -> Option<String> {
-    element
-        .attributes()
-        .flatten()
-        .find(|a| a.key.local_name().as_ref() == name)
-        .and_then(|a| {
-            a.normalized_value(XmlVersion::Implicit1_0)
-                .ok()
-                .map(|v| v.into_owned())
-        })
 }
 
 /// Joins an href to the package document's folder, resolving `..` and

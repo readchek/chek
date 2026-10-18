@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-use chek_catalog::{Catalog, CatalogError, FileStamp, PageRecord, ScannedFile};
+use chek_catalog::{
+    Catalog, CatalogError, ContributorRecord, FileStamp, PageRecord, PublicationDetails,
+    ScannedFile,
+};
 use chek_formats::Format;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -268,10 +271,14 @@ fn scan_file(
     let hash = hash_file(path)?;
     let cover = make_cover(covers_dir, path, format, &inspection.pages, &hash);
     let (series_key, series_title) = series_for(root, path, &relative_path);
-    let title = path.file_stem().map_or_else(
-        || relative_path.clone(),
-        |s| s.to_string_lossy().into_owned(),
-    );
+    let metadata = inspection.metadata;
+    let title = metadata.title.unwrap_or_else(|| {
+        path.file_stem().map_or_else(
+            || relative_path.clone(),
+            |s| s.to_string_lossy().into_owned(),
+        )
+    });
+    let sort_number = metadata.number.as_deref().and_then(leading_number);
 
     catalog.record_file(
         library_id,
@@ -284,6 +291,23 @@ fn scan_file(
             stamp,
             hash,
             cover,
+            number_label: metadata.number,
+            sort_number,
+            details: PublicationDetails {
+                summary: metadata.summary,
+                publisher: metadata.publisher,
+                language: metadata.language,
+                published: metadata.published,
+                reading_direction: metadata.reading_direction.map(|d| d.as_str().to_owned()),
+                contributors: metadata
+                    .contributors
+                    .into_iter()
+                    .map(|c| ContributorRecord {
+                        name: c.name,
+                        role: c.role.as_str().to_owned(),
+                    })
+                    .collect(),
+            },
             pages: inspection
                 .pages
                 .into_iter()
@@ -298,6 +322,17 @@ fn scan_file(
         },
     )?;
     Ok(FileOutcome::Recorded)
+}
+
+/// The number a label starts with, ignoring a leading word such as "Vol." or
+/// "#": `"12"` → 12, `"Vol. 2"` → 2, `"1.5"` → 1.5.
+fn leading_number(label: &str) -> Option<f64> {
+    let start = label.find(|c: char| c.is_ascii_digit())?;
+    let digits = &label[start..];
+    let end = digits
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(digits.len());
+    digits[..end].trim_end_matches('.').parse().ok()
 }
 
 /// A file's series is the folder it sits in. A file at the library root is a
