@@ -69,6 +69,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/series/{id}/publications",
             get(list_series_publications),
         )
+        .route("/api/v1/search", get(search))
         .route("/api/v1/setup", post(auth::setup))
         .route("/api/v1/auth/sign-in", post(auth::sign_in))
         .route("/api/v1/auth/sign-out", post(auth::sign_out))
@@ -387,6 +388,87 @@ pub(crate) fn parse_cursor(cursor: Option<&str>) -> Result<Option<i64>, ApiError
                 .map_err(|_| ApiError::bad_request("cursor is not valid"))
         })
         .transpose()
+}
+
+/// Longer queries are almost certainly not typed by a person.
+const MAX_QUERY_CHARS: usize = 200;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchQuery {
+    q: Option<String>,
+    library_id: Option<i64>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
+async fn search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    let offset = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = search_publications(
+        &state,
+        &current,
+        query.q.as_deref().unwrap_or_default(),
+        query.library_id,
+        offset,
+        limit,
+    )
+    .await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| (offset.unwrap_or(0) + i64::from(limit)).to_string());
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// One page of search results for the API and OPDS. The cursor is the
+/// number of results already returned.
+pub(crate) async fn search_publications(
+    state: &AppState,
+    current: &CurrentUser,
+    query: &str,
+    library_id: Option<i64>,
+    offset: Option<i64>,
+    limit: u32,
+) -> Result<Vec<PublicationSummary>, ApiError> {
+    let query = query.trim().to_owned();
+    if query.is_empty() {
+        return Err(ApiError::bad_request("q is required"));
+    }
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::bad_request(format!(
+            "q is longer than {MAX_QUERY_CHARS} characters"
+        )));
+    }
+    let offset = u32::try_from(offset.unwrap_or(0))
+        .map_err(|_| ApiError::bad_request("cursor is not valid"))?;
+    if let Some(id) = library_id
+        && !current.user.can_read(id)
+    {
+        return Err(ApiError::library_not_found(id));
+    }
+    let user = current.user.clone();
+    let (library_found, items) = blocking(state, move |c| {
+        if let Some(id) = library_id
+            && c.library(id)?.is_none()
+        {
+            return Ok((false, Vec::new()));
+        }
+        Ok((true, c.search(&user, library_id, &query, offset, limit)?))
+    })
+    .await?;
+    match (library_found, library_id) {
+        (false, Some(id)) => Err(ApiError::library_not_found(id)),
+        _ => Ok(items),
+    }
 }
 
 async fn list_series(

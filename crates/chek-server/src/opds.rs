@@ -31,6 +31,8 @@ pub fn router() -> Router<AppState> {
             "/opds/v2/libraries/{id}/publications",
             get(library_publications),
         )
+        .route("/opds/v2/libraries/{id}/search", get(library_search))
+        .route("/opds/v2/search", get(search))
         .route("/opds/v2/series/{id}", get(series))
         .route("/opds/v2/publications/{id}", get(publication))
         // The same handlers as the API, under this prefix so reader apps
@@ -131,6 +133,7 @@ async fn catalog(
             "links": [
                 { "rel": "self", "href": "/opds/v2/catalog", "type": FEED_TYPE },
                 { "rel": "start", "href": "/opds/v2/catalog", "type": FEED_TYPE },
+                search_link("/opds/v2/search"),
             ],
             "navigation": navigation,
         }),
@@ -185,11 +188,13 @@ async fn library(
             "properties": { "numberOfItems": s.publication_count },
         })
     }));
+    let mut links = feed_links(&base, after, next, "/opds/v2/catalog");
+    links.push(search_link(&format!("{base}/search")));
     Ok(document(
         FEED_TYPE,
         json!({
             "metadata": { "title": library.name, "itemsPerPage": PAGE_SIZE },
-            "links": feed_links(&base, after, next, "/opds/v2/catalog"),
+            "links": links,
             "navigation": navigation,
         }),
     ))
@@ -219,7 +224,7 @@ async fn library_publications(
         &library.name,
         &format!("/opds/v2/libraries/{id}/publications"),
         &format!("/opds/v2/libraries/{id}"),
-        after,
+        (after, next_after_last(&entries)),
         entries,
     ))
 }
@@ -241,9 +246,75 @@ async fn series(
         &series.title,
         &format!("/opds/v2/series/{id}"),
         &format!("/opds/v2/libraries/{}", series.library_id),
-        after,
+        (after, next_after_last(&entries)),
         entries,
     ))
+}
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    query: Option<String>,
+    cursor: Option<String>,
+}
+
+/// Search across every library the user can read.
+async fn search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<SearchQuery>,
+) -> Result<Response, ApiError> {
+    search_feed(&state, &current, None, query).await
+}
+
+/// Search within one library.
+async fn library_search(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Response, ApiError> {
+    search_feed(&state, &current, Some(id), query).await
+}
+
+async fn search_feed(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    query: SearchQuery,
+) -> Result<Response, ApiError> {
+    let text = query.query.unwrap_or_default();
+    let offset = api::parse_cursor(query.cursor.as_deref())?;
+    let found =
+        api::search_publications(state, current, &text, library_id, offset, PAGE_SIZE).await?;
+    let next =
+        (found.len() == PAGE_SIZE as usize).then(|| offset.unwrap_or(0) + i64::from(PAGE_SIZE));
+    let entries = blocking(state, move |c| with_details(c, found)).await?;
+    let (path, up) = match library_id {
+        Some(id) => (
+            format!("/opds/v2/libraries/{id}/search"),
+            format!("/opds/v2/libraries/{id}"),
+        ),
+        None => ("/opds/v2/search".to_owned(), "/opds/v2/catalog".to_owned()),
+    };
+    let encoded =
+        serde_urlencoded::to_string([("query", text.trim())]).map_err(ApiError::internal)?;
+    Ok(publications_feed(
+        &format!("Search: {}", text.trim()),
+        &format!("{path}?{encoded}"),
+        &up,
+        (offset, next),
+        entries,
+    ))
+}
+
+/// A templated link apps fill in with what the reader types.
+fn search_link(path: &str) -> Value {
+    json!({
+        "rel": "search",
+        "href": format!("{path}{{?query}}"),
+        "type": FEED_TYPE,
+        "templated": true,
+    })
 }
 
 fn with_details(
@@ -259,16 +330,21 @@ fn with_details(
         .collect()
 }
 
+/// The cursor for the page after `entries`: the last id, when the page is
+/// full.
+fn next_after_last(entries: &[(PublicationSummary, PublicationDetails)]) -> Option<i64> {
+    (entries.len() == PAGE_SIZE as usize)
+        .then(|| entries.last().map(|(p, _)| p.id))
+        .flatten()
+}
+
 fn publications_feed(
     title: &str,
     base: &str,
     up: &str,
-    after: Option<i64>,
+    (after, next): (Option<i64>, Option<i64>),
     entries: Vec<(PublicationSummary, PublicationDetails)>,
 ) -> Response {
-    let next = (entries.len() == PAGE_SIZE as usize)
-        .then(|| entries.last().map(|(p, _)| p.id))
-        .flatten();
     let publications: Vec<Value> = entries
         .into_iter()
         .map(|(summary, details)| publication_entry(summary, details))
@@ -283,11 +359,12 @@ fn publications_feed(
     )
 }
 
-/// A feed page's self, start, up and next links; cursors are the last
-/// item's id.
+/// A feed page's self, start, up and next links. `base` may already carry
+/// a query string.
 fn feed_links(base: &str, after: Option<i64>, next: Option<i64>, up: &str) -> Vec<Value> {
+    let separator = if base.contains('?') { '&' } else { '?' };
     let self_href = match after {
-        Some(after) => format!("{base}?cursor={after}"),
+        Some(after) => format!("{base}{separator}cursor={after}"),
         None => base.to_owned(),
     };
     let mut links = vec![
@@ -298,7 +375,7 @@ fn feed_links(base: &str, after: Option<i64>, next: Option<i64>, up: &str) -> Ve
     if let Some(next) = next {
         links.push(json!({
             "rel": "next",
-            "href": format!("{base}?cursor={next}"),
+            "href": format!("{base}{separator}cursor={next}"),
             "type": FEED_TYPE,
         }));
     }
