@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004_progress.sql"),
     include_str!("../migrations/0005_metadata.sql"),
     include_str!("../migrations/0006_session_ids.sql"),
+    include_str!("../migrations/0007_sort_titles.sql"),
     include_str!("../migrations/0008_metadata_series.sql"),
 ];
 
@@ -120,7 +121,11 @@ pub struct ScannedFile {
     pub relative_path: String,
     pub series_key: String,
     pub series_title: String,
+    /// Sorts series in a library; see `chek_formats::natural_key`.
+    pub series_sort_title: String,
     pub title: String,
+    /// Sorts publications that share a number, or have none, in a series.
+    pub sort_title: String,
     pub format: &'static str,
     pub stamp: FileStamp,
     pub hash: String,
@@ -165,6 +170,12 @@ pub struct PageRecord {
 pub struct Catalog {
     conn: Mutex<Connection>,
 }
+
+/// The order publications are listed in, over `publication p` joined with
+/// `series s`. Unnumbered publications follow numbered ones; the trailing id
+/// makes every key unique.
+const ORDER_KEY: &str =
+    "s.sort_title, s.id, p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id";
 
 impl Catalog {
     /// Opens or creates the database at `path` and applies pending migrations.
@@ -318,26 +329,30 @@ impl Catalog {
         Ok(())
     }
 
-    /// Lists a library's publications in id order, starting after the
-    /// publication id `after`.
+    /// Lists a library's publications in reading order, starting after the
+    /// publication id `after`. Series sort by title; within a series,
+    /// numbered publications come first by number, then the rest by title.
     pub fn publications(
         &self,
         library_id: i64,
         after: Option<i64>,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
+        // The cursor is the last publication's id; comparing whole sort keys
+        // against that row's keeps pages stable and complete as long as the
+        // row exists, and publications are never deleted, only marked
+        // unavailable.
         let conn = self.conn();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
              FROM publication p JOIN series s ON s.id = p.series_id
-             WHERE s.library_id = ?1 AND p.id > ?2
-             ORDER BY p.id
-             LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(
-            params![library_id, after.unwrap_or(0), limit],
-            summary_from_row,
-        )?;
+             WHERE s.library_id = ?1
+               AND (?2 IS NULL OR ({ORDER_KEY}) > (
+                   SELECT {ORDER_KEY} FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?2))
+             ORDER BY {ORDER_KEY}
+             LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(params![library_id, after, limit], summary_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -552,7 +567,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         "INSERT INTO series (library_id, title, sort_title, path_key) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT (library_id, path_key) DO UPDATE SET title = excluded.title, sort_title = excluded.sort_title
          RETURNING id",
-        params![library_id, file.series_title, file.series_title.to_lowercase(), file.series_key],
+        params![library_id, file.series_title, file.series_sort_title, file.series_key],
         |row| row.get(0),
     )?;
 
@@ -609,7 +624,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
     let details = &file.details;
     tx.execute(
         "UPDATE publication SET number_label = ?2, sort_number = ?3, summary = ?4, publisher = ?5,
-             language = ?6, published = ?7, reading_direction = ?8
+             language = ?6, published = ?7, reading_direction = ?8, sort_title = ?9
          WHERE id = ?1",
         params![
             publication_id,
@@ -619,7 +634,8 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
             details.publisher,
             details.language,
             details.published,
-            details.reading_direction
+            details.reading_direction,
+            file.sort_title
         ],
     )?;
     tx.execute(

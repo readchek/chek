@@ -105,6 +105,10 @@ are in the planning doc; this page keeps the decisions next to the code.
   (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
   CBZs. PDFs carry none yet. A file without metadata keeps its file name as
   its title.
+- Lists go series by series, in title order. Within a series, publications
+  with a number in their metadata come first in number order, then the rest
+  by title. Numbers inside titles and file names compare by value, so
+  `Episode 2` comes before `Episode 10` without any metadata.
 - A file whose metadata names a series (ComicInfo `Series`, an EPUB 3
   series collection or calibre's `calibre:series`) joins every file with that
   series name in the library, matched ignoring case, wherever the files sit.
