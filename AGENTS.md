@@ -6,12 +6,11 @@ scope and explicit decisions first. Guidance and skills do not authorize extra w
 ## Required references
 
 - [Product direction](docs/product.md): product scope and planned features.
-- [Design](docs/design.md): interface direction and historical studies.
-- [Development](docs/development.md): workspaces, commands, and configuration.
-- For website work, read the [website guide](docs/website.md).
 
-This repository currently contains only the landing page; the backend is being
-re-planned. The reader and native Apple apps are developed separately.
+This repository is the Chek server. It has no code yet; its structure and stack
+are being re-planned. The landing page lives in
+[readchek/chek.page](https://github.com/readchek/chek.page), and the reader and
+native Apple apps are developed separately.
 Research proposals are starting points to validate, not implemented capabilities
 or final choices. Keep approved decisions, proposals, and verified behavior distinct.
 Check date-sensitive claims against current primary sources or installed dependencies.
@@ -59,8 +58,6 @@ disguise new tests as temporary verification scripts.
 
 ## Bun
 
-Preserve the existing workspaces and root `bun.lock`.
-
 - Use Bun instead of Node.js, npm, pnpm, yarn, ts-node, or npx: `bun <file>`,
   `bun run <script>`, `bun install`, and `bunx <package> <command>`.
 - Use `bun test` for authorized JavaScript/TypeScript tests. Do not write unrequested tests.
@@ -70,16 +67,3 @@ Preserve the existing workspaces and root `bun.lock`.
 - Prefer Bun.serve over Express, bun:sqlite over better-sqlite3, Bun.redis over
   ioredis, Bun.sql over pg/postgres.js, and built-in WebSocket over ws.
 - Prefer Bun.file for reads/writes and Bun's shell API over execa.
-- Use the [development guide](docs/development.md) for relevant checks. Installed
-  Bun API references live in `node_modules/bun-types/docs/`.
-
-## Cloudflare
-
-Prefer `cf` for new Cloudflare work. Check `cf --help` or `cf cli search` for
-unfamiliar commands; do not assume Wrangler syntax applies.
-
-If the affected project already has `wrangler.jsonc`, `wrangler.json`, or
-`wrangler.toml`, keep Wrangler unless migration is requested. Use `cf migrate` for
-an authorized migration. If cf fails in a project without Wrangler, investigate
-and offer to report the failure; do not silently switch to Wrangler. CLI access
-does not authorize deployment or production changes.
