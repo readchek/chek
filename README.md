@@ -43,28 +43,43 @@ The clients' planned scope is described in [product direction](docs/product.md).
 
 ## Running the server
 
-The server has no sign-in yet, so it listens on `127.0.0.1:8080` by default.
-Don't expose it beyond a network you trust.
-
 Building needs [libvips](https://www.libvips.org) for cover thumbnails:
 `apt install libvips-dev` on Debian or Ubuntu, `brew install vips` on macOS.
 
 ```sh
 cargo run --bin chek
-curl -X POST localhost:8080/api/v1/libraries \
-  -H 'content-type: application/json' \
-  -d '{"name": "Comics", "path": "/path/to/comics"}'
-curl localhost:8080/api/v1/libraries/1/publications
-curl -o page.jpg localhost:8080/api/v1/publications/1/pages/0
 ```
 
-Settings come from environment variables: `CHEK_BIND` (address), `CHEK_DATA_DIR`
-(database folder, default `./data`) and `CHEK_SCAN_WORKERS` (default one fewer
-than the cores). The API is described in [openapi.yaml](openapi.yaml).
+On its first start the server has no accounts and logs a one-time setup token.
+Use it to create the admin, who gets a session token back:
 
-With Docker:
+```sh
+curl -X POST localhost:8080/api/v1/setup \
+  -H 'content-type: application/json' \
+  -d '{"setupToken": "<from the log>", "name": "admin", "password": "<password>"}'
+```
+
+Send that token as `Authorization: Bearer <token>` on every other request:
+
+```sh
+curl -X POST localhost:8080/api/v1/libraries -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name": "Comics", "path": "/path/to/comics"}'
+curl localhost:8080/api/v1/libraries/1/publications -H "Authorization: Bearer $TOKEN"
+```
+
+Admins add readers with `POST /api/v1/users` and choose which libraries each
+one may open. The API is described in [openapi.yaml](openapi.yaml).
+
+Settings come from environment variables: `CHEK_BIND` (address, default
+`127.0.0.1:8080`), `CHEK_DATA_DIR` (database and covers, default `./data`) and
+`CHEK_SCAN_WORKERS` (default one fewer than the cores). The server speaks plain
+HTTP, so put it behind a reverse proxy with HTTPS before reaching it from
+outside your home network.
+
+With Docker, read the setup token from `docker logs chek`:
 
 ```sh
 docker build -t chek .
-docker run -p 127.0.0.1:8080:8080 -v chek-data:/data -v /path/to/comics:/library:ro chek
+docker run -d --name chek -p 8080:8080 -v chek-data:/data -v /path/to/comics:/library:ro chek
 ```

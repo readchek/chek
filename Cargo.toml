@@ -14,9 +14,12 @@ chek-formats = { path = "crates/chek-formats" }
 chek-library = { path = "crates/chek-library" }
 chek-sources = { path = "crates/chek-sources" }
 
+argon2 = "0.6.0"
 axum = "0.8.9"
+base64 = "0.23.1"
 blake3 = "1.8.7"
 flate2 = "1.1.10"
+getrandom = "0.4.3"
 libvips = "2.3.0"
 quick-xml = "0.42.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
