@@ -88,6 +88,10 @@ pub fn router(state: AppState) -> Router {
             get(progress::get_progress).put(progress::save_progress),
         )
         .merge(crate::opds::router())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::telemetry::trace_request,
+        ))
         .with_state(state)
 }
 

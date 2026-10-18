@@ -6,6 +6,7 @@ mod config;
 mod limit;
 mod opds;
 mod progress;
+mod telemetry;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,19 +14,22 @@ use std::sync::Arc;
 use axum::serve::ListenerExt;
 use chek_catalog::Catalog;
 use chek_library::ScanOptions;
-use tracing::{info, warn};
-use tracing_subscriber::EnvFilter;
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    let telemetry = telemetry::init()?;
+    let result = run().await;
+    if let Err(e) = &result {
+        error!(error = %e, "server stopped");
+    }
+    telemetry.shutdown();
+    result
+}
 
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     std::fs::create_dir_all(&config.data_dir)?;
     let catalog = Arc::new(Catalog::open(&config.data_dir.join("chek.db"))?);
