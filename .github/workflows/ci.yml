@@ -10,7 +10,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Main keeps every run, so each merge gets a finished build.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -83,25 +84,49 @@ jobs:
           else
             echo "No Dockerfile, dependency or workflow changes; skipping the image build."
           fi
-      - uses: docker/setup-qemu-action@v3
-        # Only pushes build arm64.
-        if: github.event_name == 'push'
       - uses: docker/setup-buildx-action@v3
         if: steps.changes.outputs.build == 'true'
       - uses: docker/build-push-action@v6
         if: steps.changes.outputs.build == 'true'
         with:
           context: .
-          # arm64 builds under emulation are slow, so pull requests build amd64 only.
-          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64
           push: false
-          # Pull requests load the amd64 image so the next step can start it.
-          load: ${{ github.event_name != 'push' }}
+          # Load the image so the next step can start it.
+          load: true
           tags: chek:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
       - name: Start the image
-        if: github.event_name != 'push' && steps.changes.outputs.build == 'true'
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          docker run -d --name chek -p 8080:8080 chek:ci
+          for _ in $(seq 30); do
+            curl -fsS localhost:8080/health && exit 0
+            sleep 1
+          done
+          docker logs chek
+          exit 1
+
+  # Builds natively on GitHub's arm64 runner, since building under emulation
+  # took over half an hour. Only pushes to main build arm64.
+  docker-arm64:
+    name: Docker image (arm64)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: chek:ci
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,scope=arm64,mode=max
+      - name: Start the image
         run: |
           docker run -d --name chek -p 8080:8080 chek:ci
           for _ in $(seq 30); do
