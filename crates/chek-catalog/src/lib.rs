@@ -9,17 +9,24 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+mod users;
+
+pub use users::{NewUser, Role, User, UserChanges, UserUpdate, UserWithPassword};
+
 /// Migrations in order. A database records how many it has applied in
 /// `PRAGMA user_version`, so each one runs exactly once.
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_catalog.sql"),
     include_str!("../migrations/0002_covers.sql"),
+    include_str!("../migrations/0003_users.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("a user named {0:?} already exists")]
+    NameTaken(String),
     #[error("database was created by a newer server (schema {found}, this server knows {known})")]
     NewerSchema { found: usize, known: usize },
 }
@@ -341,6 +348,18 @@ impl Catalog {
             )
             .optional()?;
         Ok(file)
+    }
+
+    /// The library a publication belongs to.
+    pub fn publication_library(&self, publication_id: i64) -> Result<Option<i64>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT s.library_id FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?1",
+                [publication_id],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// A publication's page index in reading order.

@@ -7,15 +7,19 @@ info:
     by hand and is the source of truth: change it in the same pull request as
     the server code, and clients generate their code from a tagged release.
 
-    The first milestone has no sign-in yet, so the server listens on loopback
-    by default. Library management becomes admin-only when accounts arrive.
+    Every operation except `/health`, `/api/v1/setup` and sign-in needs a
+    session token from sign-in, sent as `Authorization: Bearer <token>`.
+    Admins see every library; readers see only the libraries they were granted,
+    and other libraries and their publications answer as not found.
 servers:
   - url: http://localhost:8080
-# Sign-in arrives with accounts; until then no operation needs credentials.
-security: []
+security:
+  - session: []
 tags:
   - name: Health
     description: Whether the server is up.
+  - name: Accounts
+    description: Setup, sign-in and user management.
   - name: Libraries
     description: Folders and sources the server reads publications from.
   - name: Catalog
@@ -28,6 +32,7 @@ paths:
       tags: [Health]
       operationId: getHealth
       summary: Check that the server is running
+      security: []
       responses:
         "200":
           description: The server is running.
@@ -40,12 +45,290 @@ paths:
                   status:
                     type: string
                     const: ok
+  /api/v1/setup:
+    post:
+      tags: [Accounts]
+      operationId: setUp
+      summary: Create the first admin
+      description: |
+        Works only while the server has no accounts. The setup token is printed
+        in the server's log at startup, so only someone who can read the log
+        can claim the server.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [setupToken, name, password]
+              properties:
+                setupToken:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/UserName"
+                password:
+                  $ref: "#/components/schemas/Password"
+      responses:
+        "201":
+          description: The admin was created and signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The server already has an admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/auth/sign-in:
+    post:
+      tags: [Accounts]
+      operationId: signIn
+      summary: Sign in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, password]
+              properties:
+                name:
+                  type: string
+                  description: Not case-sensitive.
+                password:
+                  type: string
+                device:
+                  type: string
+                  description: A label for this session, such as "Living room iPad".
+      responses:
+        "200":
+          description: Signed in. Sessions last 90 days after their last use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/auth/sign-out:
+    post:
+      tags: [Accounts]
+      operationId: signOut
+      summary: Sign out
+      description: Ends the session whose token the request carries.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: Signed out.
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me:
+    get:
+      tags: [Accounts]
+      operationId: getCurrentUser
+      summary: Get the signed-in user
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /api/v1/me/password:
+    put:
+      tags: [Accounts]
+      operationId: changePassword
+      summary: Change your password
+      description: Signs out every other session of this user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  $ref: "#/components/schemas/Password"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The password was changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/users:
+    get:
+      tags: [Accounts]
+      operationId: listUsers
+      summary: List users
+      description: Admin only.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Every user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Accounts]
+      operationId: createUser
+      summary: Create a user
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, password, role]
+              properties:
+                name:
+                  $ref: "#/components/schemas/UserName"
+                password:
+                  $ref: "#/components/schemas/Password"
+                role:
+                  $ref: "#/components/schemas/Role"
+                libraryIds:
+                  type: array
+                  description: Libraries a reader may open. Ignored for admins.
+                  items:
+                    type: integer
+                    format: int64
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The user was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: A user with that name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    patch:
+      tags: [Accounts]
+      operationId: updateUser
+      summary: Change a user
+      description: Admin only. Setting a password signs that user out everywhere.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password:
+                  $ref: "#/components/schemas/Password"
+                role:
+                  $ref: "#/components/schemas/Role"
+                libraryIds:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The changed user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/LastAdmin"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Accounts]
+      operationId: deleteUser
+      summary: Delete a user
+      description: Admin only. Also ends the user's sessions.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The user was deleted.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/LastAdmin"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/libraries:
     get:
       tags: [Libraries]
       operationId: listLibraries
       summary: List libraries
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: Every library on the server.
           content:
@@ -64,7 +347,7 @@ paths:
       tags: [Libraries]
       operationId: addLibrary
       summary: Add a folder library
-      description: Adds a folder on the server as a library and starts scanning it.
+      description: Adds a folder on the server as a library and starts scanning it. Admin only.
       requestBody:
         required: true
         content:
@@ -81,6 +364,10 @@ paths:
                   type: string
                   description: Absolute path of a folder on the server.
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "201":
           description: The library was added and its first scan started.
           content:
@@ -99,6 +386,8 @@ paths:
       operationId: getLibrary
       summary: Get a library
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: The library, including the state of its last scan.
           content:
@@ -116,8 +405,12 @@ paths:
       tags: [Libraries]
       operationId: scanLibrary
       summary: Rescan a library
-      description: Starts a scan in the background. Poll the library to see when it finishes.
+      description: Starts a scan in the background. Poll the library to see when it finishes. Admin only.
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "202":
           description: The scan started.
         "404":
@@ -141,6 +434,8 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: One page of publications.
           content:
@@ -170,6 +465,8 @@ paths:
       operationId: getPublication
       summary: Get a publication
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: The publication.
           content:
@@ -197,6 +494,8 @@ paths:
             type: string
           example: bytes=0-65535
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: The whole file.
           headers:
@@ -245,6 +544,8 @@ paths:
       summary: Get the cover thumbnail
       description: A JPEG that fits within 400 by 600 pixels, made when the file is scanned.
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: The cover.
           headers:
@@ -270,6 +571,8 @@ paths:
       summary: List a comic's pages
       description: The page index in reading order. Empty for formats without pages, such as EPUB.
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: Every page.
           content:
@@ -302,6 +605,8 @@ paths:
       summary: Get a comic page
       description: The page's original image bytes, read straight from the archive.
       responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "200":
           description: The page image.
           headers:
@@ -321,6 +626,11 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 components:
+  securitySchemes:
+    session:
+      type: http
+      scheme: bearer
+      description: The token from sign-in or setup.
   headers:
     ETag:
       description: Changes whenever the file's content changes. Send it back in `If-None-Match`.
@@ -357,6 +667,24 @@ components:
         maximum: 200
         default: 50
   responses:
+    Unauthorized:
+      description: The request has no valid session token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: The signed-in user may not do this.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LastAdmin:
+      description: The change would leave the server without an admin.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     BadRequest:
       description: The request was malformed.
       content:
@@ -384,13 +712,64 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    UserName:
+      type: string
+      minLength: 1
+      maxLength: 64
+    Password:
+      type: string
+      minLength: 8
+      description: At least 8 characters and at most 1024 bytes.
+    Role:
+      type: string
+      enum: [admin, reader]
+    User:
+      type: object
+      required: [id, name, role, libraryIds, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        libraryIds:
+          type: array
+          description: Libraries a reader may open. Empty for admins, who see every library.
+          items:
+            type: integer
+            format: int64
+        createdAt:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: "Send as `Authorization: Bearer <token>`."
+        user:
+          $ref: "#/components/schemas/User"
     Error:
       type: object
       required: [code, message]
       properties:
         code:
           type: string
-          enum: [bad_request, not_found, unavailable, scan_in_progress, content_changed, internal]
+          enum:
+            - bad_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - unavailable
+            - scan_in_progress
+            - content_changed
+            - already_set_up
+            - name_taken
+            - last_admin
+            - internal
         message:
           type: string
           description: Explains the problem to a developer.

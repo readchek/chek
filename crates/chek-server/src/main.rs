@@ -1,6 +1,7 @@
 //! The Chek library server.
 
 mod api;
+mod auth;
 mod config;
 
 use std::sync::Arc;
@@ -38,7 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             workers: config.scan_workers,
             covers_dir: config.data_dir.join("covers"),
         },
+        setup_token: Arc::default(),
     };
+    auth::prepare_setup(&state).await?;
     // Unchanged files are skipped by size and modification time, so this is
     // cheap, and it catches whatever changed while the server was down.
     api::scan_all_folders(&state).await?;

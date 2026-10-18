@@ -9,7 +9,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use chek_catalog::{
     Catalog, CatalogError, Library, LibraryKind, PageRecord, PublicationFile, PublicationSummary,
@@ -19,6 +19,8 @@ use chek_formats::{Compression, PageEntry};
 use chek_library::ScanOptions;
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
+
+use crate::auth::{self, CurrentUser};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -26,6 +28,8 @@ use tracing::error;
 pub struct AppState {
     pub catalog: Arc<Catalog>,
     pub scan: ScanOptions,
+    /// Present until the first admin is created; see [`crate::auth::setup`].
+    pub setup_token: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// Starts a background scan of every folder library.
@@ -49,6 +53,19 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
+        )
+        .route("/api/v1/setup", post(auth::setup))
+        .route("/api/v1/auth/sign-in", post(auth::sign_in))
+        .route("/api/v1/auth/sign-out", post(auth::sign_out))
+        .route("/api/v1/me", get(auth::me))
+        .route("/api/v1/me/password", put(auth::change_password))
+        .route(
+            "/api/v1/users",
+            get(auth::list_users).post(auth::create_user),
+        )
+        .route(
+            "/api/v1/users/{id}",
+            patch(auth::update_user).delete(auth::delete_user),
         )
         .route("/api/v1/publications/{id}", get(get_publication))
         .route("/api/v1/publications/{id}/file", get(get_file))
@@ -153,10 +170,17 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
-async fn list_libraries(State(state): State<AppState>) -> Result<Json<Page<LibraryDto>>, ApiError> {
+async fn list_libraries(
+    State(state): State<AppState>,
+    current: CurrentUser,
+) -> Result<Json<Page<LibraryDto>>, ApiError> {
     let libraries = blocking(&state, |c| c.libraries()).await?;
     Ok(Json(Page {
-        items: libraries.into_iter().map(Into::into).collect(),
+        items: libraries
+            .into_iter()
+            .filter(|l| current.user.can_read(l.id))
+            .map(Into::into)
+            .collect(),
         next_cursor: None,
     }))
 }
@@ -170,8 +194,10 @@ struct NewLibrary {
 
 async fn add_library(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<NewLibrary>, JsonRejection>,
 ) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
+    current.require_admin()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let name = body.name.trim().to_owned();
     if name.is_empty() {
@@ -203,18 +229,22 @@ async fn add_library(
 
 async fn get_library(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<LibraryDto>, ApiError> {
     let library = blocking(&state, move |c| c.library(id)).await?;
     library
+        .filter(|l| current.user.can_read(l.id))
         .map(|l| Json(l.into()))
         .ok_or_else(|| ApiError::library_not_found(id))
 }
 
 async fn scan_library(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    current.require_admin()?;
     let library = blocking(&state, move |c| c.library(id))
         .await?
         .ok_or_else(|| ApiError::library_not_found(id))?;
@@ -237,9 +267,13 @@ struct PageQuery {
 
 async fn list_publications(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
     Query(query): Query<PageQuery>,
 ) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    if !current.user.can_read(id) {
+        return Err(ApiError::library_not_found(id));
+    }
     let after = match query.cursor.as_deref() {
         None => None,
         Some(c) => Some(
@@ -275,8 +309,10 @@ async fn list_publications(
 
 async fn get_publication(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<PublicationDto>, ApiError> {
+    check_publication(&state, &current, id).await?;
     let publication = blocking(&state, move |c| c.publication(id)).await?;
     publication
         .map(|p| Json(p.into()))
@@ -286,9 +322,11 @@ async fn get_publication(
 /// The original file, with byte ranges and conditional requests.
 async fn get_file(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
     request: Request,
 ) -> Result<Response, ApiError> {
+    check_publication(&state, &current, id).await?;
     let (file, path) = current_file(&state, id).await?;
     let mut response = ServeFile::new(&path)
         .oneshot(request)
@@ -316,9 +354,11 @@ async fn get_file(
 
 async fn get_cover(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    check_publication(&state, &current, id).await?;
     let file = blocking(&state, move |c| c.publication_file(id))
         .await?
         .ok_or_else(|| ApiError::publication_not_found(id))?;
@@ -356,13 +396,11 @@ struct PageDto {
 
 async fn list_pages(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<Page<PageDto>>, ApiError> {
-    let (publication, pages) =
-        blocking(&state, move |c| Ok((c.publication(id)?, c.pages(id)?))).await?;
-    if publication.is_none() {
-        return Err(ApiError::publication_not_found(id));
-    }
+    check_publication(&state, &current, id).await?;
+    let pages = blocking(&state, move |c| c.pages(id)).await?;
     Ok(Json(Page {
         items: pages
             .into_iter()
@@ -381,9 +419,11 @@ async fn list_pages(
 /// stored at scan time.
 async fn get_page(
     State(state): State<AppState>,
+    current: CurrentUser,
     Path((id, index)): Path<(i64, u32)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    check_publication(&state, &current, id).await?;
     let page = blocking(&state, move |c| c.page(id, index))
         .await?
         .ok_or_else(|| ApiError::not_found(format!("publication {id} has no page {index}")))?;
@@ -403,6 +443,19 @@ async fn get_page(
         // The file changed between the check and the read.
         Err(chek_formats::FormatError::Truncated) => Err(content_changed(&state, file.library_id)),
         Err(e) => Err(ApiError::internal(e)),
+    }
+}
+
+/// Fails with not found unless the publication exists in a library the user
+/// may read. Publications in other libraries look the same as missing ones.
+async fn check_publication(
+    state: &AppState,
+    current: &CurrentUser,
+    id: i64,
+) -> Result<(), ApiError> {
+    match blocking(state, move |c| c.publication_library(id)).await? {
+        Some(library_id) if current.user.can_read(library_id) => Ok(()),
+        _ => Err(ApiError::publication_not_found(id)),
     }
 }
 
@@ -526,7 +579,7 @@ pub fn start_scan(state: &AppState, library_id: i64) {
 }
 
 /// Runs a catalog call on a blocking thread, since SQLite calls block.
-async fn blocking<T, F>(state: &AppState, f: F) -> Result<T, ApiError>
+pub async fn blocking<T, F>(state: &AppState, f: F) -> Result<T, ApiError>
 where
     F: FnOnce(&Catalog) -> Result<T, CatalogError> + Send + 'static,
     T: Send + 'static,
@@ -534,20 +587,25 @@ where
     let catalog = state.catalog.clone();
     match tokio::task::spawn_blocking(move || f(&catalog)).await {
         Ok(Ok(value)) => Ok(value),
+        Ok(Err(CatalogError::NameTaken(name))) => Err(ApiError {
+            status: StatusCode::CONFLICT,
+            code: "name_taken",
+            message: format!("a user named {name:?} already exists"),
+        }),
         Ok(Err(e)) => Err(ApiError::internal(e)),
         Err(e) => Err(ApiError::internal(e)),
     }
 }
 
 /// An error response: `{ "code": "...", "message": "..." }`.
-struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: String,
+pub struct ApiError {
+    pub status: StatusCode,
+    pub code: &'static str,
+    pub message: String,
 }
 
 impl ApiError {
-    fn bad_request(message: impl Into<String>) -> Self {
+    pub fn bad_request(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
             code: "bad_request",
@@ -555,7 +613,7 @@ impl ApiError {
         }
     }
 
-    fn not_found(message: String) -> Self {
+    pub fn not_found(message: String) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             code: "not_found",
@@ -571,7 +629,7 @@ impl ApiError {
         Self::not_found(format!("publication {id} does not exist"))
     }
 
-    fn internal(e: impl std::fmt::Display) -> Self {
+    pub fn internal(e: impl std::fmt::Display) -> Self {
         error!(error = %e, "request failed");
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

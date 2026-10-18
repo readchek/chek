@@ -52,6 +52,21 @@ are in the planning doc; this page keeps the decisions next to the code.
   the server was down. Unchanged files are skipped by size and modification
   time.
 
+## Accounts
+
+- Two roles: admins manage libraries and users and see every library;
+  readers see only the libraries an admin granted them. Libraries and
+  publications outside a reader's grants answer as not found.
+- The first admin is created with a one-time setup token that the server logs
+  when it has no accounts, so only someone with access to the log can claim it.
+- Sign-in returns a random 256-bit session token, sent as a bearer token. The
+  database stores only its BLAKE3 hash. Sessions last 90 days after their
+  last use.
+- Passwords are hashed with Argon2id. Sign-in checks a dummy hash for unknown
+  names so timing doesn't reveal which names exist. Changing a password signs
+  out the user's other sessions.
+- The server keeps at least one admin; demoting or deleting the last one fails.
+
 ## Design rules from the spike
 
 - Page requests read from the page index stored at scan time instead of
