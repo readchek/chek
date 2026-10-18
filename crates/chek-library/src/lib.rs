@@ -132,7 +132,7 @@ pub enum AddFileError {
     UnknownLibrary(i64),
     #[error("library {0} is not a folder library")]
     NotAFolder(i64),
-    #[error("{0} is not an EPUB, PDF or CBZ file")]
+    #[error("{0} is not an EPUB, PDF, CBZ or CBT file")]
     Unsupported(String),
     #[error("cannot create the covers folder {path}: {source}")]
     CoversDir { path: PathBuf, source: io::Error },

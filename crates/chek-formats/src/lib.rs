@@ -3,6 +3,7 @@
 //! Everything here is synchronous and does blocking file I/O, so callers on an
 //! async runtime run it on a blocking thread.
 
+mod cbt;
 mod cbz;
 mod cover;
 mod epub;
@@ -28,6 +29,7 @@ pub enum Format {
     Epub,
     Pdf,
     Cbz,
+    Cbt,
 }
 
 impl Format {
@@ -37,6 +39,7 @@ impl Format {
             Format::Epub => "epub",
             Format::Pdf => "pdf",
             Format::Cbz => "cbz",
+            Format::Cbt => "cbt",
         }
     }
 
@@ -47,6 +50,7 @@ impl Format {
             "epub" => Some(Format::Epub),
             "pdf" => Some(Format::Pdf),
             "cbz" => Some(Format::Cbz),
+            "cbt" => Some(Format::Cbt),
             _ => None,
         }
     }
@@ -125,12 +129,14 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
         return Ok(None);
     };
 
-    let mut magic = [0u8; 5];
+    // A tar header's magic sits 257 bytes in.
+    let mut magic = [0u8; 262];
     let read = read_prefix(path, &mut magic)?;
     let magic = &magic[..read];
     let matches = match claimed {
         Format::Pdf => magic.starts_with(b"%PDF-"),
         Format::Epub | Format::Cbz => magic.starts_with(b"PK\x03\x04"),
+        Format::Cbt => cbt::is_tar(magic),
     };
     Ok(matches.then_some(claimed))
 }
@@ -139,6 +145,7 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
 pub fn inspect(path: &Path, format: Format) -> Result<Inspection, FormatError> {
     let (pages, metadata) = match format {
         Format::Cbz => cbz::inspect(path)?,
+        Format::Cbt => cbt::inspect(path)?,
         // A book whose package can't be read is still served as a file, as
         // before metadata existed, just without metadata.
         Format::Epub => (Vec::new(), epub::metadata(path).unwrap_or_default()),
