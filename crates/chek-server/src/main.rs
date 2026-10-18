@@ -8,6 +8,7 @@ mod limit;
 mod opds;
 mod progress;
 mod telemetry;
+mod upload;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -53,6 +54,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         password_limiter: Arc::default(),
         trusted_proxies: Arc::new(config.trusted_proxies),
         client_ip_header: config.client_ip_header,
+        max_upload_bytes: config.max_upload_bytes,
     };
     auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is

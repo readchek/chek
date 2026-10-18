@@ -243,6 +243,7 @@ dependencies = [
  "chek-formats",
  "chek-library",
  "getrandom 0.4.3",
+ "http-body-util",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
