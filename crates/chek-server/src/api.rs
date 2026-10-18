@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::{annotations, extensions, progress};
+use crate::{annotations, browse, extensions, installs, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -41,6 +41,8 @@ pub struct AppState {
     pub client_ip_header: Option<axum::http::HeaderName>,
     /// The largest file an upload may send.
     pub max_upload_bytes: u64,
+    /// Installed extension components and the sources loaded from them.
+    pub extensions: Arc<chek_sources::Extensions>,
 }
 
 /// Starts a background scan of every library.
@@ -90,7 +92,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
         )
-        .route("/api/v1/libraries/{id}/series", get(list_series))
+        .route(
+            "/api/v1/libraries/{id}/series",
+            get(list_series).post(crate::source_libraries::follow_series),
+        )
         .route("/api/v1/series/{id}", get(get_series))
         .route(
             "/api/v1/series/{id}/publications",
@@ -154,6 +159,16 @@ pub fn router(state: AppState) -> Router {
             post(extensions::refresh_repository),
         )
         .route("/api/v1/extensions", get(extensions::list_extensions))
+        .route("/api/v1/me/extensions", get(installs::list_installed))
+        .route(
+            "/api/v1/me/extensions/{id}",
+            put(installs::install).delete(installs::uninstall),
+        )
+        .route("/api/v1/me/extensions/{id}/search", get(browse::search))
+        .route("/api/v1/me/extensions/{id}/series", get(browse::series))
+        .route("/api/v1/me/extensions/{id}/chapters", get(browse::chapters))
+        .route("/api/v1/me/extensions/{id}/pages", get(browse::pages))
+        .route("/api/v1/me/extensions/{id}/image", get(browse::image))
         .route(
             "/api/v1/settings",
             get(extensions::get_settings).put(extensions::update_settings),
@@ -171,7 +186,7 @@ const MAX_PAGE_SIZE: u32 = 200;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct LibraryDto {
+pub(crate) struct LibraryDto {
     id: i64,
     name: String,
     kind: &'static str,
@@ -187,9 +202,12 @@ struct LibraryDto {
 #[serde(rename_all = "camelCase")]
 struct SourceDto {
     r#type: &'static str,
-    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     library_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extension_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -213,10 +231,19 @@ impl From<Library> for LibraryDto {
             source: l
                 .source_config
                 .and_then(|c| serde_json::from_str::<SourceConfig>(&c).ok())
-                .map(|SourceConfig::Komga(c)| SourceDto {
-                    r#type: "komga",
-                    url: c.url,
-                    library_ids: c.library_ids,
+                .map(|c| match c {
+                    SourceConfig::Komga(c) => SourceDto {
+                        r#type: "komga",
+                        url: Some(c.url),
+                        library_ids: c.library_ids,
+                        extension_id: None,
+                    },
+                    SourceConfig::Extension(c) => SourceDto {
+                        r#type: "extension",
+                        url: None,
+                        library_ids: Vec::new(),
+                        extension_id: Some(c.extension_id),
+                    },
                 }),
             scan: ScanDto {
                 status: match l.scan_status {
@@ -318,13 +345,15 @@ async fn list_libraries(
     }))
 }
 
-/// A folder library names a `path`; a Komga library names `komga`.
+/// A folder library names a `path`, a Komga library names `komga`, and a
+/// library of followed series names the `extension` it runs on.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewLibrary {
     name: String,
     path: Option<String>,
     komga: Option<NewKomga>,
+    extension: Option<crate::source_libraries::NewExtensionSource>,
 }
 
 #[derive(Deserialize)]
@@ -349,12 +378,16 @@ async fn add_library(
     if name.is_empty() {
         return Err(ApiError::bad_request("name must not be empty"));
     }
-    let path = match (body.path, body.komga) {
-        (Some(path), None) => path,
-        (None, Some(komga)) => return add_komga_library(state, name, komga).await,
+    let path = match (body.path, body.komga, body.extension) {
+        (Some(path), None, None) => path,
+        (None, Some(komga), None) => return add_komga_library(state, name, komga).await,
+        (None, None, Some(extension)) => {
+            return crate::source_libraries::add_library(&state, &current, name, extension).await;
+        }
         _ => {
             return Err(ApiError::bad_request(
-                "send either path, for a folder library, or komga, for a Komga library",
+                "send one of path, for a folder library, komga, for a Komga library, \
+                 or extension, for series followed through an installed extension",
             ));
         }
     };
@@ -586,7 +619,7 @@ async fn list_publications(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SeriesDto {
+pub(crate) struct SeriesDto {
     id: i64,
     library_id: i64,
     title: String,
@@ -839,6 +872,11 @@ pub(crate) async fn get_file(
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
     if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await? {
+        if crate::source_libraries::is_extension(&remote) {
+            return Err(ApiError::not_found(format!(
+                "publication {id} is a chapter from an extension and has no file; read its pages instead"
+            )));
+        }
         return crate::remote::file(&state, remote, request.headers()).await;
     }
     let (file, path) = current_file(&state, id).await?;
@@ -916,7 +954,8 @@ pub(crate) async fn get_cover(
 struct PageDto {
     index: usize,
     media_type: &'static str,
-    size: u64,
+    /// `None` for an extension's pages, whose size isn't known until fetched.
+    size: Option<u64>,
 }
 
 async fn list_pages(
@@ -925,6 +964,23 @@ async fn list_pages(
     Path(id): Path<i64>,
 ) -> Result<Json<Page<PageDto>>, ApiError> {
     check_publication(&state, &current, id).await?;
+    if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await?
+        && crate::source_libraries::is_extension(&remote)
+    {
+        let types = crate::source_libraries::page_types(&state, remote).await?;
+        return Ok(Json(Page {
+            items: types
+                .into_iter()
+                .enumerate()
+                .map(|(index, media_type)| PageDto {
+                    index,
+                    media_type,
+                    size: None,
+                })
+                .collect(),
+            next_cursor: None,
+        }));
+    }
     let pages = blocking(&state, move |c| c.pages(id)).await?;
     Ok(Json(Page {
         items: pages
@@ -933,7 +989,7 @@ async fn list_pages(
             .map(|(index, p)| PageDto {
                 index,
                 media_type: chek_formats::page_media_type(&p.entry_name),
-                size: p.size,
+                size: Some(p.size),
             })
             .collect(),
         next_cursor: None,
@@ -949,10 +1005,17 @@ async fn get_page(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
+    let remote = blocking(&state, move |c| c.publication_remote(id)).await?;
+    // An extension's chapter has no page index until it's first read.
+    if let Some(remote) = remote.as_ref()
+        && crate::source_libraries::is_extension(remote)
+    {
+        return crate::source_libraries::get_page(&state, remote.clone(), index).await;
+    }
     let page = blocking(&state, move |c| c.page(id, index))
         .await?
         .ok_or_else(|| ApiError::not_found(format!("publication {id} has no page {index}")))?;
-    if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await? {
+    if let Some(remote) = remote {
         return crate::remote::page(&state, remote, page, index, &headers).await;
     }
     let (file, path) = current_file(&state, id).await?;
@@ -1095,11 +1158,16 @@ pub(crate) fn content_disposition(name: &str) -> String {
     format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
 }
 
+/// Scans a folder library or syncs a source library in the background.
 pub fn start_scan(state: &AppState, library_id: i64) {
-    let catalog = state.catalog.clone();
-    let options = state.scan.clone();
+    let state = state.clone();
     tokio::spawn(async move {
-        match chek_library::scan(catalog, library_id, options).await {
+        // Extensions run in the server, so their libraries sync here.
+        if crate::source_libraries::is_extension_library(&state, library_id).await {
+            crate::source_libraries::sync(&state, library_id).await;
+            return;
+        }
+        match chek_library::scan(state.catalog.clone(), library_id, state.scan.clone()).await {
             Ok(_) | Err(chek_library::ScanError::AlreadyScanning(_)) => {}
             Err(e) => error!(library_id, error = %e, "scan failed"),
         }

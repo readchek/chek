@@ -411,14 +411,22 @@ paths:
       summary: Add a library
       description: |
         Admin only. Adds a folder on the server as a library and starts
-        scanning it, or adds a Komga server as a source library and starts
-        syncing it. Send either `path` or `komga`.
+        scanning it, adds a Komga server as a source library and starts
+        syncing it, or makes a source library that runs on an extension.
+        Send one of `path`, `komga` or `extension`.
 
         A Komga library reads Komga's series and books with one Komga
         account, and serves their pages and files through Komga. The account
         needs the page streaming and file download roles. The address and
         credentials are checked before the library is added, and stored on
         the server; they are never returned.
+
+        An extension library runs on an extension the admin installed, and
+        starts empty: follow series into it with
+        `POST /api/v1/libraries/{libraryId}/series`. It runs on that admin's
+        install, so readers granted it don't need the extension. If the admin
+        uninstalls it, the library's pages and syncs fail with
+        `source_unavailable` until it's installed again.
       requestBody:
         required: true
         content:
@@ -436,6 +444,14 @@ paths:
                   description: Absolute path of a folder on the server.
                 komga:
                   $ref: "#/components/schemas/NewKomgaSource"
+                extension:
+                  type: object
+                  additionalProperties: false
+                  required: [extensionId]
+                  properties:
+                    extensionId:
+                      type: string
+                      description: An extension the admin installed.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -451,6 +467,12 @@ paths:
           description: |
             The request was malformed, or Komga couldn't be reached with the
             settings given (`source_check_failed`, with the reason).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: The extension isn't installed (`not_installed`).
           content:
             application/json:
               schema:
@@ -569,7 +591,10 @@ paths:
       tags: [Libraries]
       operationId: scanLibrary
       summary: Rescan a library
-      description: Starts a scan in the background. Poll the library to see when it finishes. Admin only.
+      description: >-
+        Starts a scan in the background. Poll the library to see when it
+        finishes. An extension library's scan updates every series it follows
+        from the source. Admin only.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -659,6 +684,51 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [Libraries]
+      operationId: followSeries
+      summary: Follow a series into an extension library
+      description: >-
+        Reads the series and its chapters from the library's extension and
+        adds a publication per chapter. Following a series again updates it,
+        and the library's scans keep it updated. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [seriesId]
+              properties:
+                seriesId:
+                  type: string
+                  description: The source's own series id, as search returns it.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "201":
+          description: The followed series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          description: >-
+            The extension failed (`source_failed`), or the library's extension
+            is no longer installed or usable (`source_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/me/continue-reading:
@@ -1074,7 +1144,10 @@ paths:
       tags: [Reading]
       operationId: listPublicationPages
       summary: List a comic's pages
-      description: The page index in reading order. Empty for formats without pages, such as EPUB.
+      description: >-
+        The page index in reading order. Empty for formats without pages, such
+        as EPUB. An extension chapter's pages are asked of its extension the
+        first time and stored.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1092,6 +1165,8 @@ paths:
                       $ref: "#/components/schemas/PageInfo"
         "404":
           $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/pages/{pageIndex}:
@@ -1108,7 +1183,10 @@ paths:
       tags: [Reading]
       operationId: getPublicationPage
       summary: Get a comic page
-      description: The page's original image bytes, read straight from the archive.
+      description: >-
+        The page's original image bytes, read straight from the archive or
+        fetched through the library's source. An extension chapter's pages
+        have no ETag.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1461,6 +1539,288 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/AvailableExtension"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions:
+    get:
+      tags: [Extensions]
+      operationId: listInstalledExtensions
+      summary: List the user's installed extensions
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The installed extensions, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InstalledExtension"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    put:
+      tags: [Extensions]
+      operationId: installExtension
+      summary: Install or update an extension
+      description: >-
+        Downloads the version the repository's index lists now and checks it
+        against the index's digest, then checks that the component's manifest
+        has the same id, version and sites. Installing again updates the
+        install, or moves it to another repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [repositoryId]
+              properties:
+                repositoryId:
+                  type: integer
+                  format: int64
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The install was updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "201":
+          description: The extension was installed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: The repository is the user's own and the admin allows only the allow list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: The component isn't a valid source extension, or doesn't match the index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/RepositoryUnreadable"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Extensions]
+      operationId: uninstallExtension
+      summary: Uninstall an extension
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The extension was uninstalled.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/search:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: searchSource
+      summary: Search a source
+      description: >-
+        One page of the source's series matching `q`. Without `q`, the series
+        the source shows first, such as its popular ones.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: page
+          in: query
+          description: Counts from 1.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Matching series.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, hasMore]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteSeriesItem"
+                  hasMore:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/series:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteSeries
+      summary: Read a series from a source
+      parameters:
+        - $ref: "#/components/parameters/RemoteSeriesId"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSeries"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/chapters:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemoteChapters
+      summary: List a series' chapters from a source
+      parameters:
+        - $ref: "#/components/parameters/RemoteSeriesId"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The chapters in reading order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteChapter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/pages:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemotePages
+      summary: List a chapter's pages from a source
+      parameters:
+        - name: chapterId
+          in: query
+          required: true
+          description: The source's own chapter id.
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The pages in reading order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [index, url]
+                      properties:
+                        index:
+                          type: integer
+                        url:
+                          $ref: "#/components/schemas/RemoteImageUrl"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/image:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteImage
+      summary: Fetch a cover or page through a source
+      description: >-
+        Follow the `coverUrl` and page `url` links the other source routes
+        return rather than building them. The server fetches the image from
+        the source's declared sites and sends its bytes unchanged.
+      parameters:
+        - name: ref
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The image.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/settings:
@@ -1838,6 +2198,20 @@ components:
       schema:
         type: integer
         format: int64
+    ExtensionId:
+      name: extensionId
+      in: path
+      required: true
+      description: The extension's reverse-DNS id.
+      schema:
+        type: string
+    RemoteSeriesId:
+      name: seriesId
+      in: query
+      required: true
+      description: The source's own series id.
+      schema:
+        type: string
     RepositoryId:
       name: repositoryId
       in: path
@@ -1929,7 +2303,8 @@ components:
     SourceUnavailable:
       description: |
         The publication is from a source library, and its source couldn't be
-        read; the message says why.
+        read (`source_unavailable`) or its extension failed (`source_failed`);
+        the message says why.
       content:
         application/json:
           schema:
@@ -1938,6 +2313,14 @@ components:
       description: |
         The file changed on disk since it was scanned. A rescan has started;
         retry after it finishes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SourceFailed:
+      description: >-
+        The extension reported an error, went over a limit, or the image
+        couldn't be fetched.
       content:
         application/json:
           schema:
@@ -2017,6 +2400,10 @@ components:
             - repository_exists
             - repository_not_allowed
             - repository_unreadable
+            - extension_invalid
+            - source_failed
+            - source_unavailable
+            - source_check_failed
             - internal
         message:
           type: string
@@ -2056,8 +2443,11 @@ components:
           format: date-time
     AvailableExtension:
       type: object
-      required: [repositoryId, id, name, version, sites, languages]
+      required: [repositoryId, id, name, version, sites, languages, installedVersion]
       properties:
+        installedVersion:
+          type: [string, "null"]
+          description: The version the user installed from this repository, if any.
         repositoryId:
           type: integer
           format: int64
@@ -2078,6 +2468,100 @@ components:
           description: BCP 47 tags of the languages the source serves; empty for any.
           items:
             type: string
+    RemoteImageUrl:
+      type: string
+      description: A path on this server, relative to its base URL, that serves the image.
+      example: /api/v1/me/extensions/org.example.comics/image?ref=eyJ1cmwiOi
+    RemoteSeriesItem:
+      type: object
+      required: [id, title, coverUrl]
+      properties:
+        id:
+          type: string
+          description: The source's own series id.
+        title:
+          type: string
+        coverUrl:
+          oneOf:
+            - $ref: "#/components/schemas/RemoteImageUrl"
+            - type: "null"
+    RemoteSeries:
+      type: object
+      required: [id, title, summary, coverUrl, contributors, readingDirection]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: [string, "null"]
+        coverUrl:
+          oneOf:
+            - $ref: "#/components/schemas/RemoteImageUrl"
+            - type: "null"
+        contributors:
+          type: array
+          items:
+            type: object
+            required: [name, role]
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+        readingDirection:
+          type: [string, "null"]
+          enum: [ltr, rtl, ttb, null]
+    RemoteChapter:
+      type: object
+      required: [id, title, number, version, published]
+      properties:
+        id:
+          type: string
+          description: The source's own chapter id.
+        title:
+          type: string
+        number:
+          type: [string, "null"]
+          description: The chapter or volume number as the source writes it.
+        version:
+          type: [string, "null"]
+          description: Changes when the chapter's pages change.
+        published:
+          type: [string, "null"]
+          description: An RFC 3339 date or date-time.
+    InstalledExtension:
+      type: object
+      required: [id, name, version, repositoryId, sites, languages, installedAt, usable, update]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        repositoryId:
+          type: integer
+          format: int64
+        sites:
+          type: array
+          items:
+            type: string
+        languages:
+          type: array
+          items:
+            type: string
+        installedAt:
+          type: string
+          format: date-time
+        usable:
+          type: boolean
+          description: >-
+            False while it came from the user's own repository and the admin
+            allows only the allow list.
+        update:
+          type: [string, "null"]
+          description: The version the repository lists, when it differs from the installed one.
     Settings:
       type: object
       additionalProperties: false
@@ -2111,14 +2595,17 @@ components:
     LibrarySource:
       type: object
       description: Where a source library reads from. Present only on source libraries.
-      required: [type, url]
+      required: [type]
       properties:
         type:
           type: string
-          enum: [komga]
+          enum: [komga, extension]
         url:
           type: string
-          description: The Komga server's address.
+          description: The Komga server's address. Absent for an extension library.
+        extensionId:
+          type: string
+          description: The extension an extension library runs on.
         libraryIds:
           type: array
           description: The Komga libraries read; absent when every library the account sees is read.
@@ -2211,10 +2698,11 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz, cbt, cbr, cb7]
+          enum: [epub, pdf, cbz, cbt, cbr, cb7, remote]
           description: |
             Comic archives get their format from their bytes, so a ZIP named
-            `.cbr` is `cbz`.
+            `.cbr` is `cbz`. `remote` is a chapter from an extension: it has
+            pages but no file.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
@@ -2292,9 +2780,12 @@ components:
           type: string
           example: image/jpeg
         size:
-          type: integer
+          type: [integer, "null"]
           format: int64
-          description: The image's size in bytes.
+          description: >-
+            The image's size in bytes. Null for an extension chapter's pages,
+            whose size isn't known until they're fetched; their `mediaType` is
+            guessed from the page's URL.
     Progress:
       type: object
       required: [revision, locator, device, updatedAt]

@@ -278,6 +278,61 @@ are in the planning doc; this page keeps the decisions next to the code.
   it can't read. A refresh that fails records why and keeps the last good
   index.
 
+## Installing extensions
+
+- Each user installs extensions for themselves from the repositories they
+  can use. Installing downloads the component the index lists, at most
+  32 MiB, checks its SHA-256 digest, and checks that its manifest has the
+  index's id, version and sites, so a repository can't show one set of sites
+  and ship another.
+- Components are stored in the data folder as `extensions/<sha256>.wasm`,
+  shared by everyone on the same version, and deleted when no install uses
+  them. Compiled sources stay in memory once loaded.
+- Installing again updates to the version the index lists now; the API
+  reports when the index lists a different version. Removing a repository
+  removes every install from it.
+
+## Browsing sources
+
+- The API can search a source through an extension the user installed, and
+  read a series, its chapters and a chapter's pages. Each call runs the
+  extension on a blocking thread.
+- Covers and pages come back as links to `/api/v1/me/extensions/{id}/image`,
+  which carry the image request the extension made. The server fetches the
+  image, held to the extension's sites, and sends its bytes unchanged with
+  `nosniff`, so the app never contacts a source's sites itself.
+- Browsing stores nothing; following a series into an extension library
+  does.
+
+## Extension libraries
+
+- An admin makes an extension library, a kind of source library like
+  Komga's, from an extension they installed. It runs on that admin's
+  install, so readers granted the library read it without installing
+  anything. If the admin uninstalls the extension, or its repository stops
+  being usable, the library's pages and syncs fail with `source_unavailable`
+  until it's installed again.
+- Unlike a Komga library, which lists everything its server holds, an
+  extension library holds only the series an admin follows into it. Sources
+  can hold far more than anyone reads, and every request goes through the
+  extension's limits.
+- Extensions run in the server, so the server syncs these libraries itself
+  rather than through `chek-library`'s scan; they sync on the same schedule
+  as Komga libraries.
+- Following a series stores it with the source's id as its remote id, and
+  each chapter as a publication with format `remote`, backed by remote
+  content keyed by the chapter's id. Chapters sort like files: by number,
+  then by title. The series' cover becomes every chapter's cover thumbnail.
+- A sync follows each series again. Chapters the source no longer lists are
+  marked unavailable, not deleted, so progress survives; a chapter whose
+  version changed has its page list dropped. Edits survive syncs, as for
+  Komga's books.
+- A chapter's page list is asked of the source the first time it's read
+  and stored as the image requests the extension returned. Pages are
+  fetched through the source on every read, with no cache on the server
+  yet. Since sources often hand out page links that expire, a failed fetch
+  asks for the page list again and retries once.
+
 ## Observability
 
 - Every request is logged with its method, route, path, status, duration,

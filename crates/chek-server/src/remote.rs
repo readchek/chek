@@ -99,8 +99,12 @@ fn available(state: &AppState, remote: &RemoteContent) -> Result<Komga, ApiError
             ),
         });
     }
+    // Callers send an extension's chapters to `source_libraries` first.
     let SourceConfig::Komga(config) =
-        serde_json::from_str(&remote.source_config).map_err(ApiError::internal)?;
+        serde_json::from_str(&remote.source_config).map_err(ApiError::internal)?
+    else {
+        return Err(ApiError::internal("not a Komga library"));
+    };
     Komga::new(state.scan.http.clone(), &config).map_err(ApiError::internal)
 }
 

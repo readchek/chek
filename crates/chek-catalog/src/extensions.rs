@@ -20,6 +20,27 @@ pub struct ExtensionRepository {
     pub created_at: String,
 }
 
+/// An extension a user installed.
+#[derive(Debug, Clone)]
+pub struct ExtensionInstall {
+    pub user_id: i64,
+    pub extension_id: String,
+    pub repository_id: i64,
+    pub name: String,
+    pub version: String,
+    /// Names the component file in the data folder.
+    pub sha256: String,
+    /// JSON array of the hosts the manifest declares.
+    pub sites: String,
+    /// JSON array of BCP 47 tags.
+    pub languages: String,
+    pub installed_at: String,
+}
+
+const SELECT_INSTALL: &str = "SELECT user_id, extension_id, repository_id, name, version, sha256,
+            sites, languages, installed_at
+     FROM extension_install";
+
 const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fetch_error, created_at
      FROM extension_repository"#;
 
@@ -129,6 +150,147 @@ impl Catalog {
         )?;
         Ok(())
     }
+}
+
+impl Catalog {
+    /// A user's installed extensions, by name.
+    pub fn extension_installs(&self, user_id: i64) -> Result<Vec<ExtensionInstall>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "{SELECT_INSTALL} WHERE user_id = ?1 ORDER BY name COLLATE NOCASE, extension_id"
+        ))?;
+        let rows = stmt.query_map([user_id], install_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn extension_install(
+        &self,
+        user_id: i64,
+        extension_id: &str,
+    ) -> Result<Option<ExtensionInstall>> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!("{SELECT_INSTALL} WHERE user_id = ?1 AND extension_id = ?2"),
+                params![user_id, extension_id],
+                install_from_row,
+            )
+            .optional()?)
+    }
+
+    /// Installs an extension, or replaces the user's install of it. Returns
+    /// the replaced install's digest when no install uses it any more, so
+    /// its file can be deleted.
+    pub fn save_extension_install(&self, install: &ExtensionInstall) -> Result<Option<String>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT sha256 FROM extension_install WHERE user_id = ?1 AND extension_id = ?2",
+                params![install.user_id, install.extension_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        tx.execute(
+            "INSERT INTO extension_install
+                 (user_id, extension_id, repository_id, name, version, sha256, sites, languages, installed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             ON CONFLICT (user_id, extension_id) DO UPDATE SET
+                 repository_id = excluded.repository_id, name = excluded.name,
+                 version = excluded.version, sha256 = excluded.sha256, sites = excluded.sites,
+                 languages = excluded.languages, installed_at = excluded.installed_at",
+            params![
+                install.user_id,
+                install.extension_id,
+                install.repository_id,
+                install.name,
+                install.version,
+                install.sha256,
+                install.sites,
+                install.languages
+            ],
+        )?;
+        let unused = match previous {
+            Some(sha256) if sha256 != install.sha256 && !digest_in_use(&tx, &sha256)? => {
+                Some(sha256)
+            }
+            _ => None,
+        };
+        tx.commit()?;
+        Ok(unused)
+    }
+
+    /// Uninstalls an extension. `None` when the user hadn't installed it;
+    /// otherwise whether its file is now unused.
+    pub fn delete_extension_install(
+        &self,
+        user_id: i64,
+        extension_id: &str,
+    ) -> Result<Option<(String, bool)>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let removed: Option<String> = tx
+            .query_row(
+                "DELETE FROM extension_install WHERE user_id = ?1 AND extension_id = ?2
+                 RETURNING sha256",
+                params![user_id, extension_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let result = match removed {
+            Some(sha256) => {
+                let unused = !digest_in_use(&tx, &sha256)?;
+                Some((sha256, unused))
+            }
+            None => None,
+        };
+        tx.commit()?;
+        Ok(result)
+    }
+
+    /// Component digests no install uses, among those given.
+    pub fn unused_digests(&self, digests: &[String]) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let mut unused = Vec::new();
+        for digest in digests {
+            if !digest_in_use(&conn, digest)? {
+                unused.push(digest.clone());
+            }
+        }
+        Ok(unused)
+    }
+
+    /// Digests of the components installed from a repository, so their
+    /// files can be cleaned up after the repository is removed.
+    pub fn repository_digests(&self, repository_id: i64) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT sha256 FROM extension_install WHERE repository_id = ?1")?;
+        let rows = stmt.query_map([repository_id], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+fn digest_in_use(conn: &rusqlite::Connection, sha256: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM extension_install WHERE sha256 = ?1)",
+        [sha256],
+        |row| row.get(0),
+    )
+}
+
+fn install_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionInstall> {
+    Ok(ExtensionInstall {
+        user_id: row.get(0)?,
+        extension_id: row.get(1)?,
+        repository_id: row.get(2)?,
+        name: row.get(3)?,
+        version: row.get(4)?,
+        sha256: row.get(5)?,
+        sites: row.get(6)?,
+        languages: row.get(7)?,
+        installed_at: row.get(8)?,
+    })
 }
 
 fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionRepository> {

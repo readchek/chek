@@ -11,6 +11,7 @@
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
 mod http;
+mod installed;
 pub mod repository;
 mod sites;
 
@@ -20,6 +21,8 @@ use reqwest::Method;
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+
+pub use crate::installed::Extensions;
 
 use crate::http::{FetchError, Net};
 use crate::sites::Sites;
@@ -61,6 +64,10 @@ pub enum Error {
     Source(SourceError),
     #[error("couldn't fetch the image: {0}")]
     Image(String),
+    #[error("the extension doesn't match its index entry: {0}")]
+    Mismatch(String),
+    #[error("couldn't store the extension: {0}")]
+    Storage(String),
 }
 
 fn describe(error: &SourceError) -> String {

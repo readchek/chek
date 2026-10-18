@@ -15,6 +15,8 @@ use crate::{MAX_FIELD, valid_id};
 const MAX_INDEX: u64 = 1 << 20;
 /// Indexes can't list more extensions than this.
 const MAX_ENTRIES: usize = 1_000;
+/// The largest component the server downloads.
+const MAX_COMPONENT: u64 = 32 << 20;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A repository's `index.json`.
@@ -114,6 +116,32 @@ pub fn parse_index(bytes: &[u8]) -> Result<Index, RepositoryError> {
         }
     }
     Ok(index)
+}
+
+/// Downloads an entry's component from the repository at `index_url` and
+/// checks it against the entry's digest.
+pub fn download(index_url: &str, entry: &IndexEntry) -> Result<Vec<u8>, RepositoryError> {
+    let base =
+        Url::parse(index_url).map_err(|_| RepositoryError::NotHttps(index_url.to_owned()))?;
+    let url = base
+        .join(&entry.file)
+        .map_err(|e| RepositoryError::Invalid(format!("`{}`: {e}", entry.file)))?;
+    let bytes = get(url.as_str(), MAX_COMPONENT)?;
+    if sha256_hex(&bytes) != entry.sha256 {
+        return Err(RepositoryError::Invalid(format!(
+            "{url} doesn't match the digest in the index"
+        )));
+    }
+    Ok(bytes)
+}
+
+/// A component's SHA-256 digest in lowercase hex, as indexes write it.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Sends a GET over HTTPS and reads at most `max` bytes.
