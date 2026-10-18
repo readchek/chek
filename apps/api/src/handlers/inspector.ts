@@ -20,6 +20,18 @@ export const InspectorRoutes = Layer.mergeAll(
     "/inspect/app.js",
     file(new URL("../inspector/app.js", import.meta.url), "text/javascript; charset=utf-8"),
   ),
+  ...["ui", "library", "admin"].map((name) =>
+    HttpRouter.add(
+      "GET",
+      `/inspect/${name}.js`,
+      file(new URL(`../inspector/${name}.js`, import.meta.url), "text/javascript; charset=utf-8"),
+    ),
+  ),
+  HttpRouter.add(
+    "GET",
+    "/inspect/oat.js",
+    file(new URL(import.meta.resolve("@knadh/oat/oat.min.js")), "text/javascript; charset=utf-8"),
+  ),
   HttpRouter.add(
     "GET",
     "/inspect/theme.css",
