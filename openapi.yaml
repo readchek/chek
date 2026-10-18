@@ -2913,6 +2913,10 @@ components:
           description: The Komga libraries read; absent when every library the account sees is read.
           items:
             type: string
+        progressUserId:
+          type: integer
+          format: int64
+          description: The Chek user whose reading progress is written back to the Komga account. Absent when none is.
     NewKomgaSource:
       type: object
       additionalProperties: false
@@ -2939,6 +2943,14 @@ components:
           description: Komga library ids to read; leave out to read every library the account sees.
           items:
             type: string
+        writeProgress:
+          type: boolean
+          default: true
+          description: |
+            Writes your reading progress in this library back to the Komga
+            account, so Komga's own apps stay in step. Only the admin who
+            adds the library is written back, since every reader shares the
+            one Komga account.
     Series:
       type: object
       required: [id, libraryId, title, publicationCount]

@@ -44,6 +44,8 @@ pub struct RemoteContent {
     pub title: String,
     pub available: bool,
     pub source_config: String,
+    /// Pages of a comic; `None` for books and PDFs.
+    pub page_count: Option<i64>,
 }
 
 impl Catalog {
@@ -172,7 +174,7 @@ impl Catalog {
         Ok(self
             .conn()
             .query_row(
-                "SELECT p.id, l.id, c.remote_id, c.hash, p.format, p.title, p.available, l.source_config
+                "SELECT p.id, l.id, c.remote_id, c.hash, p.format, p.title, p.available, l.source_config, p.page_count
                  FROM publication p
                  JOIN content c ON c.publication_id = p.id
                  JOIN library l ON l.id = c.library_id
@@ -188,6 +190,7 @@ impl Catalog {
                         title: row.get(5)?,
                         available: row.get(6)?,
                         source_config: row.get(7)?,
+                        page_count: row.get(8)?,
                     })
                 },
             )

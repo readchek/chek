@@ -38,6 +38,10 @@ pub struct KomgaConfig {
     /// Komga libraries to read; empty reads every library the account sees.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub library_ids: Vec<String>,
+    /// The Chek user whose reading progress is written back to this Komga
+    /// account, so Komga's own apps stay in step. `None` writes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_user_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,6 +305,44 @@ impl Komga {
             StatusCode::RANGE_NOT_SATISFIABLE => Ok(response),
             _ => check_status(response, "download files"),
         }
+    }
+
+    /// Records how far a comic or PDF has been read. `page` is one-based.
+    pub async fn set_read_progress(
+        &self,
+        book_id: &str,
+        page: u32,
+        completed: bool,
+    ) -> Result<(), KomgaError> {
+        let request = self
+            .request(
+                Method::PATCH,
+                &["api", "v1", "books", book_id, "read-progress"],
+            )?
+            .json(&json!({ "page": page, "completed": completed }));
+        self.send(request, "save read progress").await?;
+        Ok(())
+    }
+
+    /// Records an EPUB position as a Readium locator, which Komga checks
+    /// against the book's resources. `modified` is an RFC 3339 time; Komga
+    /// keeps the newest position.
+    pub async fn set_progression(
+        &self,
+        book_id: &str,
+        locator: &Value,
+        modified: &str,
+    ) -> Result<(), KomgaError> {
+        let body = json!({
+            "modified": modified,
+            "device": { "id": "chek", "name": "Chek" },
+            "locator": locator,
+        });
+        let request = self
+            .request(Method::PUT, &["api", "v1", "books", book_id, "progression"])?
+            .json(&body);
+        self.send(request, "save read progress").await?;
+        Ok(())
     }
 
     /// The condition Komga's search takes to keep to this source's

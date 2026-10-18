@@ -66,6 +66,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         extensions: Arc::new(chek_sources::Extensions::new(
             config.data_dir.join("extensions"),
         )?),
+        progress_writes: remote::progress_writer(chek_library::http_client()?),
         oidc: Arc::new(oidc::Oidc::new(
             config.public_url,
             config.oidc_providers,
