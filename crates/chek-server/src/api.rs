@@ -712,6 +712,7 @@ pub(crate) fn file_media_type(format: &str) -> &'static str {
         "epub" => "application/epub+zip",
         "pdf" => "application/pdf",
         "cbz" => "application/vnd.comicbook+zip",
+        "cbt" => "application/x-cbt",
         _ => "application/octet-stream",
     }
 }

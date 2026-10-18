@@ -170,7 +170,7 @@ fn checked_path(path: &str) -> Result<(String, Format), ApiError> {
         .extension()
         .and_then(|e| e.to_str())
         .and_then(Format::from_extension)
-        .ok_or_else(|| invalid("must end in .epub, .pdf or .cbz"))?;
+        .ok_or_else(|| invalid("must end in .epub, .pdf, .cbz or .cbt"))?;
     Ok((parts.join("/"), format))
 }
 

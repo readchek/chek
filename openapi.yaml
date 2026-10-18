@@ -464,8 +464,8 @@ paths:
           Where to store the file, relative to the library's folder, with `/`
           between folders, such as `Saga/Saga 01.cbz`. Missing folders are
           created. Every part must be a plain name (no `.`, `..` or names
-          starting with `.`), and the file must end in `.epub`, `.pdf` or
-          `.cbz`.
+          starting with `.`), and the file must end in `.epub`, `.pdf`,
+          `.cbz` or `.cbt`.
         schema:
           type: string
           maxLength: 1024
@@ -1866,7 +1866,7 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz]
+          enum: [epub, pdf, cbz, cbt]
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
