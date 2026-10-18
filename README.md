@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/website/public/assets/logos/mark.svg" alt="Chek" width="80" height="80" />
+  <img src="https://raw.githubusercontent.com/readchek/chek.page/main/public/assets/logos/mark.svg" alt="Chek" width="80" height="80" />
 </p>
 
 <h1 align="center">Chek</h1>
@@ -30,30 +30,12 @@ The landing page is live at [chek.page](https://chek.page). The new clients and
 server are still being built; supported formats and launch features are not yet
 finalized.
 
-## Development
+## Repositories
 
-Install [Bun](https://bun.sh), then run the website locally:
+This repository is the Chek server. It has no code yet; its structure is being
+re-planned.
 
-```sh
-bun install
-bun run dev:website
-```
-
-Open [localhost:18357](http://127.0.0.1:18357/).
-
-See the [development guide](docs/development.md) for setup and code checks,
-and the [website guide](docs/website.md) for builds, deployment, and assets.
-
-## Project structure
-
-This repository currently contains only the landing page. The backend is being
-re-planned. Chek Reader is developed separately.
-
-```text
-apps/
-  website/    Landing page
-docs/         Product, design, and development guides
-```
+- [chek.page](https://github.com/readchek/chek.page): the landing page.
+- [chek-reader](https://github.com/readchek/chek-reader): the reading engine for Apple platforms.
 
 The clients' planned scope is described in [product direction](docs/product.md).
-App and website design decisions live in the [design guide](docs/design.md).
