@@ -17,6 +17,7 @@ base64.workspace = true
 blake3.workspace = true
 chek-catalog.workspace = true
 chek-formats.workspace = true
+chek-komga.workspace = true
 chek-library.workspace = true
 getrandom.workspace = true
 http-body-util.workspace = true

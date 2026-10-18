@@ -90,7 +90,9 @@ Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 for setting up a server without reading its log. Admins can upload files
 into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
 needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
-(default 2 GiB). `RUST_LOG` sets the log
+(default 2 GiB). Admins can also add a Komga server as a library, which
+Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages and
+files from; see [Komga libraries](docs/server.md#komga-libraries). `RUST_LOG` sets the log
 level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an
 OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.
