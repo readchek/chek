@@ -62,7 +62,8 @@ paths:
       description: |
         Works only while the server has no accounts. The setup token is printed
         in the server's log at startup, so only someone who can read the log
-        can claim the server.
+        can claim the server, unless the deployment set its own in
+        `CHEK_SETUP_TOKEN`.
       security: []
       requestBody:
         required: true

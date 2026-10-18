@@ -1,0 +1,38 @@
+# The demo instance: the server plus a one-shot job that fills it with the
+# reader test corpus. Written for Dokploy, which adds the Traefik routing for
+# the domain set in its Domains tab; see docs/deploy.md.
+services:
+  chek:
+    build:
+      context: ../..
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      CHEK_SETUP_TOKEN: ${CHEK_SETUP_TOKEN:?set CHEK_SETUP_TOKEN}
+      # The server isn't published on the host, so only containers on its
+      # networks reach it. Traefik's address on them isn't fixed, so trust
+      # the private ranges Docker assigns from.
+      CHEK_TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+    volumes:
+      - chek-data:/data
+      - library:/library:ro
+
+  seed:
+    build:
+      context: .
+      dockerfile: seed.Dockerfile
+    restart: "no"
+    depends_on:
+      - chek
+    environment:
+      CHEK_URL: http://chek:8080
+      CHEK_SETUP_TOKEN: ${CHEK_SETUP_TOKEN:?set CHEK_SETUP_TOKEN}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?set DEMO_ADMIN_PASSWORD}
+      DEMO_READER_PASSWORD: ${DEMO_READER_PASSWORD:?set DEMO_READER_PASSWORD}
+    volumes:
+      - library:/library
+
+volumes:
+  chek-data:
+  library:

@@ -60,6 +60,8 @@ are in the planning doc; this page keeps the decisions next to the code.
   publications outside a reader's grants answer as not found.
 - The first admin is created with a one-time setup token that the server logs
   when it has no accounts, so only someone with access to the log can claim it.
+  Deployments that can't read the log set their own in `CHEK_SETUP_TOKEN`,
+  which must be at least 32 characters and isn't logged.
 - Sign-in returns a random 256-bit session token, sent as a bearer token. The
   database stores only its BLAKE3 hash. Sessions last 90 days after their
   last use.
@@ -73,8 +75,8 @@ are in the planning doc; this page keeps the decisions next to the code.
   checks from it answer `429 too_many_attempts` until the oldest failure is
   15 minutes old. Limits are per address, not per account, so a stranger
   can't lock someone out. Session tokens and already accepted Basic
-  credentials aren't affected. Behind a reverse proxy, list it in
-  `CHEK_TRUSTED_PROXIES` so the client's address is read from
+  credentials aren't affected. Behind a reverse proxy, list its address or
+  CIDR range in `CHEK_TRUSTED_PROXIES` so the client's address is read from
   `X-Forwarded-For`; otherwise every client shares the proxy's address.
 - Requests can also send HTTP Basic credentials, because OPDS reader apps
   can't hold session tokens. A passing check is remembered in memory, keyed

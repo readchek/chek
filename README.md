@@ -80,9 +80,14 @@ Settings come from environment variables: `CHEK_BIND` (address, default
 `127.0.0.1:8080`), `CHEK_DATA_DIR` (database and covers, default `./data`) and
 `CHEK_SCAN_WORKERS` (default one fewer than the cores). The server speaks plain
 HTTP, so put it behind a reverse proxy with HTTPS before reaching it from
-outside your home network, and list the proxy's address in
-`CHEK_TRUSTED_PROXIES` (comma-separated) so sign-in limits apply per client
-rather than to everyone behind the proxy.
+outside your home network, and list the proxy's address or range in
+`CHEK_TRUSTED_PROXIES` (comma-separated, such as `10.0.0.0/8`) so sign-in
+limits apply per client rather than to everyone behind the proxy.
+`CHEK_SETUP_TOKEN` (32 characters or more) replaces the logged setup token,
+for setting up a server without reading its log.
+
+To run a demo instance with the reader test corpus loaded, on Dokploy or with
+Docker Compose, see [deploying a demo instance](docs/deploy.md).
 
 With Docker, read the setup token from `docker logs chek`:
 

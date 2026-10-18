@@ -98,14 +98,15 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
-pub fn client_ip(parts: &Parts, trusted_proxies: &[IpAddr]) -> Option<IpAddr> {
+pub fn client_ip(parts: &Parts, trusted_proxies: &[IpRange]) -> Option<IpAddr> {
+    let trusted = |ip: &IpAddr| trusted_proxies.iter().any(|range| range.contains(*ip));
     let peer = parts
         .extensions
         .get::<ConnectInfo<SocketAddr>>()?
         .0
         .ip()
         .to_canonical();
-    if !trusted_proxies.contains(&peer) {
+    if !trusted(&peer) {
         return Some(peer);
     }
     // Each proxy appends the address it received from, so the client is the
@@ -123,7 +124,60 @@ pub fn client_ip(parts: &Parts, trusted_proxies: &[IpAddr]) -> Option<IpAddr> {
         forwarded
             .into_iter()
             .rev()
-            .find(|ip| !trusted_proxies.contains(ip))
+            .find(|ip| !trusted(ip))
             .unwrap_or(peer),
     )
+}
+
+/// An address or a CIDR range such as `10.0.0.0/8`, for proxies whose
+/// address isn't fixed, like a container on a Docker network.
+#[derive(Clone, Copy, Debug)]
+pub struct IpRange {
+    network: IpAddr,
+    prefix: u8,
+}
+
+impl IpRange {
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.network, ip.to_canonical()) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u32::from(net) & mask == u32::from(ip) & mask
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u128::from(net) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+impl std::str::FromStr for IpRange {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (address, prefix) = match s.split_once('/') {
+            Some((address, prefix)) => (address, Some(prefix)),
+            None => (s, None),
+        };
+        let network = address
+            .parse::<IpAddr>()
+            .map_err(|e| e.to_string())?
+            .to_canonical();
+        let max = if network.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            Some(p) => p
+                .parse::<u8>()
+                .ok()
+                .filter(|p| *p <= max)
+                .ok_or_else(|| format!("prefix length must be 0 to {max}"))?,
+            None => max,
+        };
+        Ok(Self { network, prefix })
+    }
 }
