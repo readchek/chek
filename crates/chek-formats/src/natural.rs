@@ -29,6 +29,31 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
     }
 }
 
+/// A key that sorts as [`natural_cmp`] does when compared byte by byte, for
+/// storing in a database: lowercase, with every digit run padded to the same
+/// width. Runs longer than that width keep their digits and may sort out of
+/// place, which no real issue or volume number reaches.
+pub fn natural_key(s: &str) -> String {
+    const WIDTH: usize = 20;
+    let mut key = String::with_capacity(s.len() + WIDTH);
+    let mut rest = s;
+    while let Some(start) = rest.find(|c: char| c.is_ascii_digit()) {
+        key.push_str(&rest[..start].to_lowercase());
+        let digits = &rest[start..];
+        let end = digits
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(digits.len());
+        let run = digits[..end].trim_start_matches('0');
+        for _ in run.len()..WIDTH {
+            key.push('0');
+        }
+        key.push_str(run);
+        rest = &digits[end..];
+    }
+    key.push_str(&rest.to_lowercase());
+    key
+}
+
 fn split_digits(s: &[u8]) -> (&[u8], &[u8]) {
     let end = s
         .iter()

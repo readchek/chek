@@ -285,7 +285,9 @@ fn scan_file(
         &ScannedFile {
             relative_path,
             series_key,
+            series_sort_title: chek_formats::natural_key(&series_title),
             series_title,
+            sort_title: chek_formats::natural_key(&title),
             title,
             format: format.as_str(),
             stamp,

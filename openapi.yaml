@@ -484,6 +484,11 @@ paths:
       tags: [Catalog]
       operationId: listLibraryPublications
       summary: List a library's publications
+      description: >-
+        Publications come grouped by series, with series in title order. Within
+        a series, numbered publications come first in number order, then the
+        rest by title. Numbers inside titles compare by value, so "Episode 2"
+        comes before "Episode 10".
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
