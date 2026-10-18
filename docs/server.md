@@ -105,8 +105,13 @@ are in the planning doc; this page keeps the decisions next to the code.
   (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
   CBZs. PDFs carry none yet. A file without metadata keeps its file name as
   its title.
-- Series stay grouped by folder. A metadata series name doesn't regroup
-  files, so series ids stay stable when tags change.
+- A file whose metadata names a series (ComicInfo `Series`, an EPUB 3
+  series collection or calibre's `calibre:series`) joins every file with that
+  series name in the library, matched ignoring case, wherever the files sit.
+  Other files are grouped by the folder they're in. Retagging a file moves
+  it to another series, which changes its series id; reading progress is
+  kept per publication, so it isn't lost. Series left empty are removed at
+  the end of a scan.
 - Metadata that can't be parsed is ignored rather than failing the file,
   since pages and the file are still readable. Text fields are cut at 1,000
   characters and summaries at 20,000.
