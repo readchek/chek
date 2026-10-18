@@ -151,11 +151,31 @@ pub async fn trace_request(
     let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
     span.record("http.response.status_code", status);
     let _entered = span.enter();
+    // Log records carry only their own fields, not the span's, so repeat
+    // what identifies the request for anyone reading logs without traces.
     if status >= 500 {
         span.record("otel.status_code", "ERROR");
-        warn!(status, latency_ms, "request failed");
+        warn!(
+            http.request.method = %method,
+            http.route = %route,
+            url.path = %path,
+            client.address = %client,
+            user_agent.original = %user_agent,
+            status,
+            latency_ms,
+            "request failed"
+        );
     } else {
-        info!(status, latency_ms, "request finished");
+        info!(
+            http.request.method = %method,
+            http.route = %route,
+            url.path = %path,
+            client.address = %client,
+            user_agent.original = %user_agent,
+            status,
+            latency_ms,
+            "request finished"
+        );
     }
     response
 }
