@@ -13,7 +13,9 @@ mod progress;
 mod users;
 
 pub use progress::{Progress, ProgressSave};
-pub use users::{NewUser, Role, SessionUser, User, UserChanges, UserUpdate, UserWithPassword};
+pub use users::{
+    NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
+};
 
 /// Migrations in order. A database records how many it has applied in
 /// `PRAGMA user_version`, so each one runs exactly once.
@@ -23,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003_users.sql"),
     include_str!("../migrations/0004_progress.sql"),
     include_str!("../migrations/0005_metadata.sql"),
+    include_str!("../migrations/0006_session_ids.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

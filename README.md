@@ -80,7 +80,9 @@ Settings come from environment variables: `CHEK_BIND` (address, default
 `127.0.0.1:8080`), `CHEK_DATA_DIR` (database and covers, default `./data`) and
 `CHEK_SCAN_WORKERS` (default one fewer than the cores). The server speaks plain
 HTTP, so put it behind a reverse proxy with HTTPS before reaching it from
-outside your home network.
+outside your home network, and list the proxy's address in
+`CHEK_TRUSTED_PROXIES` (comma-separated) so sign-in limits apply per client
+rather than to everyone behind the proxy.
 
 With Docker, read the setup token from `docker logs chek`:
 
