@@ -53,6 +53,14 @@ are in the planning doc; this page keeps the decisions next to the code.
 - Comic archives are often saved under the wrong comic extension, such as a
   ZIP named `.cbr`, so a file with any comic extension takes its format from
   its bytes.
+- Books are served as whole files for the app to lay out: EPUB, PDF, MOBI
+  (`.mobi`, `.azw`, `.prc`), AZW3, FB2, plain text (`.txt`) and Markdown
+  (`.md`, `.markdown`). Kindle books, like comics, take their format from
+  their bytes: the MOBI header's version tells KF8 (AZW3) from older MOBI
+  whatever the extension says. Text and Markdown files are accepted when
+  their start has no NUL bytes and few control characters. FB2 inside a ZIP
+  (`.fb2.zip`, `.fbz`) isn't read yet. DRM-protected Kindle books are
+  served as they are; Chek doesn't remove DRM.
 - Before serving a file or a page, the server compares the file's size and
   modification time with what the scan recorded. If they differ, it starts a
   rescan and answers `409 content_changed`, because stored offsets would no
@@ -60,7 +68,10 @@ are in the planning doc; this page keeps the decisions next to the code.
 - Covers are JPEG thumbnails that fit within 400 by 600 pixels, made by
   libvips at scan time and stored in the data folder under `covers/`, named
   by the file's content hash. Comic covers come from the first page, EPUB covers
-  from the package's cover image and PDF covers from the first page.
+  from the package's cover image and PDF covers from the first page. MOBI
+  and AZW3 covers are the image record their EXTH header marks, and FB2
+  covers the `<binary>` image its `<coverpage>` points at. Text and Markdown
+  books have no cover.
 - Every folder library is rescanned at startup to catch changes made while
   the server was down. Unchanged files are skipped by size and modification
   time.
@@ -218,14 +229,23 @@ are in the planning doc; this page keeps the decisions next to the code.
   (EPUB 2 and 3, including calibre's series index) and `ComicInfo.xml` in
   comic archives. PDFs give the title, authors and subject from their document
   information, read through libvips' poppler loader; a title that's only a
-  source file's name, such as `Microsoft Word - draft.docx`, is ignored. A
-  file without metadata keeps its file name as its title.
+  source file's name, such as `Microsoft Word - draft.docx`, is ignored.
+  MOBI and AZW3 give their EXTH title, authors, publisher, description,
+  language and date, reading only the header record. FB2 gives its
+  `<title-info>`, including authors, translators, the series from
+  `<sequence>`, and the publisher from `<publish-info>`; legacy encodings
+  such as Windows-1251 are decoded by the XML declaration. Plain text reads a
+  Project Gutenberg header (`Title:`, `Author:`, `Language:`), and Markdown
+  reads YAML front matter (`title`, `author`, `series`, `date`, `language`,
+  `description`) or else its first `#` heading. A file without metadata
+  keeps its file name as its title.
 - Lists go series by series, in title order. Within a series, publications
   with a number in their metadata come first in number order, then the rest
   by title. Numbers inside titles and file names compare by value, so
   `Episode 2` comes before `Episode 10` without any metadata.
 - A file whose metadata names a series (ComicInfo `Series`, an EPUB 3
-  series collection or calibre's `calibre:series`) joins every file with that
+  series collection, calibre's `calibre:series`, an FB2 `<sequence>` or
+  Markdown front matter's `series`) joins every file with that
   series name in the library, matched ignoring case, wherever the files sit.
   Other files are grouped by the folder they're in. Retagging a file moves
   it to another series, which changes its series id; reading progress is

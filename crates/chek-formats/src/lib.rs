@@ -7,10 +7,13 @@ mod cbt;
 mod cbz;
 mod cover;
 mod epub;
+mod fb2;
 mod libarchive;
 mod metadata;
+mod mobi;
 mod natural;
 mod pdf;
+mod text;
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -33,6 +36,13 @@ pub enum Format {
     Cbt,
     Cbr,
     Cb7,
+    /// An older Kindle book, also sold as `.azw` or `.prc`.
+    Mobi,
+    /// A KF8 Kindle book.
+    Azw3,
+    Fb2,
+    Txt,
+    Markdown,
 }
 
 impl Format {
@@ -45,6 +55,11 @@ impl Format {
             Format::Cbt => "cbt",
             Format::Cbr => "cbr",
             Format::Cb7 => "cb7",
+            Format::Mobi => "mobi",
+            Format::Azw3 => "azw3",
+            Format::Fb2 => "fb2",
+            Format::Txt => "txt",
+            Format::Markdown => "markdown",
         }
     }
 
@@ -58,6 +73,11 @@ impl Format {
             "cbt" => Some(Format::Cbt),
             "cbr" => Some(Format::Cbr),
             "cb7" => Some(Format::Cb7),
+            "mobi" | "azw" | "prc" => Some(Format::Mobi),
+            "azw3" => Some(Format::Azw3),
+            "fb2" => Some(Format::Fb2),
+            "txt" => Some(Format::Txt),
+            "md" | "markdown" => Some(Format::Markdown),
             _ => None,
         }
     }
@@ -65,6 +85,14 @@ impl Format {
     /// Whether this is a comic archive, read page by page.
     pub fn is_comic(self) -> bool {
         matches!(self, Format::Cbz | Format::Cbt | Format::Cbr | Format::Cb7)
+    }
+
+    /// Whether a file whose extension claims `self` may be detected as
+    /// `found`. Comic archives and Kindle books are often saved under a
+    /// sibling's extension, so their bytes decide.
+    pub fn accepts(self, found: Format) -> bool {
+        let kindle = |f: Format| matches!(f, Format::Mobi | Format::Azw3);
+        self == found || (self.is_comic() && found.is_comic()) || (kindle(self) && kindle(found))
     }
 }
 
@@ -127,6 +155,8 @@ pub enum FormatError {
     Truncated,
     #[error("image processing failed: {0}")]
     Image(String),
+    #[error("invalid file: {0}")]
+    Invalid(&'static str),
 }
 
 /// Archives with more entries than this are rejected rather than indexed.
@@ -147,8 +177,9 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
         return Ok(None);
     };
 
-    // A tar header's magic sits 257 bytes in.
-    let mut magic = [0u8; 262];
+    // A tar header's magic sits 257 bytes in; text formats are judged on
+    // their first few kilobytes.
+    let mut magic = [0u8; 4096];
     let read = read_prefix(path, &mut magic)?;
     let magic = &magic[..read];
     Ok(match claimed {
@@ -169,6 +200,18 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
                 None
             }
         }
+        // The MOBI header's version tells KF8 books from older ones.
+        Format::Mobi | Format::Azw3 => {
+            if !mobi::is_mobi(magic) {
+                None
+            } else if mobi::is_kf8(path)? {
+                Some(Format::Azw3)
+            } else {
+                Some(Format::Mobi)
+            }
+        }
+        Format::Fb2 => fb2::is_fb2(magic).then_some(claimed),
+        Format::Txt | Format::Markdown => text::is_text(magic).then_some(claimed),
     })
 }
 
@@ -182,6 +225,13 @@ pub fn inspect(path: &Path, format: Format) -> Result<Inspection, FormatError> {
         // before metadata existed, just without metadata.
         Format::Epub => (Vec::new(), epub::metadata(path).unwrap_or_default()),
         Format::Pdf => (Vec::new(), pdf::metadata(path).unwrap_or_default()),
+        Format::Mobi | Format::Azw3 => (Vec::new(), mobi::metadata(path).unwrap_or_default()),
+        Format::Fb2 => (Vec::new(), fb2::metadata(path).unwrap_or_default()),
+        Format::Txt => (Vec::new(), text::plain_metadata(path).unwrap_or_default()),
+        Format::Markdown => (
+            Vec::new(),
+            text::markdown_metadata(path).unwrap_or_default(),
+        ),
     };
     Ok(Inspection {
         format,

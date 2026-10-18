@@ -891,6 +891,11 @@ pub(crate) fn file_media_type(format: &str) -> &'static str {
         "cbt" => "application/x-cbt",
         "cbr" => "application/vnd.comicbook-rar",
         "cb7" => "application/x-cb7",
+        "mobi" => "application/x-mobipocket-ebook",
+        "azw3" => "application/vnd.amazon.mobi8-ebook",
+        "fb2" => "application/x-fictionbook+xml",
+        "txt" => "text/plain",
+        "markdown" => "text/markdown",
         _ => "application/octet-stream",
     }
 }

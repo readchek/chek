@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use libvips::{VipsApp, VipsImage, ops};
 
-use crate::{Format, FormatError, PageEntry, epub, read_page};
+use crate::{Format, FormatError, PageEntry, epub, fb2, mobi, read_page};
 
 /// Covers fit inside this box, keeping their aspect ratio.
 const COVER_WIDTH: i32 = 400;
@@ -34,6 +34,15 @@ pub fn cover_thumbnail(
             Some(bytes) => Source::Bytes(bytes),
             None => return Ok(None),
         },
+        Format::Mobi | Format::Azw3 => match mobi::cover_image(path)? {
+            Some(bytes) => Source::Bytes(bytes),
+            None => return Ok(None),
+        },
+        Format::Fb2 => match fb2::cover_image(path)? {
+            Some(bytes) => Source::Bytes(bytes),
+            None => return Ok(None),
+        },
+        Format::Txt | Format::Markdown => return Ok(None),
         // libvips renders the first page of a PDF through poppler.
         Format::Pdf => match path.to_str() {
             Some(path) => Source::File(path),

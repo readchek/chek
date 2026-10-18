@@ -19,6 +19,7 @@ argon2 = "0.6.0"
 axum = "0.8.9"
 base64 = "0.23.1"
 blake3 = "1.8.7"
+encoding_rs = "0.8.35"
 # Links the system libarchive, which reads RAR and 7-Zip comics.
 compress-tools = { version = "0.16.1", default-features = false }
 flate2 = "1.1.10"
