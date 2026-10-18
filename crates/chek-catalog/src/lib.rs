@@ -466,6 +466,35 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Available publications in libraries `user` can read, newest first,
+    /// starting after the publication id `after`. Ids grow as scans find
+    /// files, so the newest id is the most recently added; a file changed in
+    /// place keeps its id and its place.
+    pub fn recently_added(
+        &self,
+        user: &User,
+        library_id: Option<i64>,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
+             FROM publication p JOIN series s ON s.id = p.series_id
+             WHERE p.available
+               AND (?1 OR s.library_id IN (SELECT library_id FROM library_grant WHERE user_id = ?2))
+               AND (?3 IS NULL OR s.library_id = ?3)
+               AND (?4 IS NULL OR p.id < ?4)
+             ORDER BY p.id DESC
+             LIMIT ?5",
+        )?;
+        let rows = stmt.query_map(
+            params![user.role == Role::Admin, user.id, library_id, after, limit],
+            summary_from_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn series(&self, id: i64) -> Result<Option<SeriesSummary>> {
         Ok(self
             .conn()

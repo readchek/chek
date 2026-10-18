@@ -551,6 +551,88 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/continue-reading:
+    get:
+      tags: [Progress]
+      operationId: listContinueReading
+      summary: List publications to continue
+      description: >-
+        Publications the user has a position in and hasn't finished, most
+        recently read first. A position whose `totalProgression` is 1 counts
+        as finished; one without it counts as started. Unavailable
+        publications and libraries the user can no longer read are left out.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications with the user's position in each.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [publication, progress]
+                      properties:
+                        publication:
+                          $ref: "#/components/schemas/PublicationSummary"
+                        progress:
+                          $ref: "#/components/schemas/Progress"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/recently-added:
+    get:
+      tags: [Catalog]
+      operationId: listRecentlyAdded
+      summary: List recently added publications
+      description: >-
+        Available publications, newest first, from every library the user can
+        read. A file changed in place keeps its original place.
+      parameters:
+        - name: libraryId
+          in: query
+          description: List only this library.
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/search:
     get:
       tags: [Catalog]
@@ -962,6 +1044,72 @@ paths:
       operationId: getOpdsLibraryPublications
       summary: OPDS feed of a library's publications
       description: Every publication, series by series, 50 at a time; a `next` link points to the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/continue-reading:
+    parameters:
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsContinueReading
+      summary: OPDS feed of publications to continue
+      description: The same publications as the API's continue reading list, 50 at a time. Linked from the catalog.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/recently-added:
+    parameters:
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsRecentlyAdded
+      summary: OPDS feed of recently added publications
+      description: Newest first across every library the user can read, 50 at a time. Linked from the catalog.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/recently-added:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsLibraryRecentlyAdded
+      summary: OPDS feed of a library's recently added publications
+      description: Newest first, 50 at a time. Linked from the library's feed.
       responses:
         "401":
           $ref: "#/components/responses/OpdsUnauthorized"

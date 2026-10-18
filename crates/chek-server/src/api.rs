@@ -76,6 +76,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", put(auth::change_password))
         .route("/api/v1/me/sessions", get(auth::list_sessions))
+        .route("/api/v1/me/continue-reading", get(continue_reading))
+        .route("/api/v1/recently-added", get(recently_added))
         .route(
             "/api/v1/me/sessions/{id}",
             axum::routing::delete(auth::delete_session),
@@ -313,6 +315,97 @@ async fn scan_library(
 struct PageQuery {
     cursor: Option<String>,
     limit: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentQuery {
+    library_id: Option<i64>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
+/// Newest publications first, across every readable library or one.
+async fn recently_added(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<RecentQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = recent_publications(&state, &current, query.library_id, after, limit).await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|p| p.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// One page of recently added publications for the API and OPDS.
+pub(crate) async fn recent_publications(
+    state: &AppState,
+    current: &CurrentUser,
+    library_id: Option<i64>,
+    after: Option<i64>,
+    limit: u32,
+) -> Result<Vec<PublicationSummary>, ApiError> {
+    if let Some(id) = library_id
+        && !current.user.can_read(id)
+    {
+        return Err(ApiError::library_not_found(id));
+    }
+    let user = current.user.clone();
+    let found = blocking(state, move |c| {
+        if let Some(id) = library_id
+            && c.library(id)?.is_none()
+        {
+            return Ok(None);
+        }
+        Ok(Some(c.recently_added(&user, library_id, after, limit)?))
+    })
+    .await?;
+    found.ok_or_else(|| ApiError::library_not_found(library_id.unwrap_or_default()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadingDto {
+    publication: PublicationDto,
+    progress: progress::ProgressDto,
+}
+
+/// Publications the user has started and not finished, most recently read
+/// first.
+async fn continue_reading(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<ReadingDto>>, ApiError> {
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let user = current.user.clone();
+    let items = blocking(&state, move |c| c.continue_reading(&user, after, limit)).await?;
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|(p, _)| p.id.to_string()))
+        .flatten();
+    let items = items
+        .into_iter()
+        .map(|(publication, progress)| {
+            Ok(ReadingDto {
+                publication: publication.into(),
+                progress: progress.try_into()?,
+            })
+        })
+        .collect::<Result<_, ApiError>>()?;
+    Ok(Json(Page { items, next_cursor }))
 }
 
 async fn list_publications(
