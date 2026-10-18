@@ -6,6 +6,7 @@ mod auth;
 mod config;
 mod edits;
 mod limit;
+mod oidc;
 mod opds;
 mod progress;
 mod remote;
@@ -58,7 +59,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         trusted_proxies: Arc::new(config.trusted_proxies),
         client_ip_header: config.client_ip_header,
         max_upload_bytes: config.max_upload_bytes,
+        oidc: Arc::new(oidc::Oidc::new(
+            config.public_url,
+            config.oidc_providers,
+            config.oidc_redirects,
+        )),
     };
+    if let Some(callback) = state.oidc.callback_url() {
+        info!(%callback, "sign-in providers send people back to this address; register it with each provider");
+    }
     auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is
     // cheap, and it catches whatever changed while the server was down.

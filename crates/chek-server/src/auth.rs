@@ -2,7 +2,8 @@
 //!
 //! Clients sign in with a name and password and get a random session token,
 //! which they send as `Authorization: Bearer <token>`. Only a hash of each
-//! token is stored. Passwords are hashed with Argon2id.
+//! token is stored. Passwords are hashed with Argon2id. Sign-in through
+//! OpenID Connect providers is in [`crate::oidc`].
 
 use std::net::IpAddr;
 use std::sync::OnceLock;
@@ -410,11 +411,13 @@ pub async fn delete_session(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
-    current_password: String,
+    /// Not needed by accounts made by a sign-in provider, which have none.
+    current_password: Option<String>,
     new_password: String,
 }
 
 /// Changes the signed-in user's password and signs out their other sessions.
+/// An account made by a sign-in provider sets its first password this way.
 pub async fn change_password(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -425,7 +428,12 @@ pub async fn change_password(
     let hash = blocking(&state, move |c| c.password_hash(user_id))
         .await?
         .ok_or_else(|| unauthorized("the account no longer exists"))?;
-    if !verify_password(body.current_password, hash).await? {
+    let verified = match body.current_password {
+        _ if hash.is_empty() => true,
+        Some(password) => verify_password(password, hash).await?,
+        None => false,
+    };
+    if !verified {
         return Err(ApiError {
             status: StatusCode::FORBIDDEN,
             code: "forbidden",
@@ -626,7 +634,7 @@ fn valid_password(password: String) -> Result<String, ApiError> {
     Ok(password)
 }
 
-async fn start_session(
+pub(crate) async fn start_session(
     state: &AppState,
     user_id: i64,
     device: Option<&str>,
@@ -681,7 +689,7 @@ fn dummy_hash() -> &'static str {
     })
 }
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).expect("the operating system provides randomness");
     URL_SAFE_NO_PAD.encode(bytes)
@@ -691,11 +699,11 @@ fn hash_token(token: &str) -> String {
     blake3::hash(token.as_bytes()).to_hex().to_string()
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)

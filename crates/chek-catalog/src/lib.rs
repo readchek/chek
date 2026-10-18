@@ -11,12 +11,14 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 mod annotations;
 mod edits;
+mod identities;
 mod progress;
 mod remote;
 mod users;
 
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use edits::{FileLocation, PublicationEdit};
+pub use identities::{Identity, LinkOutcome, UnlinkOutcome};
 pub use progress::{Progress, ProgressSave};
 pub use remote::{RemoteContent, RemoteItem};
 pub use users::{
@@ -39,6 +41,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0011_annotations.sql"),
     include_str!("../migrations/0012_publication_edits.sql"),
     include_str!("../migrations/0013_remote_content.sql"),
+    include_str!("../migrations/0014_identities.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
