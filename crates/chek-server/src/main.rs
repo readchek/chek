@@ -6,6 +6,7 @@ mod auth;
 mod config;
 mod edits;
 mod extensions;
+mod installs;
 mod limit;
 mod opds;
 mod progress;
@@ -57,6 +58,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         trusted_proxies: Arc::new(config.trusted_proxies),
         client_ip_header: config.client_ip_header,
         max_upload_bytes: config.max_upload_bytes,
+        extensions: Arc::new(chek_sources::Extensions::new(
+            config.data_dir.join("extensions"),
+        )?),
     };
     auth::prepare_setup(&state, config.setup_token).await?;
     // Unchanged files are skipped by size and modification time, so this is

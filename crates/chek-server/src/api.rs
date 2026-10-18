@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::{annotations, extensions, progress};
+use crate::{annotations, extensions, installs, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -41,6 +41,8 @@ pub struct AppState {
     pub client_ip_header: Option<axum::http::HeaderName>,
     /// The largest file an upload may send.
     pub max_upload_bytes: u64,
+    /// Installed extension components and the sources loaded from them.
+    pub extensions: Arc<chek_sources::Extensions>,
 }
 
 /// Starts a background scan of every folder library.
@@ -133,6 +135,11 @@ pub fn router(state: AppState) -> Router {
             post(extensions::refresh_repository),
         )
         .route("/api/v1/extensions", get(extensions::list_extensions))
+        .route("/api/v1/me/extensions", get(installs::list_installed))
+        .route(
+            "/api/v1/me/extensions/{id}",
+            put(installs::install).delete(installs::uninstall),
+        )
         .route(
             "/api/v1/settings",
             get(extensions::get_settings).put(extensions::update_settings),

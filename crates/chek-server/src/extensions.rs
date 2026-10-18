@@ -65,6 +65,8 @@ pub struct ExtensionDto {
     version: String,
     sites: Vec<String>,
     languages: Vec<String>,
+    /// The version the user installed from this repository, if any.
+    installed_version: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -144,7 +146,16 @@ pub async fn delete_repository(
     if repository.owner_id.is_none() {
         current.require_admin()?;
     }
-    blocking(&state, move |c| c.delete_extension_repository(id)).await?;
+    // Removing the repository removes every install from it.
+    let unused = blocking(&state, move |c| {
+        let digests = c.repository_digests(id)?;
+        c.delete_extension_repository(id)?;
+        c.unused_digests(&digests)
+    })
+    .await?;
+    for digest in unused {
+        crate::installs::remove_file(&state, digest).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -185,13 +196,15 @@ pub async fn list_extensions(
     current: CurrentUser,
 ) -> Result<Json<ExtensionList>, ApiError> {
     let user_id = current.user.id;
-    let (repositories, allow_any) = blocking(&state, move |c| {
+    let (repositories, allow_any, installs) = blocking(&state, move |c| {
         Ok((
             c.extension_repositories(user_id)?,
             c.allow_any_repository()?,
+            c.extension_installs(user_id)?,
         ))
     })
     .await?;
+    let installs = &installs;
     let items = repositories
         .iter()
         .filter(|r| r.owner_id.is_none() || allow_any)
@@ -199,6 +212,10 @@ pub async fn list_extensions(
         .flat_map(|(repository_id, index)| {
             index.extensions.into_iter().map(move |e| ExtensionDto {
                 repository_id,
+                installed_version: installs
+                    .iter()
+                    .find(|i| i.extension_id == e.id && i.repository_id == repository_id)
+                    .map(|i| i.version.clone()),
                 id: e.id,
                 name: e.name,
                 version: e.version,
@@ -259,7 +276,7 @@ async fn fetch(url: String) -> Result<Index, ApiError> {
         .map_err(repository_error)
 }
 
-fn repository_error(error: RepositoryError) -> ApiError {
+pub(crate) fn repository_error(error: RepositoryError) -> ApiError {
     let (status, code) = match error {
         RepositoryError::NotHttps(_) => (StatusCode::BAD_REQUEST, "bad_request"),
         RepositoryError::Fetch(_) | RepositoryError::Invalid(_) => {

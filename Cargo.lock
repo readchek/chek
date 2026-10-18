@@ -362,6 +362,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "wasmtime",
  "wasmtime-wasi",

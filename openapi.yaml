@@ -1438,6 +1438,100 @@ paths:
                       $ref: "#/components/schemas/AvailableExtension"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions:
+    get:
+      tags: [Extensions]
+      operationId: listInstalledExtensions
+      summary: List the user's installed extensions
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The installed extensions, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InstalledExtension"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    put:
+      tags: [Extensions]
+      operationId: installExtension
+      summary: Install or update an extension
+      description: >-
+        Downloads the version the repository's index lists now and checks it
+        against the index's digest, then checks that the component's manifest
+        has the same id, version and sites. Installing again updates the
+        install, or moves it to another repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [repositoryId]
+              properties:
+                repositoryId:
+                  type: integer
+                  format: int64
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The install was updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "201":
+          description: The extension was installed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: The repository is the user's own and the admin allows only the allow list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: The component isn't a valid source extension, or doesn't match the index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/RepositoryUnreadable"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Extensions]
+      operationId: uninstallExtension
+      summary: Uninstall an extension
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The extension was uninstalled.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/settings:
     get:
       tags: [Extensions]
@@ -1811,6 +1905,13 @@ components:
       schema:
         type: integer
         format: int64
+    ExtensionId:
+      name: extensionId
+      in: path
+      required: true
+      description: The extension's reverse-DNS id.
+      schema:
+        type: string
     RepositoryId:
       name: repositoryId
       in: path
@@ -1982,6 +2083,7 @@ components:
             - repository_exists
             - repository_not_allowed
             - repository_unreadable
+            - extension_invalid
             - internal
         message:
           type: string
@@ -2021,8 +2123,11 @@ components:
           format: date-time
     AvailableExtension:
       type: object
-      required: [repositoryId, id, name, version, sites, languages]
+      required: [repositoryId, id, name, version, sites, languages, installedVersion]
       properties:
+        installedVersion:
+          type: [string, "null"]
+          description: The version the user installed from this repository, if any.
         repositoryId:
           type: integer
           format: int64
@@ -2043,6 +2148,38 @@ components:
           description: BCP 47 tags of the languages the source serves; empty for any.
           items:
             type: string
+    InstalledExtension:
+      type: object
+      required: [id, name, version, repositoryId, sites, languages, installedAt, usable, update]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        repositoryId:
+          type: integer
+          format: int64
+        sites:
+          type: array
+          items:
+            type: string
+        languages:
+          type: array
+          items:
+            type: string
+        installedAt:
+          type: string
+          format: date-time
+        usable:
+          type: boolean
+          description: >-
+            False while it came from the user's own repository and the admin
+            allows only the allow list.
+        update:
+          type: [string, "null"]
+          description: The version the repository lists, when it differs from the installed one.
     Settings:
       type: object
       additionalProperties: false

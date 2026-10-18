@@ -249,6 +249,20 @@ are in the planning doc; this page keeps the decisions next to the code.
   it can't read. A refresh that fails records why and keeps the last good
   index.
 
+## Installing extensions
+
+- Each user installs extensions for themselves from the repositories they
+  can use. Installing downloads the component the index lists, at most
+  32 MiB, checks its SHA-256 digest, and checks that its manifest has the
+  index's id, version and sites, so a repository can't show one set of sites
+  and ship another.
+- Components are stored in the data folder as `extensions/<sha256>.wasm`,
+  shared by everyone on the same version, and deleted when no install uses
+  them. Compiled sources stay in memory once loaded.
+- Installing again updates to the version the index lists now; the API
+  reports when the index lists a different version. Removing a repository
+  removes every install from it.
+
 ## Observability
 
 - Every request is logged with its method, route, path, status, duration,
