@@ -61,9 +61,9 @@ pub fn cover_thumbnail(
     Ok(Some(jpeg))
 }
 
-/// Makes a JPEG thumbnail, sized like a cover, of an image in memory, such
-/// as a cover a source extension fetched.
-pub fn image_thumbnail(bytes: &[u8]) -> Result<Vec<u8>, FormatError> {
+/// Makes a JPEG cover thumbnail from an image, such as a thumbnail another
+/// server made.
+pub fn cover_from_image(bytes: &[u8]) -> Result<Vec<u8>, FormatError> {
     vips()?;
     let header = VipsImage::new_from_buffer(bytes, "").map_err(vips_error)?;
     let image = ops::thumbnail_buffer(bytes, target_size(&header)).map_err(vips_error)?;

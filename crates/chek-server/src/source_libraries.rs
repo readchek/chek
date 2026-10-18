@@ -1,5 +1,5 @@
-//! Source libraries: an admin makes one from an extension they installed and
-//! follows series into it. Each chapter becomes a publication that readers
+//! Libraries that run on an extension: an admin makes one from an extension
+//! they installed and follows series into it. Each chapter becomes a publication that readers
 //! granted the library open like any other; its pages are fetched through
 //! the extension when read.
 //!
@@ -16,9 +16,10 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::Response;
-use chek_catalog::{ContributorRecord, LibraryKind, RemoteChapter, RemoteContent, RemoteSeries};
+use chek_catalog::{ContributorRecord, RemoteChapter, RemoteContent, RemoteSeries};
+use chek_library::{ExtensionSource, SourceConfig};
 use chek_sources::{Image, ReadingDirection, Source};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{error, warn};
 
 use crate::api::{ApiError, AppState, LibraryDto, SeriesDto, blocking, readable_series};
@@ -26,19 +27,10 @@ use crate::auth::CurrentUser;
 use crate::browse::{image_from_json, image_json, run, usable_source};
 use crate::installs::not_usable;
 
-/// What `library.source_config` holds.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SourceConfig {
-    extension_id: String,
-    /// The admin whose install runs the library.
-    user_id: i64,
-}
-
+/// The `extension` field of a new library.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct NewSourceLibrary {
-    name: String,
+pub struct NewExtensionSource {
     extension_id: String,
 }
 
@@ -48,26 +40,43 @@ pub struct FollowRequest {
     series_id: String,
 }
 
-pub async fn add_source_library(
-    State(state): State<AppState>,
-    current: CurrentUser,
-    body: Result<Json<NewSourceLibrary>, JsonRejection>,
+/// Makes a library that runs on an extension the admin installed. It starts
+/// empty; series are followed into it one at a time.
+pub(crate) async fn add_library(
+    state: &AppState,
+    current: &CurrentUser,
+    name: String,
+    extension: NewExtensionSource,
 ) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
-    current.require_admin()?;
-    let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
-    let name = body.name.trim().to_owned();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name must not be empty"));
-    }
     // Checks the extension is installed and usable now.
-    usable_source(&state, &current, &body.extension_id).await?;
-    let config = serde_json::to_string(&SourceConfig {
-        extension_id: body.extension_id,
+    usable_source(state, current, &extension.extension_id).await?;
+    let config = serde_json::to_string(&SourceConfig::Extension(ExtensionSource {
+        extension_id: extension.extension_id,
         user_id: current.user.id,
-    })
+    }))
     .map_err(ApiError::internal)?;
-    let library = blocking(&state, move |c| c.add_source_library(&name, &config)).await?;
+    let library = blocking(state, move |c| c.add_source_library(&name, &config)).await?;
     Ok((StatusCode::CREATED, Json(library.into())))
+}
+
+/// Whether a library runs on an extension, so the server syncs it.
+pub(crate) async fn is_extension_library(state: &AppState, library_id: i64) -> bool {
+    matches!(
+        blocking(state, move |c| c.library(library_id)).await,
+        Ok(Some(library)) if library.source_config.as_deref().and_then(extension_config).is_some()
+    )
+}
+
+/// Whether a publication is a chapter from an extension.
+pub(crate) fn is_extension(remote: &RemoteContent) -> bool {
+    extension_config(&remote.source_config).is_some()
+}
+
+fn extension_config(source_config: &str) -> Option<ExtensionSource> {
+    match serde_json::from_str(source_config) {
+        Ok(SourceConfig::Extension(source)) => Some(source),
+        _ => None,
+    }
 }
 
 /// Follows a series into a source library, adding its chapters.
@@ -85,29 +94,25 @@ pub async fn follow_series(
     Ok((StatusCode::CREATED, Json(series.into())))
 }
 
-/// Updates every series a source library follows, in the background, using
-/// the library's scan status like a folder scan.
-pub fn start_sync(state: &AppState, library_id: i64) {
-    let state = state.clone();
-    tokio::spawn(async move {
-        match blocking(&state, move |c| c.begin_scan(library_id)).await {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(_) => return,
-        }
-        let failure = sync(&state, library_id).await.err();
-        if let Some(message) = &failure {
-            error!(library_id, error = %message, "source sync failed");
-        }
-        let _ = blocking(&state, move |c| {
-            c.finish_scan(library_id, failure.as_deref())
-        })
-        .await;
-    });
+/// Updates every series the library follows, recording progress in the
+/// library's scan status like a folder scan.
+pub(crate) async fn sync(state: &AppState, library_id: i64) {
+    match blocking(state, move |c| c.begin_scan(library_id)).await {
+        Ok(true) => {}
+        Ok(false) | Err(_) => return,
+    }
+    let failure = sync_series(state, library_id).await.err();
+    if let Some(message) = &failure {
+        error!(library_id, error = %message, "source sync failed");
+    }
+    let _ = blocking(state, move |c| {
+        c.finish_scan(library_id, failure.as_deref())
+    })
+    .await;
 }
 
 /// Fails with what to show as the library's scan error.
-async fn sync(state: &AppState, library_id: i64) -> Result<(), String> {
+async fn sync_series(state: &AppState, library_id: i64) -> Result<(), String> {
     let source = library_source(state, library_id)
         .await
         .map_err(|e| e.message)?;
@@ -129,14 +134,13 @@ async fn sync(state: &AppState, library_id: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// The media types of a remote publication's pages, guessed from their
-/// URLs, fetching the page list from the source when none is stored.
+/// The media types of a chapter's pages, guessed from their URLs, fetching
+/// the page list from the source when none is stored.
 pub(crate) async fn page_types(
     state: &AppState,
-    id: i64,
     remote: RemoteContent,
 ) -> Result<Vec<&'static str>, ApiError> {
-    let pages = pages(state, id, &remote, false).await?;
+    let pages = pages(state, &remote, false).await?;
     Ok(pages
         .iter()
         .map(|page| {
@@ -145,23 +149,23 @@ pub(crate) async fn page_types(
         .collect())
 }
 
-/// One page of a remote publication, fetched through the source. Sources
-/// often hand out page links that expire, so a failed fetch asks the source
-/// for the page list again and retries once.
+/// One page of a chapter, fetched through the source. Sources often hand
+/// out page links that expire, so a failed fetch asks the source for the
+/// page list again and retries once.
 pub(crate) async fn get_page(
     state: &AppState,
-    id: i64,
-    index: u32,
     remote: RemoteContent,
+    index: u32,
 ) -> Result<Response, ApiError> {
+    let id = remote.publication_id;
     let source = library_source(state, remote.library_id).await?;
     let missing = || ApiError::not_found(format!("publication {id} has no page {index}"));
-    let stored = pages(state, id, &remote, false).await?;
+    let stored = pages(state, &remote, false).await?;
     let page = stored.get(index as usize).cloned().ok_or_else(missing)?;
     let fetched = match run(Arc::clone(&source), move |s| s.fetch_image(&page)).await {
         Ok(fetched) => fetched,
         Err(_) => {
-            let fresh = pages(state, id, &remote, true).await?;
+            let fresh = pages(state, &remote, true).await?;
             let page = fresh.get(index as usize).cloned().ok_or_else(missing)?;
             run(source, move |s| s.fetch_image(&page)).await?
         }
@@ -189,10 +193,10 @@ pub(crate) async fn get_page(
 /// or `refresh` is set.
 async fn pages(
     state: &AppState,
-    id: i64,
     remote: &RemoteContent,
     refresh: bool,
 ) -> Result<Vec<Image>, ApiError> {
+    let id = remote.publication_id;
     if !remote.available {
         return Err(ApiError {
             status: StatusCode::NOT_FOUND,
@@ -200,19 +204,20 @@ async fn pages(
             message: format!("publication {id}'s chapter is no longer listed by its source"),
         });
     }
-    if remote.has_pages && !refresh {
+    if !refresh {
         let stored = blocking(state, move |c| c.remote_pages(id)).await?;
-        return Ok(stored
-            .iter()
-            .filter_map(|json| image_from_json(json.as_bytes()))
-            .collect());
+        if !stored.is_empty() {
+            return Ok(stored
+                .iter()
+                .filter_map(|json| image_from_json(json.as_bytes()))
+                .collect());
+        }
     }
     let source = library_source(state, remote.library_id).await?;
     let chapter_id = remote.remote_id.clone();
     let pages = run(source, move |s| s.pages(&chapter_id)).await?;
     let keys: Vec<String> = pages.iter().map(image_json).collect();
-    let content_id = remote.content_id;
-    blocking(state, move |c| c.set_remote_pages(content_id, &keys)).await?;
+    blocking(state, move |c| c.set_remote_pages(id, &keys)).await?;
     Ok(pages)
 }
 
@@ -297,7 +302,7 @@ async fn save_cover(state: &AppState, source: Arc<Source>, image: Image) -> Opti
         if target.exists() {
             return Ok(name);
         }
-        let jpeg = chek_formats::image_thumbnail(&fetched.bytes).map_err(|e| e.to_string())?;
+        let jpeg = chek_formats::cover_from_image(&fetched.bytes).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
         // Write then rename, so a reader never sees half a cover.
         let partial = covers_dir.join(format!("{name}.jpg.partial"));
@@ -320,19 +325,18 @@ async fn save_cover(state: &AppState, source: Arc<Source>, image: Image) -> Opti
 /// The loaded source a library runs on, through the install of the admin
 /// who made it.
 async fn library_source(state: &AppState, library_id: i64) -> Result<Arc<Source>, ApiError> {
-    let (library, config) = blocking(state, move |c| {
-        Ok((c.library(library_id)?, c.library_source_config(library_id)?))
-    })
-    .await?;
-    let library = library.ok_or_else(|| ApiError::library_not_found(library_id))?;
-    if library.kind != LibraryKind::Source {
-        return Err(ApiError::bad_request(format!(
-            "library {library_id} is a folder, not a source"
-        )));
-    }
-    let config: SourceConfig = config
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .ok_or_else(|| ApiError::internal(format!("library {library_id} has no source config")))?;
+    let library = blocking(state, move |c| c.library(library_id))
+        .await?
+        .ok_or_else(|| ApiError::library_not_found(library_id))?;
+    let config = library
+        .source_config
+        .as_deref()
+        .and_then(extension_config)
+        .ok_or_else(|| {
+            ApiError::bad_request(format!(
+                "library {library_id} doesn't run on an extension, so series can't be followed into it"
+            ))
+        })?;
     let extension_id = config.extension_id.clone();
     let (install, repository, allow_any) = blocking(state, move |c| {
         let install = c.extension_install(config.user_id, &extension_id)?;
@@ -345,7 +349,7 @@ async fn library_source(state: &AppState, library_id: i64) -> Result<Arc<Source>
     .await?;
     let Some(install) = install else {
         return Err(ApiError {
-            status: StatusCode::CONFLICT,
+            status: StatusCode::BAD_GATEWAY,
             code: "source_unavailable",
             message: format!(
                 "the extension {:?} this library runs on is no longer installed by the admin who made it",

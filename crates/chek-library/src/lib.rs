@@ -21,6 +21,42 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
+mod komga;
+
+pub use chek_komga::{Client as HttpClient, KomgaAuth, KomgaConfig, KomgaError, http_client};
+
+/// How a source library reaches its source, stored with the library as JSON.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum SourceConfig {
+    Komga(KomgaConfig),
+    Extension(ExtensionSource),
+}
+
+/// A library of series followed through an installed extension. The server
+/// runs extensions, so it syncs these libraries itself rather than through
+/// [`scan`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionSource {
+    pub extension_id: String,
+    /// The admin whose install the library runs on.
+    pub user_id: i64,
+}
+
+impl SourceConfig {
+    /// Checks that the source answers with these settings. Extensions are
+    /// checked by the server, against the install.
+    pub async fn check(&self, http: &HttpClient) -> Result<(), KomgaError> {
+        match self {
+            SourceConfig::Komga(config) => {
+                chek_komga::Komga::new(http.clone(), config)?.check().await
+            }
+            SourceConfig::Extension(_) => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ScanError {
     #[error("library {0} does not exist")]
@@ -33,6 +69,12 @@ pub enum ScanError {
     Root { path: PathBuf, source: io::Error },
     #[error("cannot create the covers folder {path}: {source}")]
     CoversDir { path: PathBuf, source: io::Error },
+    #[error("library {0}'s source settings can't be read")]
+    SourceConfig(i64),
+    #[error("library {0} runs on an extension, which the server syncs")]
+    ExtensionSource(i64),
+    #[error("{0}")]
+    Source(#[from] KomgaError),
     #[error(transparent)]
     Catalog(#[from] CatalogError),
     #[error("scan task failed: {0}")]
@@ -59,6 +101,8 @@ pub struct ScanOptions {
     pub workers: usize,
     /// Where cover thumbnails are written, named by the file's content hash.
     pub covers_dir: PathBuf,
+    /// Reaches source libraries' servers.
+    pub http: HttpClient,
 }
 
 /// The size and modification time of a file on disk, comparable with what a
@@ -74,9 +118,10 @@ pub fn file_stamp(path: &Path) -> io::Result<FileStamp> {
     })
 }
 
-/// Scans a folder library and records what it finds. Files that fail to read
-/// are logged and skipped; the scan only fails if the folder itself can't be
-/// read or the catalog can't be written.
+/// Scans a folder library, or syncs a source library, and records what it
+/// finds. Files or items that fail to read are logged and skipped; the scan
+/// only fails if the folder or source itself can't be read or the catalog
+/// can't be written.
 pub async fn scan(
     catalog: Arc<Catalog>,
     library_id: i64,
@@ -87,7 +132,18 @@ pub async fn scan(
         tokio::task::spawn_blocking(move || catalog.library(library_id)).await??
     };
     let library = library.ok_or(ScanError::UnknownLibrary(library_id))?;
-    let root = PathBuf::from(library.root_path.ok_or(ScanError::NotAFolder(library_id))?);
+    let target = match (library.root_path, library.source_config) {
+        (Some(root), _) => Target::Folder(PathBuf::from(root)),
+        (None, Some(config)) => {
+            match serde_json::from_str(&config).map_err(|_| ScanError::SourceConfig(library_id))? {
+                SourceConfig::Komga(config) => {
+                    Target::Komga(chek_komga::Komga::new(options.http.clone(), &config)?)
+                }
+                SourceConfig::Extension(_) => return Err(ScanError::ExtensionSource(library_id)),
+            }
+        }
+        (None, None) => return Err(ScanError::NotAFolder(library_id)),
+    };
 
     let began = {
         let catalog = catalog.clone();
@@ -98,7 +154,10 @@ pub async fn scan(
     }
 
     let guard = library_lock(library_id).lock_owned().await;
-    let result = run(catalog.clone(), library_id, root, options).await;
+    let result = match target {
+        Target::Folder(root) => run(catalog.clone(), library_id, root, options).await,
+        Target::Komga(komga) => sync_source(catalog.clone(), library_id, komga, options).await,
+    };
     drop(guard);
     let error = result.as_ref().err().map(ToString::to_string);
     let finished = {
@@ -110,6 +169,29 @@ pub async fn scan(
     finished?;
     info!(library_id, ?report, "scan finished");
     Ok(report)
+}
+
+enum Target {
+    Folder(PathBuf),
+    Komga(chek_komga::Komga),
+}
+
+async fn sync_source(
+    catalog: Arc<Catalog>,
+    library_id: i64,
+    komga: chek_komga::Komga,
+    options: ScanOptions,
+) -> Result<ScanReport, ScanError> {
+    {
+        let covers_dir = options.covers_dir.clone();
+        tokio::task::spawn_blocking(move || fs::create_dir_all(covers_dir))
+            .await?
+            .map_err(|source| ScanError::CoversDir {
+                path: options.covers_dir.clone(),
+                source,
+            })?;
+    }
+    komga::sync(catalog, library_id, komga, options).await
 }
 
 /// Serializes scans and added files per library. A scan marks every file it
@@ -465,20 +547,24 @@ fn make_cover(
         return Some(hash.to_owned());
     }
     match chek_formats::cover_thumbnail(path, format, pages) {
-        Ok(Some(jpeg)) => {
-            // Write then rename, so a reader never sees half a cover.
-            let partial = covers_dir.join(format!("{hash}.jpg.partial"));
-            match fs::write(&partial, jpeg).and_then(|()| fs::rename(&partial, &target)) {
-                Ok(()) => Some(hash.to_owned()),
-                Err(e) => {
-                    warn!(path = %path.display(), error = %e, "could not save cover");
-                    None
-                }
-            }
-        }
+        Ok(Some(jpeg)) => save_cover(covers_dir, hash, &jpeg),
         Ok(None) => None,
         Err(e) => {
             warn!(path = %path.display(), error = %e, "could not make cover");
+            None
+        }
+    }
+}
+
+/// Writes a cover thumbnail as `name` and returns the name, or `None` when it
+/// can't be saved. Writes then renames, so a reader never sees half a cover.
+fn save_cover(covers_dir: &Path, name: &str, jpeg: &[u8]) -> Option<String> {
+    let partial = covers_dir.join(format!("{name}.jpg.partial"));
+    let target = covers_dir.join(format!("{name}.jpg"));
+    match fs::write(&partial, jpeg).and_then(|()| fs::rename(&partial, &target)) {
+        Ok(()) => Some(name.to_owned()),
+        Err(e) => {
+            warn!(cover = %target.display(), error = %e, "could not save cover");
             None
         }
     }

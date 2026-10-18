@@ -16,7 +16,7 @@ use chek_catalog::{
     ScanStatus, SeriesSummary,
 };
 use chek_formats::{Compression, PageEntry};
-use chek_library::ScanOptions;
+use chek_library::{KomgaAuth, KomgaConfig, ScanOptions, SourceConfig};
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
@@ -45,16 +45,37 @@ pub struct AppState {
     pub extensions: Arc<chek_sources::Extensions>,
 }
 
-/// Starts a background scan of every folder library.
-pub async fn scan_all_folders(state: &AppState) -> Result<(), CatalogError> {
+/// Starts a background scan of every library.
+pub async fn scan_all_libraries(state: &AppState) -> Result<(), CatalogError> {
     let catalog = state.catalog.clone();
     let libraries = tokio::task::spawn_blocking(move || catalog.libraries())
         .await
         .expect("listing libraries does not panic")?;
-    for library in libraries.iter().filter(|l| l.kind == LibraryKind::Folder) {
+    for library in &libraries {
         start_scan(state, library.id);
     }
     Ok(())
+}
+
+/// Syncs every source library each `interval`, skipping one still syncing.
+pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
+    tokio::spawn(async move {
+        let mut ticks = tokio::time::interval(interval);
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The first tick is immediate, and startup already synced.
+        ticks.tick().await;
+        loop {
+            ticks.tick().await;
+            match blocking(&state, |c| c.libraries()).await {
+                Ok(libraries) => {
+                    for library in libraries.iter().filter(|l| l.kind == LibraryKind::Source) {
+                        start_scan(&state, library.id);
+                    }
+                }
+                Err(e) => error!(error = %e.message, "could not list libraries to sync"),
+            }
+        }
+    });
 }
 
 pub fn router(state: AppState) -> Router {
@@ -74,10 +95,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/libraries/{id}/series",
             get(list_series).post(crate::source_libraries::follow_series),
-        )
-        .route(
-            "/api/v1/source-libraries",
-            post(crate::source_libraries::add_source_library),
         )
         .route("/api/v1/series/{id}", get(get_series))
         .route(
@@ -174,8 +191,23 @@ pub(crate) struct LibraryDto {
     name: String,
     kind: &'static str,
     path: Option<String>,
+    /// Where a source library reads from. Credentials are never returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<SourceDto>,
     scan: ScanDto,
     created_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceDto {
+    r#type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    library_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extension_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -196,6 +228,23 @@ impl From<Library> for LibraryDto {
                 LibraryKind::Source => "source",
             },
             path: l.root_path,
+            source: l
+                .source_config
+                .and_then(|c| serde_json::from_str::<SourceConfig>(&c).ok())
+                .map(|c| match c {
+                    SourceConfig::Komga(c) => SourceDto {
+                        r#type: "komga",
+                        url: Some(c.url),
+                        library_ids: c.library_ids,
+                        extension_id: None,
+                    },
+                    SourceConfig::Extension(c) => SourceDto {
+                        r#type: "extension",
+                        url: None,
+                        library_ids: Vec::new(),
+                        extension_id: Some(c.extension_id),
+                    },
+                }),
             scan: ScanDto {
                 status: match l.scan_status {
                     ScanStatus::Idle => "idle",
@@ -296,11 +345,26 @@ async fn list_libraries(
     }))
 }
 
+/// A folder library names a `path`, a Komga library names `komga`, and a
+/// library of followed series names the `extension` it runs on.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewLibrary {
     name: String,
-    path: String,
+    path: Option<String>,
+    komga: Option<NewKomga>,
+    extension: Option<crate::source_libraries::NewExtensionSource>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NewKomga {
+    url: String,
+    api_key: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    #[serde(default)]
+    library_ids: Vec<String>,
 }
 
 async fn add_library(
@@ -314,7 +378,20 @@ async fn add_library(
     if name.is_empty() {
         return Err(ApiError::bad_request("name must not be empty"));
     }
-    let path = PathBuf::from(&body.path);
+    let path = match (body.path, body.komga, body.extension) {
+        (Some(path), None, None) => path,
+        (None, Some(komga), None) => return add_komga_library(state, name, komga).await,
+        (None, None, Some(extension)) => {
+            return crate::source_libraries::add_library(&state, &current, name, extension).await;
+        }
+        _ => {
+            return Err(ApiError::bad_request(
+                "send one of path, for a folder library, komga, for a Komga library, \
+                 or extension, for series followed through an installed extension",
+            ));
+        }
+    };
+    let path = PathBuf::from(&path);
     if !path.is_absolute() {
         return Err(ApiError::bad_request(
             "path must be an absolute path on the server",
@@ -322,7 +399,7 @@ async fn add_library(
     }
     let path = tokio::fs::canonicalize(&path)
         .await
-        .map_err(|e| ApiError::bad_request(format!("cannot open {}: {e}", body.path)))?;
+        .map_err(|e| ApiError::bad_request(format!("cannot open {}: {e}", path.display())))?;
     if !path.is_dir() {
         return Err(ApiError::bad_request(format!(
             "{} is not a folder",
@@ -334,6 +411,37 @@ async fn add_library(
     };
 
     let library = blocking(&state, move |c| c.add_folder_library(&name, &path)).await?;
+    start_scan(&state, library.id);
+    Ok((StatusCode::CREATED, Json(library.into())))
+}
+
+async fn add_komga_library(
+    state: AppState,
+    name: String,
+    komga: NewKomga,
+) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
+    let auth = match (komga.api_key, komga.username, komga.password) {
+        (Some(api_key), None, None) => KomgaAuth::ApiKey { api_key },
+        (None, Some(username), Some(password)) => KomgaAuth::Basic { username, password },
+        _ => {
+            return Err(ApiError::bad_request(
+                "komga needs either apiKey, or username and password",
+            ));
+        }
+    };
+    let config = SourceConfig::Komga(KomgaConfig {
+        url: komga.url,
+        auth,
+        library_ids: komga.library_ids,
+    });
+    // Checked first, so a typo fails here rather than in the first sync.
+    config.check(&state.scan.http).await.map_err(|e| ApiError {
+        status: StatusCode::BAD_REQUEST,
+        code: "source_check_failed",
+        message: e.to_string(),
+    })?;
+    let config = serde_json::to_string(&config).map_err(ApiError::internal)?;
+    let library = blocking(&state, move |c| c.add_source_library(&name, &config)).await?;
     start_scan(&state, library.id);
     Ok((StatusCode::CREATED, Json(library.into())))
 }
@@ -366,10 +474,7 @@ async fn scan_library(
             message: format!("library {id} is already being scanned"),
         });
     }
-    match library.kind {
-        LibraryKind::Folder => start_scan(&state, id),
-        LibraryKind::Source => crate::source_libraries::start_sync(&state, id),
-    }
+    start_scan(&state, id);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -766,6 +871,14 @@ pub(crate) async fn get_file(
     request: Request,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
+    if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await? {
+        if crate::source_libraries::is_extension(&remote) {
+            return Err(ApiError::not_found(format!(
+                "publication {id} is a chapter from an extension and has no file; read its pages instead"
+            )));
+        }
+        return crate::remote::file(&state, remote, request.headers()).await;
+    }
     let (file, path) = current_file(&state, id).await?;
     let mut response = ServeFile::new(&path)
         .oneshot(request)
@@ -809,8 +922,10 @@ pub(crate) async fn get_cover(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
-    // Source chapters have covers but no file, so the cover is read on its own.
-    let Some(cover) = blocking(&state, move |c| c.publication_cover(id)).await? else {
+    let cover = blocking(&state, move |c| c.publication_cover(id))
+        .await?
+        .ok_or_else(|| ApiError::publication_not_found(id))?;
+    let Some(cover) = cover else {
         return Err(ApiError::not_found(format!(
             "publication {id} has no cover"
         )));
@@ -839,7 +954,7 @@ pub(crate) async fn get_cover(
 struct PageDto {
     index: usize,
     media_type: &'static str,
-    /// `None` for pages from a source, whose size isn't known until fetched.
+    /// `None` for an extension's pages, whose size isn't known until fetched.
     size: Option<u64>,
 }
 
@@ -849,8 +964,10 @@ async fn list_pages(
     Path(id): Path<i64>,
 ) -> Result<Json<Page<PageDto>>, ApiError> {
     check_publication(&state, &current, id).await?;
-    if let Some(remote) = blocking(&state, move |c| c.remote_content(id)).await? {
-        let types = crate::source_libraries::page_types(&state, id, remote).await?;
+    if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await?
+        && crate::source_libraries::is_extension(&remote)
+    {
+        let types = crate::source_libraries::page_types(&state, remote).await?;
         return Ok(Json(Page {
             items: types
                 .into_iter()
@@ -880,7 +997,7 @@ async fn list_pages(
 }
 
 /// One comic page, read from its offset in the archive using the page index
-/// stored at scan time.
+/// stored at scan time, or fetched from the library's source.
 async fn get_page(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -888,12 +1005,19 @@ async fn get_page(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_publication(&state, &current, id).await?;
-    if let Some(remote) = blocking(&state, move |c| c.remote_content(id)).await? {
-        return crate::source_libraries::get_page(&state, id, index, remote).await;
+    let remote = blocking(&state, move |c| c.publication_remote(id)).await?;
+    // An extension's chapter has no page index until it's first read.
+    if let Some(remote) = remote.as_ref()
+        && crate::source_libraries::is_extension(remote)
+    {
+        return crate::source_libraries::get_page(&state, remote.clone(), index).await;
     }
     let page = blocking(&state, move |c| c.page(id, index))
         .await?
         .ok_or_else(|| ApiError::not_found(format!("publication {id} has no page {index}")))?;
+    if let Some(remote) = remote {
+        return crate::remote::page(&state, remote, page, index, &headers).await;
+    }
     let (file, path) = current_file(&state, id).await?;
     let etag = format!("\"{}-{index}\"", file.hash);
     if matches_etag(&headers, &etag) {
@@ -930,19 +1054,9 @@ pub async fn check_publication(
 /// read. If it changed, a rescan starts and the request gets a conflict, since
 /// stored offsets and hashes no longer describe it.
 async fn current_file(state: &AppState, id: i64) -> Result<(PublicationFile, PathBuf), ApiError> {
-    let (file, remote) = blocking(state, move |c| {
-        Ok((c.publication_file(id)?, c.remote_content(id)?.is_some()))
-    })
-    .await?;
-    let file = match file {
-        Some(file) => file,
-        None if remote => {
-            return Err(ApiError::not_found(format!(
-                "publication {id} comes from a source and has no file; read its pages instead"
-            )));
-        }
-        None => return Err(ApiError::publication_not_found(id)),
-    };
+    let file = blocking(state, move |c| c.publication_file(id))
+        .await?
+        .ok_or_else(|| ApiError::publication_not_found(id))?;
     if !file.available {
         return Err(ApiError {
             status: StatusCode::NOT_FOUND,
@@ -988,7 +1102,7 @@ fn page_entry(page: PageRecord) -> PageEntry {
     }
 }
 
-fn image_response(bytes: Vec<u8>, media_type: &'static str, etag: &str) -> Response {
+pub(crate) fn image_response(bytes: Vec<u8>, media_type: &'static str, etag: &str) -> Response {
     let mut response = Response::new(Body::from(bytes));
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(media_type));
@@ -1002,7 +1116,7 @@ fn image_response(bytes: Vec<u8>, media_type: &'static str, etag: &str) -> Respo
     response
 }
 
-fn not_modified(etag: &str) -> Response {
+pub(crate) fn not_modified(etag: &str) -> Response {
     let mut response = StatusCode::NOT_MODIFIED.into_response();
     if let Ok(etag) = HeaderValue::from_str(etag) {
         response.headers_mut().insert(header::ETAG, etag);
@@ -1010,7 +1124,7 @@ fn not_modified(etag: &str) -> Response {
     response
 }
 
-fn matches_etag(headers: &HeaderMap, etag: &str) -> bool {
+pub(crate) fn matches_etag(headers: &HeaderMap, etag: &str) -> bool {
     headers
         .get_all(header::IF_NONE_MATCH)
         .iter()
@@ -1022,7 +1136,7 @@ fn matches_etag(headers: &HeaderMap, etag: &str) -> bool {
 
 /// `attachment` with the file's name, encoded per RFC 6266 so names outside
 /// ASCII survive.
-fn content_disposition(name: &str) -> String {
+pub(crate) fn content_disposition(name: &str) -> String {
     let mut encoded = String::with_capacity(name.len());
     for byte in name.bytes() {
         if byte.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&byte) {
@@ -1044,11 +1158,16 @@ fn content_disposition(name: &str) -> String {
     format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
 }
 
+/// Scans a folder library or syncs a source library in the background.
 pub fn start_scan(state: &AppState, library_id: i64) {
-    let catalog = state.catalog.clone();
-    let options = state.scan.clone();
+    let state = state.clone();
     tokio::spawn(async move {
-        match chek_library::scan(catalog, library_id, options).await {
+        // Extensions run in the server, so their libraries sync here.
+        if crate::source_libraries::is_extension_library(&state, library_id).await {
+            crate::source_libraries::sync(&state, library_id).await;
+            return;
+        }
+        match chek_library::scan(state.catalog.clone(), library_id, state.scan.clone()).await {
             Ok(_) | Err(chek_library::ScanError::AlreadyScanning(_)) => {}
             Err(e) => error!(library_id, error = %e, "scan failed"),
         }

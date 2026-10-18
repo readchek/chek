@@ -18,7 +18,7 @@ use std::path::Path;
 
 use flate2::read::DeflateDecoder;
 
-pub use cover::{cover_thumbnail, image_thumbnail};
+pub use cover::{cover_from_image, cover_thumbnail};
 pub use metadata::{
     Contributor, MAX_FIELD_CHARS, MAX_SUMMARY_CHARS, Metadata, ReadingDirection, Role,
 };

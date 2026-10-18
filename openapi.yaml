@@ -408,8 +408,25 @@ paths:
     post:
       tags: [Libraries]
       operationId: addLibrary
-      summary: Add a folder library
-      description: Adds a folder on the server as a library and starts scanning it. Admin only.
+      summary: Add a library
+      description: |
+        Admin only. Adds a folder on the server as a library and starts
+        scanning it, adds a Komga server as a source library and starts
+        syncing it, or makes a source library that runs on an extension.
+        Send one of `path`, `komga` or `extension`.
+
+        A Komga library reads Komga's series and books with one Komga
+        account, and serves their pages and files through Komga. The account
+        needs the page streaming and file download roles. The address and
+        credentials are checked before the library is added, and stored on
+        the server; they are never returned.
+
+        An extension library runs on an extension the admin installed, and
+        starts empty: follow series into it with
+        `POST /api/v1/libraries/{libraryId}/series`. It runs on that admin's
+        install, so readers granted it don't need the extension. If the admin
+        uninstalls it, the library's pages and syncs fail with
+        `source_unavailable` until it's installed again.
       requestBody:
         required: true
         content:
@@ -417,7 +434,7 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [name, path]
+              required: [name]
               properties:
                 name:
                   type: string
@@ -425,6 +442,16 @@ paths:
                 path:
                   type: string
                   description: Absolute path of a folder on the server.
+                komga:
+                  $ref: "#/components/schemas/NewKomgaSource"
+                extension:
+                  type: object
+                  additionalProperties: false
+                  required: [extensionId]
+                  properties:
+                    extensionId:
+                      type: string
+                      description: An extension the admin installed.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -437,7 +464,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Library"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            The request was malformed, or Komga couldn't be reached with the
+            settings given (`source_check_failed`, with the reason).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: The extension isn't installed (`not_installed`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/libraries/{libraryId}:
@@ -554,7 +593,7 @@ paths:
       summary: Rescan a library
       description: >-
         Starts a scan in the background. Poll the library to see when it
-        finishes. A source library's scan updates every series it follows
+        finishes. An extension library's scan updates every series it follows
         from the source. Admin only.
       responses:
         "401":
@@ -650,11 +689,11 @@ paths:
     post:
       tags: [Libraries]
       operationId: followSeries
-      summary: Follow a series into a source library
+      summary: Follow a series into an extension library
       description: >-
-        Reads the series and its chapters from the library's source and adds
-        a publication per chapter. Following a series again updates it.
-        Admin only.
+        Reads the series and its chapters from the library's extension and
+        adds a publication per chapter. Following a series again updates it,
+        and the library's scans keep it updated. Admin only.
       requestBody:
         required: true
         content:
@@ -682,52 +721,14 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/SourceUnavailable"
         "502":
-          $ref: "#/components/responses/SourceFailed"
-        "500":
-          $ref: "#/components/responses/Internal"
-  /api/v1/source-libraries:
-    post:
-      tags: [Libraries]
-      operationId: addSourceLibrary
-      summary: Add a source library
-      description: >-
-        Makes a library whose series come from an extension the admin
-        installed. The library runs on that admin's install, so readers
-        granted it don't need the extension. If the admin uninstalls it, the
-        library's pages and scans fail with `source_unavailable` until it's
-        installed again. Admin only.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [name, extensionId]
-              properties:
-                name:
-                  type: string
-                  minLength: 1
-                extensionId:
-                  type: string
-      responses:
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "201":
-          description: The library.
+          description: >-
+            The extension failed (`source_failed`), or the library's extension
+            is no longer installed or usable (`source_unavailable`).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Library"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/me/continue-reading:
@@ -1016,7 +1017,9 @@ paths:
       description: >-
         Admin only. Drops every edit and reads the file's own metadata again.
         If a scan of the library is running, reading waits for it, and after
-        20 seconds the response is 202 while reading carries on.
+        20 seconds the response is 202 while reading carries on. A
+        publication from a source library answers 202 at once, and a sync of
+        its library reads it again.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1029,7 +1032,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicationDetail"
         "202":
-          description: The edits are gone and the file will be read once the running scan finishes.
+          description: The edits are gone and the file will be read once the running scan finishes, or by the next sync of a source library.
           content:
             application/json:
               schema:
@@ -1054,7 +1057,9 @@ paths:
       summary: Download the original file
       description: |
         Serves the file as it is on disk. Supports `Range` for partial reads and
-        `If-Modified-Since` for revalidation.
+        `If-Modified-Since` for revalidation. A publication from a source
+        library is streamed from its source, which may send the whole file
+        instead of a range, as Komga does.
       parameters:
         - name: Range
           in: header
@@ -1099,6 +1104,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ContentChanged"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "416":
           description: The range is outside the file.
         "500":
@@ -1139,8 +1146,8 @@ paths:
       summary: List a comic's pages
       description: >-
         The page index in reading order. Empty for formats without pages, such
-        as EPUB. A source chapter's pages are asked of its source the first
-        time and stored.
+        as EPUB. An extension chapter's pages are asked of its extension the
+        first time and stored.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1158,10 +1165,8 @@ paths:
                       $ref: "#/components/schemas/PageInfo"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/SourceUnavailable"
         "502":
-          $ref: "#/components/responses/SourceFailed"
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/pages/{pageIndex}:
@@ -1179,9 +1184,9 @@ paths:
       operationId: getPublicationPage
       summary: Get a comic page
       description: >-
-        The page's original image bytes, read straight from the archive, or
-        fetched through the source for a source chapter. Source pages have no
-        ETag.
+        The page's original image bytes, read straight from the archive or
+        fetched through the library's source. An extension chapter's pages
+        have no ETag.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1200,13 +1205,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The file changed since it was scanned, or a source library's extension is no longer installed.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/ContentChanged"
         "502":
-          $ref: "#/components/responses/SourceFailed"
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}/progress:
@@ -2132,6 +2133,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ContentChanged"
+        "502":
+          $ref: "#/components/responses/SourceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
   /opds/v2/publications/{publicationId}/cover:
@@ -2297,18 +2300,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    ContentChanged:
+    SourceUnavailable:
       description: |
-        The file changed on disk since it was scanned. A rescan has started;
-        retry after it finishes.
+        The publication is from a source library, and its source couldn't be
+        read (`source_unavailable`) or its extension failed (`source_failed`);
+        the message says why.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    SourceUnavailable:
-      description: >-
-        The extension the source library runs on is no longer installed by
-        the admin who made it.
+    ContentChanged:
+      description: |
+        The file changed on disk since it was scanned. A rescan has started;
+        retry after it finishes.
       content:
         application/json:
           schema:
@@ -2399,6 +2403,7 @@ components:
             - extension_invalid
             - source_failed
             - source_unavailable
+            - source_check_failed
             - internal
         message:
           type: string
@@ -2580,11 +2585,58 @@ components:
         path:
           type: [string, "null"]
           description: The folder on the server, for folder libraries.
+        source:
+          $ref: "#/components/schemas/LibrarySource"
         scan:
           $ref: "#/components/schemas/ScanState"
         createdAt:
           type: string
           format: date-time
+    LibrarySource:
+      type: object
+      description: Where a source library reads from. Present only on source libraries.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [komga, extension]
+        url:
+          type: string
+          description: The Komga server's address. Absent for an extension library.
+        extensionId:
+          type: string
+          description: The extension an extension library runs on.
+        libraryIds:
+          type: array
+          description: The Komga libraries read; absent when every library the account sees is read.
+          items:
+            type: string
+    NewKomgaSource:
+      type: object
+      additionalProperties: false
+      description: |
+        A Komga server to read, with an API key, or a name and password, for
+        one Komga account. Everyone granted the Chek library reads what that
+        account can see.
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Komga's address, including any path it is served under.
+          example: http://komga:25600
+        apiKey:
+          type: string
+          description: An API key made in Komga for the account.
+        username:
+          type: string
+          description: The account's email address, with `password`.
+        password:
+          type: string
+        libraryIds:
+          type: array
+          description: Komga library ids to read; leave out to read every library the account sees.
+          items:
+            type: string
     Series:
       type: object
       required: [id, libraryId, title, publicationCount]
@@ -2649,8 +2701,8 @@ components:
           enum: [epub, pdf, cbz, cbt, cbr, cb7, remote]
           description: |
             Comic archives get their format from their bytes, so a ZIP named
-            `.cbr` is `cbz`. `remote` is a chapter in a source library: it
-            has pages but no file.
+            `.cbr` is `cbz`. `remote` is a chapter from an extension: it has
+            pages but no file.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.
@@ -2731,8 +2783,8 @@ components:
           type: [integer, "null"]
           format: int64
           description: >-
-            The image's size in bytes. Null for pages from a source, whose
-            size isn't known until they're fetched; their `mediaType` is
+            The image's size in bytes. Null for an extension chapter's pages,
+            whose size isn't known until they're fetched; their `mediaType` is
             guessed from the page's URL.
     Progress:
       type: object
