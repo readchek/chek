@@ -147,8 +147,21 @@ fn map_error(error: reqwest::Error) -> FetchError {
     if error.is_timeout() {
         FetchError::Timeout
     } else if error.is_redirect() {
-        FetchError::NotAllowed(error.to_string())
+        FetchError::NotAllowed(describe(&error))
     } else {
-        FetchError::Failed(error.to_string())
+        FetchError::Failed(describe(&error))
     }
+}
+
+/// An error and its causes, since reqwest's own message leaves out why a
+/// request failed.
+pub(crate) fn describe(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }

@@ -30,15 +30,29 @@ pub use chek_komga::{Client as HttpClient, KomgaAuth, KomgaConfig, KomgaError, h
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SourceConfig {
     Komga(KomgaConfig),
+    Extension(ExtensionSource),
+}
+
+/// A library of series followed through an installed extension. The server
+/// runs extensions, so it syncs these libraries itself rather than through
+/// [`scan`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionSource {
+    pub extension_id: String,
+    /// The admin whose install the library runs on.
+    pub user_id: i64,
 }
 
 impl SourceConfig {
-    /// Checks that the source answers with these settings.
+    /// Checks that the source answers with these settings. Extensions are
+    /// checked by the server, against the install.
     pub async fn check(&self, http: &HttpClient) -> Result<(), KomgaError> {
         match self {
             SourceConfig::Komga(config) => {
                 chek_komga::Komga::new(http.clone(), config)?.check().await
             }
+            SourceConfig::Extension(_) => Ok(()),
         }
     }
 }
@@ -57,6 +71,8 @@ pub enum ScanError {
     CoversDir { path: PathBuf, source: io::Error },
     #[error("library {0}'s source settings can't be read")]
     SourceConfig(i64),
+    #[error("library {0} runs on an extension, which the server syncs")]
+    ExtensionSource(i64),
     #[error("{0}")]
     Source(#[from] KomgaError),
     #[error(transparent)]
@@ -119,9 +135,12 @@ pub async fn scan(
     let target = match (library.root_path, library.source_config) {
         (Some(root), _) => Target::Folder(PathBuf::from(root)),
         (None, Some(config)) => {
-            let SourceConfig::Komga(config) =
-                serde_json::from_str(&config).map_err(|_| ScanError::SourceConfig(library_id))?;
-            Target::Komga(chek_komga::Komga::new(options.http.clone(), &config)?)
+            match serde_json::from_str(&config).map_err(|_| ScanError::SourceConfig(library_id))? {
+                SourceConfig::Komga(config) => {
+                    Target::Komga(chek_komga::Komga::new(options.http.clone(), &config)?)
+                }
+                SourceConfig::Extension(_) => return Err(ScanError::ExtensionSource(library_id)),
+            }
         }
         (None, None) => return Err(ScanError::NotAFolder(library_id)),
     };

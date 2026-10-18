@@ -3,13 +3,17 @@
 mod annotations;
 mod api;
 mod auth;
+mod browse;
 mod config;
 mod edits;
+mod extensions;
+mod installs;
 mod limit;
 mod oidc;
 mod opds;
 mod progress;
 mod remote;
+mod source_libraries;
 mod telemetry;
 mod upload;
 
@@ -59,6 +63,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         trusted_proxies: Arc::new(config.trusted_proxies),
         client_ip_header: config.client_ip_header,
         max_upload_bytes: config.max_upload_bytes,
+        extensions: Arc::new(chek_sources::Extensions::new(
+            config.data_dir.join("extensions"),
+        )?),
         oidc: Arc::new(oidc::Oidc::new(
             config.public_url,
             config.oidc_providers,

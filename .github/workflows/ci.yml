@@ -10,23 +10,54 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Main keeps every run, so each merge gets a finished build.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # CI never reads debug info, and skipping it speeds up builds and shrinks the cache.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
   rust:
     name: Rust
-    runs-on: ubuntu-latest
+    # Runs on the maintainer's Linux server when the SELF_HOSTED_LINUX repository
+    # variable is "true", and on GitHub's runners otherwise. Fork pull requests
+    # always use GitHub's runners. See .github/RUNNERS.md.
+    runs-on: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('["self-hosted","chek-linux"]') || 'ubuntu-latest' }}
+    # On the server the job runs in the image the Dockerfile builds with, and
+    # Docker volumes keep the registry, target directory and apt downloads
+    # between runs, which is faster than restoring a cache from GitHub.
+    container: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('{"image":"rust:1.97-slim-trixie","volumes":["chek-cargo-registry:/usr/local/cargo/registry","chek-cargo-target:/cargo-target","chek-apt-cache:/var/cache/apt","chek-apt-lists:/var/lib/apt/lists"]}') || '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Set up the server's container
+        if: runner.environment == 'self-hosted'
+        run: |
+          # Keep downloaded packages in the apt volumes, and refresh the package
+          # lists at most daily, so most runs install without downloading.
+          rm -f /etc/apt/apt.conf.d/docker-clean
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+          packages="libvips-dev libarchive-dev pkg-config"
+          if [ -z "$(find /var/lib/apt/lists -maxdepth 1 -name '*Packages*' -mmin -1440)" ]; then
+            apt-get update
+          fi
+          apt-get install -y --no-install-recommends $packages \
+            || { apt-get update && apt-get install -y --no-install-recommends $packages; }
+          rustup component add rustfmt clippy
+          echo CARGO_TARGET_DIR=/cargo-target >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.97
+        if: runner.environment == 'github-hosted'
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev libarchive-dev
+        if: runner.environment == 'github-hosted'
+      - uses: awalsh128/cache-apt-pkgs-action@v1
+        if: runner.environment == 'github-hosted'
+        with:
+          packages: libvips-dev libarchive-dev
+          version: 1
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets
       - run: cargo test --locked
@@ -44,21 +75,66 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+        with:
+          # The pull request merge commit and its base parent, to list changed files.
+          fetch-depth: 2
+      # A release build in Docker takes minutes when any Rust code changes, and the
+      # Rust job already checks the code, so pull requests build the image only
+      # when the build inputs change. Pushes to main always build. The job still
+      # reports success when it skips, so it can stay a required check.
+      - name: Check for image changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = push ] \
+            || git diff --name-only HEAD^1 HEAD \
+              | grep -qE '^(Dockerfile|\.dockerignore|Cargo\.(toml|lock)|crates/[^/]+/(Cargo\.toml|build\.rs)|\.github/workflows/ci\.yml)$'; then
+            echo build=true >> "$GITHUB_OUTPUT"
+          else
+            echo "No Dockerfile, dependency or workflow changes; skipping the image build."
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.changes.outputs.build == 'true'
+      - uses: docker/build-push-action@v6
+        if: steps.changes.outputs.build == 'true'
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          # Load the image so the next step can start it.
+          load: true
+          tags: chek:ci
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
+      - name: Start the image
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          docker run -d --name chek -p 8080:8080 chek:ci
+          for _ in $(seq 30); do
+            curl -fsS localhost:8080/health && exit 0
+            sleep 1
+          done
+          docker logs chek
+          exit 1
+
+  # Builds natively on GitHub's arm64 runner, since building under emulation
+  # took over half an hour. Only pushes to main build arm64.
+  docker-arm64:
+    name: Docker image (arm64)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          # arm64 builds under emulation are slow, so pull requests build amd64 only.
-          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/arm64
           push: false
-          # Pull requests load the amd64 image so the next step can start it.
-          load: ${{ github.event_name != 'push' }}
+          load: true
           tags: chek:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,scope=arm64,mode=max
       - name: Start the image
-        if: github.event_name != 'push'
         run: |
           docker run -d --name chek -p 8080:8080 chek:ci
           for _ in $(seq 30); do
