@@ -1,0 +1,27 @@
+{
+  "protocolVersion": 1,
+  "id": "chek.komga",
+  "name": "Komga",
+  "version": "0.1.0",
+  "description": "Browse Komga libraries, read comic and PDF pages, and import original books.",
+  "entrypoint": "src/index.ts",
+  "capabilities": ["browse", "search", "series", "chapters", "pages", "discover"],
+  "configFields": [
+    {
+      "key": "url",
+      "label": "Server URL (including any base path)",
+      "required": true,
+      "secret": false,
+      "grant": "http-origin"
+    },
+    {
+      "key": "apiKey",
+      "label": "API key (or use email and password)",
+      "required": false,
+      "secret": true
+    },
+    { "key": "email", "label": "Email", "required": false, "secret": false },
+    { "key": "password", "label": "Password", "required": false, "secret": true },
+    { "key": "libraryId", "label": "Library ID (optional)", "required": false, "secret": false }
+  ]
+}

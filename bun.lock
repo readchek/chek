@@ -42,6 +42,13 @@
         "effect": "^4.0.0",
       },
     },
+    "extensions/komga": {
+      "name": "@chek/extension-komga",
+      "dependencies": {
+        "@chek/extensions": "workspace:*",
+        "effect": "^4.0.0",
+      },
+    },
     "extensions/local-files": {
       "name": "@chek/extension-local-files",
       "dependencies": {
@@ -84,6 +91,8 @@
     "@chek/core": ["@chek/core@workspace:packages/core"],
 
     "@chek/extension-json-catalog": ["@chek/extension-json-catalog@workspace:extensions/json-catalog"],
+
+    "@chek/extension-komga": ["@chek/extension-komga@workspace:extensions/komga"],
 
     "@chek/extension-local-files": ["@chek/extension-local-files@workspace:extensions/local-files"],
 

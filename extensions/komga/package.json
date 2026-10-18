@@ -1,0 +1,16 @@
+{
+  "name": "@chek/extension-komga",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./extension.json": "./extension.json"
+  },
+  "scripts": {
+    "typecheck": "bun check"
+  },
+  "dependencies": {
+    "@chek/extensions": "workspace:*",
+    "effect": "^4.0.0"
+  }
+}
