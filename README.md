@@ -85,7 +85,10 @@ outside your home network, and list the proxy's address or range in
 limits apply per client rather than to everyone behind the proxy. Behind
 Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 `CHEK_SETUP_TOKEN` (32 characters or more) replaces the logged setup token,
-for setting up a server without reading its log. `RUST_LOG` sets the log
+for setting up a server without reading its log. Admins can upload files
+into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
+needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
+(default 2 GiB). `RUST_LOG` sets the log
 level, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends logs and request traces to an
 OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.

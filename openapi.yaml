@@ -454,6 +454,90 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/files/{path}:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - name: path
+        in: path
+        required: true
+        description: >-
+          Where to store the file, relative to the library's folder, with `/`
+          between folders, such as `Saga/Saga 01.cbz`. Missing folders are
+          created. Every part must be a plain name (no `.`, `..` or names
+          starting with `.`), and the file must end in `.epub`, `.pdf` or
+          `.cbz`.
+        schema:
+          type: string
+          maxLength: 1024
+    put:
+      tags: [Libraries]
+      operationId: uploadFile
+      summary: Upload a file into a folder library
+      description: >-
+        Admin only. The request body is the file's bytes, up to
+        `CHEK_MAX_UPLOAD_BYTES` (2 GiB by default). The file is checked against
+        its extension, moved into place and recorded like any file the scan
+        finds. If a scan of the library is running, recording waits for it,
+        and after 20 seconds the response is 202 while recording carries on.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "201":
+          description: The file was stored and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationSummary"
+        "202":
+          description: The file was stored and will be recorded once the running scan finishes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, status]
+                properties:
+                  path:
+                    type: string
+                  status:
+                    type: string
+                    enum: [queued]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            A file already exists at that path (`file_exists`), or the server
+            can't write to the library's folder (`library_read_only`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The file is larger than `CHEK_MAX_UPLOAD_BYTES`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: >-
+            The file was stored but can't be read, such as a damaged archive.
+            It stays in the folder like any other unreadable file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/libraries/{libraryId}/scan:
     parameters:
       - $ref: "#/components/parameters/LibraryId"

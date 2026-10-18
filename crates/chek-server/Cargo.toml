@@ -19,6 +19,7 @@ chek-catalog.workspace = true
 chek-formats.workspace = true
 chek-library.workspace = true
 getrandom.workspace = true
+http-body-util.workspace = true
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true

@@ -37,6 +37,17 @@ impl Format {
             Format::Cbz => "cbz",
         }
     }
+
+    /// The format a file extension claims, ignoring case. The file's bytes
+    /// still have to match; see [`detect`].
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        match ext.to_ascii_lowercase().as_str() {
+            "epub" => Some(Format::Epub),
+            "pdf" => Some(Format::Pdf),
+            "cbz" => Some(Format::Cbz),
+            _ => None,
+        }
+    }
 }
 
 /// One page of a comic archive, as stored in the page index.
@@ -104,14 +115,12 @@ pub const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 /// renamed file is not served as something it isn't. Returns `None` for files
 /// the server doesn't handle.
 pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
-    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+    let Some(claimed) = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(Format::from_extension)
+    else {
         return Ok(None);
-    };
-    let claimed = match ext.to_ascii_lowercase().as_str() {
-        "epub" => Format::Epub,
-        "pdf" => Format::Pdf,
-        "cbz" => Format::Cbz,
-        _ => return Ok(None),
     };
 
     let mut magic = [0u8; 5];

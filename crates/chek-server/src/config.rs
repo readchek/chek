@@ -28,6 +28,9 @@ pub struct Config {
     /// deployments that set up the server without reading its log. Default
     /// a random token, logged at startup.
     pub setup_token: Option<String>,
+    /// `CHEK_MAX_UPLOAD_BYTES`, the largest file an upload may send. Default
+    /// 2 GiB.
+    pub max_upload_bytes: u64,
 }
 
 /// Long enough that a chosen token can't be guessed like a password.
@@ -78,6 +81,7 @@ impl Config {
                 Ok(token) => Some(token),
                 Err(_) => None,
             },
+            max_upload_bytes: parse("CHEK_MAX_UPLOAD_BYTES", "2147483648")?,
         })
     }
 }

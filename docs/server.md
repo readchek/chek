@@ -53,6 +53,22 @@ are in the planning doc; this page keeps the decisions next to the code.
   the server was down. Unchanged files are skipped by size and modification
   time.
 
+## Uploads
+
+- Admins upload a file into a folder library by path. The body streams to a
+  hidden temporary file beside its destination, so a scan never reads a
+  partial file. The file must match its extension, and then it is moved into
+  place and recorded the way a scan records it.
+- Uploads never replace a file; a taken path answers `409 file_exists`.
+  Paths must be plain names that stay inside the library, and folders that
+  resolve outside it through a link are refused.
+- A scan marks every file it didn't list at its start as unavailable, so
+  recording an upload waits for a running scan of the same library. The
+  request waits up to 20 seconds and then answers 202 while recording
+  carries on.
+- `CHEK_MAX_UPLOAD_BYTES` caps each file, 2 GiB by default. Uploads need the
+  library folder mounted read-write.
+
 ## Accounts
 
 - Two roles: admins manage libraries and users and see every library;

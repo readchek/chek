@@ -5,11 +5,11 @@
 //! few blocking threads, always fewer than the machine's cores, so serving
 //! pages stays fast while a scan runs.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 
 use chek_catalog::{
@@ -97,7 +97,9 @@ pub async fn scan(
         return Err(ScanError::AlreadyScanning(library_id));
     }
 
+    let guard = library_lock(library_id).lock_owned().await;
     let result = run(catalog.clone(), library_id, root, options).await;
+    drop(guard);
     let error = result.as_ref().err().map(ToString::to_string);
     let finished = {
         let catalog = catalog.clone();
@@ -108,6 +110,93 @@ pub async fn scan(
     finished?;
     info!(library_id, ?report, "scan finished");
     Ok(report)
+}
+
+/// Serializes scans and added files per library. A scan marks every file it
+/// didn't list at its start as unavailable, so a file recorded while it runs
+/// would be hidden until the next scan.
+fn library_lock(library_id: i64) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>> =
+        LazyLock::new(Default::default);
+    LOCKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(library_id)
+        .or_default()
+        .clone()
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AddFileError {
+    #[error("library {0} does not exist")]
+    UnknownLibrary(i64),
+    #[error("library {0} is not a folder library")]
+    NotAFolder(i64),
+    #[error("{0} is not an EPUB, PDF or CBZ file")]
+    Unsupported(String),
+    #[error("cannot create the covers folder {path}: {source}")]
+    CoversDir { path: PathBuf, source: io::Error },
+    #[error("cannot read {path}: {source}")]
+    File { path: String, source: FileError },
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+    #[error("task failed: {0}")]
+    Task(#[from] tokio::task::JoinError),
+}
+
+/// Records one file already in a folder library, such as an upload, and
+/// returns its publication id. Waits for a running scan of the library to
+/// finish first.
+pub async fn add_file(
+    catalog: Arc<Catalog>,
+    library_id: i64,
+    relative_path: String,
+    options: ScanOptions,
+) -> Result<i64, AddFileError> {
+    let _guard = library_lock(library_id).lock_owned().await;
+    tokio::task::spawn_blocking(move || {
+        let library = catalog
+            .library(library_id)?
+            .ok_or(AddFileError::UnknownLibrary(library_id))?;
+        let root = PathBuf::from(
+            library
+                .root_path
+                .ok_or(AddFileError::NotAFolder(library_id))?,
+        );
+        let path = root.join(&relative_path);
+        let format = chek_formats::detect(&path)
+            .map_err(|e| AddFileError::File {
+                path: relative_path.clone(),
+                source: e.into(),
+            })?
+            .ok_or_else(|| AddFileError::Unsupported(relative_path.clone()))?;
+        fs::create_dir_all(&options.covers_dir).map_err(|source| AddFileError::CoversDir {
+            path: options.covers_dir.clone(),
+            source,
+        })?;
+        match scan_file(
+            &catalog,
+            library_id,
+            &root,
+            &options.covers_dir,
+            &path,
+            relative_path.clone(),
+            format,
+        ) {
+            Ok(_) => {}
+            Err(FileError::Catalog(e)) => return Err(e.into()),
+            Err(source) => {
+                return Err(AddFileError::File {
+                    path: relative_path,
+                    source,
+                });
+            }
+        }
+        catalog
+            .publication_at(library_id, &relative_path)?
+            .ok_or_else(|| AddFileError::Unsupported(relative_path))
+    })
+    .await?
 }
 
 async fn run(
@@ -181,7 +270,7 @@ enum FileOutcome {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum FileError {
+pub enum FileError {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]

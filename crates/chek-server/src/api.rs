@@ -39,6 +39,8 @@ pub struct AppState {
     /// A header those proxies set to the client's address, believed before
     /// `X-Forwarded-For`.
     pub client_ip_header: Option<axum::http::HeaderName>,
+    /// The largest file an upload may send.
+    pub max_upload_bytes: u64,
 }
 
 /// Starts a background scan of every folder library.
@@ -59,6 +61,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/libraries", get(list_libraries).post(add_library))
         .route("/api/v1/libraries/{id}", get(get_library))
         .route("/api/v1/libraries/{id}/scan", post(scan_library))
+        .route(
+            "/api/v1/libraries/{id}/files/{*path}",
+            put(crate::upload::upload),
+        )
         .route(
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
@@ -163,7 +169,7 @@ impl From<Library> for LibraryDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicationDto {
+pub(crate) struct PublicationDto {
     id: i64,
     series: SeriesRefDto,
     title: String,

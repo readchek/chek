@@ -284,6 +284,19 @@ impl Catalog {
         )?)
     }
 
+    /// The publication for a file in a library, by its path relative to the
+    /// library's folder.
+    pub fn publication_at(&self, library_id: i64, relative_path: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT publication_id FROM content WHERE library_id = ?1 AND relative_path = ?2",
+                params![library_id, relative_path],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn file_stamp(&self, library_id: i64, relative_path: &str) -> Result<Option<FileStamp>> {
         let conn = self.conn();
         let stamp = conn
