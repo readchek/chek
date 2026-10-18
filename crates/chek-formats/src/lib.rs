@@ -1,4 +1,4 @@
-//! Format detection and page indexes for the files Chek serves.
+//! Format detection, metadata and page indexes for the files Chek serves.
 //!
 //! Everything here is synchronous and does blocking file I/O, so callers on an
 //! async runtime run it on a blocking thread.
@@ -6,6 +6,7 @@
 mod cbz;
 mod cover;
 mod epub;
+mod metadata;
 mod natural;
 
 use std::fs::File;
@@ -15,6 +16,7 @@ use std::path::Path;
 use flate2::read::DeflateDecoder;
 
 pub use cover::cover_thumbnail;
+pub use metadata::{Contributor, Metadata, ReadingDirection, Role};
 pub use natural::natural_cmp;
 
 /// A publication format the server recognises.
@@ -70,6 +72,7 @@ pub struct Inspection {
     pub format: Format,
     /// Comic pages in reading order. Empty for formats without a page index yet.
     pub pages: Vec<PageEntry>,
+    pub metadata: Metadata,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -122,11 +125,18 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
 
 /// Reads what the catalog needs from a file already identified by [`detect`].
 pub fn inspect(path: &Path, format: Format) -> Result<Inspection, FormatError> {
-    let pages = match format {
-        Format::Cbz => cbz::page_index(path)?,
-        Format::Epub | Format::Pdf => Vec::new(),
+    let (pages, metadata) = match format {
+        Format::Cbz => cbz::inspect(path)?,
+        // A book whose package can't be read is still served as a file, as
+        // before metadata existed, just without metadata.
+        Format::Epub => (Vec::new(), epub::metadata(path).unwrap_or_default()),
+        Format::Pdf => (Vec::new(), Metadata::default()),
     };
-    Ok(Inspection { format, pages })
+    Ok(Inspection {
+        format,
+        pages,
+        metadata,
+    })
 }
 
 /// Reads one page's image bytes straight from its offset in the archive,

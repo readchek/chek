@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_covers.sql"),
     include_str!("../migrations/0003_users.sql"),
     include_str!("../migrations/0004_progress.sql"),
+    include_str!("../migrations/0005_metadata.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -122,6 +123,30 @@ pub struct ScannedFile {
     pub pages: Vec<PageRecord>,
     /// The cover thumbnail's name in the covers folder, if one was made.
     pub cover: Option<String>,
+    /// The publication's number in its series, as the file writes it.
+    pub number_label: Option<String>,
+    /// The number for sorting, when the label starts with one.
+    pub sort_number: Option<f64>,
+    pub details: PublicationDetails,
+}
+
+/// Metadata shown when a publication is opened rather than listed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PublicationDetails {
+    pub summary: Option<String>,
+    pub publisher: Option<String>,
+    pub language: Option<String>,
+    /// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`.
+    pub published: Option<String>,
+    /// `ltr` or `rtl`.
+    pub reading_direction: Option<String>,
+    pub contributors: Vec<ContributorRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContributorRecord {
+    pub name: String,
+    pub role: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,6 +342,43 @@ impl Catalog {
             .optional()?)
     }
 
+    /// A publication's metadata. `None` when the publication doesn't exist.
+    pub fn publication_details(&self, id: i64) -> Result<Option<PublicationDetails>> {
+        let conn = self.conn();
+        let details = conn
+            .query_row(
+                "SELECT summary, publisher, language, published, reading_direction
+                 FROM publication WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(PublicationDetails {
+                        summary: row.get(0)?,
+                        publisher: row.get(1)?,
+                        language: row.get(2)?,
+                        published: row.get(3)?,
+                        reading_direction: row.get(4)?,
+                        contributors: Vec::new(),
+                    })
+                },
+            )
+            .optional()?;
+        let Some(mut details) = details else {
+            return Ok(None);
+        };
+        let mut stmt = conn.prepare(
+            "SELECT name, role FROM contributor WHERE publication_id = ?1 ORDER BY position",
+        )?;
+        details.contributors = stmt
+            .query_map([id], |row| {
+                Ok(ContributorRecord {
+                    name: row.get(0)?,
+                    role: row.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Some(details))
+    }
+
     /// The file behind a publication. `None` when the publication doesn't
     /// exist or isn't backed by a local file.
     pub fn publication_file(&self, publication_id: i64) -> Result<Option<PublicationFile>> {
@@ -491,7 +553,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         )
         .optional()?;
 
-    let content_id = match existing {
+    let (content_id, publication_id) = match existing {
         Some((content_id, publication_id)) => {
             tx.execute(
                 "UPDATE publication SET series_id = ?2, title = ?3, format = ?4, page_count = ?5, available = 1, cover = ?6
@@ -508,7 +570,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
                 ],
             )?;
             tx.execute("DELETE FROM page WHERE content_id = ?1", [content_id])?;
-            content_id
+            (content_id, publication_id)
         }
         None => {
             tx.execute(
@@ -528,9 +590,36 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
                     file.stamp.modified_at
                 ],
             )?;
-            tx.last_insert_rowid()
+            (tx.last_insert_rowid(), publication_id)
         }
     };
+
+    let details = &file.details;
+    tx.execute(
+        "UPDATE publication SET number_label = ?2, sort_number = ?3, summary = ?4, publisher = ?5,
+             language = ?6, published = ?7, reading_direction = ?8
+         WHERE id = ?1",
+        params![
+            publication_id,
+            file.number_label,
+            file.sort_number,
+            details.summary,
+            details.publisher,
+            details.language,
+            details.published,
+            details.reading_direction
+        ],
+    )?;
+    tx.execute(
+        "DELETE FROM contributor WHERE publication_id = ?1",
+        [publication_id],
+    )?;
+    let mut insert_contributor = tx.prepare(
+        "INSERT INTO contributor (publication_id, position, name, role) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (position, c) in details.contributors.iter().enumerate() {
+        insert_contributor.execute(params![publication_id, position as i64, c.name, c.role])?;
+    }
 
     let mut insert = tx.prepare(
         "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)
