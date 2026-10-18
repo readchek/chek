@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 use crate::auth::{self, CurrentUser};
-use crate::{annotations, progress};
+use crate::{annotations, extensions, progress};
 use tower_http::services::ServeFile;
 use tracing::error;
 
@@ -140,6 +140,23 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/annotations/{id}",
             patch(annotations::update_annotation).delete(annotations::delete_annotation),
+        )
+        .route(
+            "/api/v1/extension-repositories",
+            get(extensions::list_repositories).post(extensions::add_repository),
+        )
+        .route(
+            "/api/v1/extension-repositories/{id}",
+            axum::routing::delete(extensions::delete_repository),
+        )
+        .route(
+            "/api/v1/extension-repositories/{id}/refresh",
+            post(extensions::refresh_repository),
+        )
+        .route("/api/v1/extensions", get(extensions::list_extensions))
+        .route(
+            "/api/v1/settings",
+            get(extensions::get_settings).put(extensions::update_settings),
         )
         .merge(crate::opds::router())
         .layer(axum::middleware::from_fn_with_state(
@@ -1102,6 +1119,11 @@ where
             status: StatusCode::CONFLICT,
             code: "name_taken",
             message: format!("a user named {name:?} already exists"),
+        }),
+        Ok(Err(CatalogError::RepositoryExists(url))) => Err(ApiError {
+            status: StatusCode::CONFLICT,
+            code: "repository_exists",
+            message: format!("the repository {url} has already been added"),
         }),
         Ok(Err(e)) => Err(ApiError::internal(e)),
         Err(e) => Err(ApiError::internal(e)),

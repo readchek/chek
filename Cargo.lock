@@ -350,6 +350,7 @@ dependencies = [
  "chek-formats",
  "chek-komga",
  "chek-library",
+ "chek-sources",
  "getrandom 0.4.3",
  "http-body-util",
  "opentelemetry",
@@ -373,6 +374,8 @@ name = "chek-sources"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "serde",
+ "serde_json",
  "thiserror",
  "wasmtime",
  "wasmtime-wasi",

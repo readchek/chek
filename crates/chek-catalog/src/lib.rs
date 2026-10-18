@@ -11,12 +11,14 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 mod annotations;
 mod edits;
+mod extensions;
 mod progress;
 mod remote;
 mod users;
 
 pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use edits::{FileLocation, PublicationEdit};
+pub use extensions::ExtensionRepository;
 pub use progress::{Progress, ProgressSave};
 pub use remote::{RemoteContent, RemoteItem};
 pub use users::{
@@ -39,6 +41,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0011_annotations.sql"),
     include_str!("../migrations/0012_publication_edits.sql"),
     include_str!("../migrations/0013_remote_content.sql"),
+    include_str!("../migrations/0014_extension_repositories.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -47,6 +50,8 @@ pub enum CatalogError {
     Sqlite(#[from] rusqlite::Error),
     #[error("a user named {0:?} already exists")]
     NameTaken(String),
+    #[error("the repository {0} has already been added")]
+    RepositoryExists(String),
     #[error("database was created by a newer server (schema {found}, this server knows {known})")]
     NewerSchema { found: usize, known: usize },
 }

@@ -11,6 +11,7 @@
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
 mod http;
+pub mod repository;
 mod sites;
 
 use std::sync::Arc;
@@ -44,7 +45,7 @@ const MAX_RESPONSE: u64 = 16 << 20;
 /// The largest image the host fetches for an extension.
 const MAX_IMAGE: u64 = 32 << 20;
 /// Manifest text fields are cut off after this many bytes.
-const MAX_FIELD: usize = 200;
+pub(crate) const MAX_FIELD: usize = 200;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -246,15 +247,7 @@ impl bindings::chek::source::http::Host for State {
 
 fn check_manifest(mut manifest: Manifest) -> Result<Manifest, Error> {
     let id = &manifest.id;
-    let id_ok = id.len() <= MAX_FIELD
-        && id.contains('.')
-        && id.split('.').all(|part| {
-            !part.is_empty()
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        });
-    if !id_ok {
+    if !valid_id(id) {
         return Err(Error::Manifest(format!(
             "id `{id}` isn't in reverse-DNS form such as `org.example.comics`"
         )));
@@ -275,7 +268,20 @@ fn check_manifest(mut manifest: Manifest) -> Result<Manifest, Error> {
     Ok(manifest)
 }
 
-fn truncate(text: &mut String, max: usize) {
+/// Whether an extension id is in reverse-DNS form, such as
+/// `org.example.comics`.
+pub(crate) fn valid_id(id: &str) -> bool {
+    id.len() <= MAX_FIELD
+        && id.contains('.')
+        && id.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+}
+
+pub(crate) fn truncate(text: &mut String, max: usize) {
     if text.len() > max {
         let mut end = max;
         while !text.is_char_boundary(end) {
