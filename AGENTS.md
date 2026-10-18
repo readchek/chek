@@ -10,8 +10,8 @@ scope and explicit decisions first. Guidance and skills do not authorize extra w
 - [Development](docs/development.md): workspaces, commands, and configuration.
 - For website work, read the [website guide](docs/website.md).
 
-This repository contains the backend and website. The reader and native Apple apps
-are developed separately.
+This repository currently contains only the landing page; the backend is being
+re-planned. The reader and native Apple apps are developed separately.
 Research proposals are starting points to validate, not implemented capabilities
 or final choices. Keep approved decisions, proposals, and verified behavior distinct.
 Check date-sensitive claims against current primary sources or installed dependencies.
@@ -57,7 +57,7 @@ artifact generation are separate from source rewriting.
 tests, compiler checks, validators, and manual verification may be run. Do not
 disguise new tests as temporary verification scripts.
 
-## Bun and Effect
+## Bun
 
 Preserve the existing workspaces and root `bun.lock`.
 
@@ -70,9 +70,6 @@ Preserve the existing workspaces and root `bun.lock`.
 - Prefer Bun.serve over Express, bun:sqlite over better-sqlite3, Bun.redis over
   ioredis, Bun.sql over pg/postgres.js, and built-in WebSocket over ws.
 - Prefer Bun.file for reads/writes and Bun's shell API over execa.
-- Before writing Effect code, read `node_modules/effect/AGENTS.md` completely and
-  follow required references. Consult `node_modules/effect/src` for additional API
-  details instead of guessing from another Effect version.
 - Use the [development guide](docs/development.md) for relevant checks. Installed
   Bun API references live in `node_modules/bun-types/docs/`.
 
