@@ -91,7 +91,17 @@ pub async fn save_progress(
     })
     .await?;
     match saved {
-        ProgressSave::Saved(progress) => Ok(Json(ProgressDto::try_from(progress)?).into_response()),
+        ProgressSave::Saved(progress) => {
+            crate::remote::write_progress(
+                &state,
+                user_id,
+                id,
+                &body.locator,
+                progress.updated_at.clone(),
+            )
+            .await;
+            Ok(Json(ProgressDto::try_from(progress)?).into_response())
+        }
         ProgressSave::Conflict(progress) => {
             let body = serde_json::json!({
                 "code": "progress_conflict",

@@ -43,6 +43,8 @@ pub struct AppState {
     pub max_upload_bytes: u64,
     /// Installed extension components and the sources loaded from them.
     pub extensions: Arc<chek_sources::Extensions>,
+    /// Reading progress waiting to be written to Komga libraries.
+    pub progress_writes: crate::remote::ProgressWrites,
     /// Sign-in providers and the sign-ins in progress with them.
     pub oidc: Arc<crate::oidc::Oidc>,
 }
@@ -226,6 +228,9 @@ struct SourceDto {
     library_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     extension_id: Option<String>,
+    /// The Chek user whose progress is written back to Komga.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    progress_user_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -255,12 +260,14 @@ impl From<Library> for LibraryDto {
                         url: Some(c.url),
                         library_ids: c.library_ids,
                         extension_id: None,
+                        progress_user_id: c.progress_user_id,
                     },
                     SourceConfig::Extension(c) => SourceDto {
                         r#type: "extension",
                         url: None,
                         library_ids: Vec::new(),
                         extension_id: Some(c.extension_id),
+                        progress_user_id: None,
                     },
                 }),
             scan: ScanDto {
@@ -383,6 +390,9 @@ struct NewKomga {
     password: Option<String>,
     #[serde(default)]
     library_ids: Vec<String>,
+    /// Whether the admin adding the library has their reading progress
+    /// written back to this Komga account. Default true.
+    write_progress: Option<bool>,
 }
 
 async fn add_library(
@@ -398,7 +408,9 @@ async fn add_library(
     }
     let path = match (body.path, body.komga, body.extension) {
         (Some(path), None, None) => path,
-        (None, Some(komga), None) => return add_komga_library(state, name, komga).await,
+        (None, Some(komga), None) => {
+            return add_komga_library(state, current.user.id, name, komga).await;
+        }
         (None, None, Some(extension)) => {
             return crate::source_libraries::add_library(&state, &current, name, extension).await;
         }
@@ -435,6 +447,7 @@ async fn add_library(
 
 async fn add_komga_library(
     state: AppState,
+    admin_id: i64,
     name: String,
     komga: NewKomga,
 ) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
@@ -451,6 +464,7 @@ async fn add_komga_library(
         url: komga.url,
         auth,
         library_ids: komga.library_ids,
+        progress_user_id: komga.write_progress.unwrap_or(true).then_some(admin_id),
     });
     // Checked first, so a typo fails here rather than in the first sync.
     config.check(&state.scan.http).await.map_err(|e| ApiError {

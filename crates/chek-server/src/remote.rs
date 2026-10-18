@@ -6,12 +6,15 @@ use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use chek_catalog::{PageRecord, RemoteContent};
-use chek_komga::{Komga, KomgaError};
+use chek_komga::{Komga, KomgaConfig, KomgaError};
 use chek_library::SourceConfig;
 
+use serde_json::Value;
+use tracing::warn;
+
 use crate::api::{
-    ApiError, AppState, content_disposition, file_media_type, image_response, matches_etag,
-    not_modified, start_scan,
+    ApiError, AppState, blocking, content_disposition, file_media_type, image_response,
+    matches_etag, not_modified, start_scan,
 };
 
 /// The publication's file, streamed from the source. Byte ranges are passed
@@ -147,4 +150,126 @@ fn file_stem(title: &str) -> String {
     } else {
         stem.to_owned()
     }
+}
+
+/// Pending writes of reading progress to Komga, in save order.
+pub type ProgressWrites = tokio::sync::mpsc::Sender<ProgressWrite>;
+
+/// Saves waiting at once; more are dropped, since a later save replaces them.
+const MAX_PENDING_WRITES: usize = 1024;
+
+pub struct ProgressWrite {
+    config: KomgaConfig,
+    book_id: String,
+    position: KomgaPosition,
+}
+
+enum KomgaPosition {
+    Page { page: u32, completed: bool },
+    Locator { locator: Value, modified: String },
+}
+
+/// Starts the task that writes progress to Komga. Writes go one at a time,
+/// so Komga ends at the newest position, and saves for the same book that
+/// queue up while Komga is slow are reduced to the last one.
+pub(crate) fn progress_writer(http: chek_library::HttpClient) -> ProgressWrites {
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<ProgressWrite>(MAX_PENDING_WRITES);
+    tokio::spawn(async move {
+        while let Some(first) = receiver.recv().await {
+            let mut batch = vec![first];
+            while let Ok(next) = receiver.try_recv() {
+                batch.retain(|w| w.book_id != next.book_id);
+                batch.push(next);
+            }
+            for write in batch {
+                let result = match Komga::new(http.clone(), &write.config) {
+                    Ok(komga) => match &write.position {
+                        KomgaPosition::Page { page, completed } => {
+                            komga
+                                .set_read_progress(&write.book_id, *page, *completed)
+                                .await
+                        }
+                        KomgaPosition::Locator { locator, modified } => {
+                            komga
+                                .set_progression(&write.book_id, locator, modified)
+                                .await
+                        }
+                    },
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = result {
+                    warn!(book = %write.book_id, error = %e, "couldn't write reading progress to Komga");
+                }
+            }
+        }
+    });
+    sender
+}
+
+/// Queues a saved position for Komga when the publication comes from a Komga
+/// library that writes this user's progress back.
+pub(crate) async fn write_progress(
+    state: &AppState,
+    user_id: i64,
+    publication_id: i64,
+    locator: &Value,
+    modified: Option<String>,
+) {
+    let remote = match blocking(state, move |c| c.publication_remote(publication_id)).await {
+        Ok(Some(remote)) => remote,
+        Ok(None) => return,
+        Err(e) => {
+            warn!(error = %e.message, "couldn't look up a publication's source");
+            return;
+        }
+    };
+    let Ok(SourceConfig::Komga(config)) = serde_json::from_str(&remote.source_config) else {
+        return;
+    };
+    if config.progress_user_id != Some(user_id) {
+        return;
+    }
+    let Some(position) = komga_position(&remote, locator, modified) else {
+        return;
+    };
+    let write = ProgressWrite {
+        config,
+        book_id: remote.remote_id,
+        position,
+    };
+    if state.progress_writes.try_send(write).is_err() {
+        warn!("too many progress writes waiting for Komga; dropping one");
+    }
+}
+
+/// Komga keeps EPUB positions as Readium locators and other books as a page.
+fn komga_position(
+    remote: &RemoteContent,
+    locator: &Value,
+    modified: Option<String>,
+) -> Option<KomgaPosition> {
+    let locations = locator.get("locations");
+    let total = locations
+        .and_then(|l| l.get("totalProgression"))
+        .and_then(Value::as_f64);
+    if remote.format == "epub" {
+        return Some(KomgaPosition::Locator {
+            locator: locator.clone(),
+            modified: modified?,
+        });
+    }
+    let pages = remote.page_count.and_then(|n| u32::try_from(n).ok());
+    let page = locations
+        .and_then(|l| l.get("position"))
+        .and_then(Value::as_u64)
+        .and_then(|p| u32::try_from(p).ok())
+        .or_else(|| {
+            // Without a position, the page is worked out from how far along
+            // the reader is, when the page count is known.
+            let pages = pages?;
+            Some(((total? * f64::from(pages)).ceil() as u32).clamp(1, pages))
+        })?;
+    let page = pages.map_or(page, |pages| page.min(pages));
+    let completed = pages.is_some_and(|pages| page >= pages) || total.is_some_and(|t| t >= 1.0);
+    Some(KomgaPosition::Page { page, completed })
 }

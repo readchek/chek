@@ -105,7 +105,16 @@ are in the planning doc; this page keeps the decisions next to the code.
   Komga sends a whole file even when asked for a range, so readers that open
   ZIPs with range requests download the whole file from these libraries.
 - Progress, bookmarks and edits are kept in Chek against the publication,
-  as for files, and survive syncs. Progress isn't written back to Komga.
+  as for files, and survive syncs.
+- The admin who adds a Komga library has their progress in it written back
+  to the Komga account, unless they send `writeProgress: false`, so Komga's
+  own apps resume where Chek left off. Only one Chek user is written back,
+  because every reader of the library shares that one Komga account. EPUB
+  positions go to Komga as Readium locators, which Komga checks against the
+  book; comics and PDFs go as a page number, and reaching the last page or a
+  `totalProgression` of 1 marks the book read. Writes happen after the save
+  answers, one at a time so Komga ends at the newest position, and a write
+  Komga refuses is logged, not retried.
 - Komga's books are matched to publications by Komga's book id, so a book
   moved to another series in Komga keeps its publication.
 
