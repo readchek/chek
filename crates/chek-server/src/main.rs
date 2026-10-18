@@ -3,9 +3,11 @@
 mod api;
 mod auth;
 mod config;
+mod limit;
 mod opds;
 mod progress;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::serve::ListenerExt;
@@ -43,6 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         setup_token: Arc::default(),
         basic_auth_cache: Arc::default(),
+        password_limiter: Arc::default(),
+        trusted_proxies: Arc::new(config.trusted_proxies),
     };
     auth::prepare_setup(&state).await?;
     // Unchanged files are skipped by size and modification time, so this is
@@ -60,9 +64,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     info!(address = %config.bind, data_dir = %config.data_dir.display(), "listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // Connection addresses let sign-in limit password guesses per client.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 

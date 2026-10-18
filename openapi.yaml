@@ -132,6 +132,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/auth/sign-out:
@@ -189,6 +191,47 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/sessions:
+    get:
+      tags: [Accounts]
+      operationId: listSessions
+      summary: List your signed-in devices
+      description: Sessions that haven't expired, most recently used first.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: Your sessions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionInfo"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    delete:
+      tags: [Accounts]
+      operationId: deleteSession
+      summary: Sign a device out
+      description: Ends one of your sessions, such as a lost device's. Ending the current one signs you out.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "204":
+          description: The session was ended.
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/users:
@@ -884,6 +927,15 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    TooManyAttempts:
+      description: |
+        Too many wrong passwords from this address in the last 15 minutes.
+        Requests with a session token, or with Basic credentials already
+        accepted, are not affected.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     LastAdmin:
       description: The change would leave the server without an admin.
       content:
@@ -975,6 +1027,7 @@ components:
             - name_taken
             - last_admin
             - progress_conflict
+            - too_many_attempts
             - internal
         message:
           type: string
@@ -1202,3 +1255,26 @@ components:
           type: array
           items:
             type: object
+    SessionInfo:
+      type: object
+      required: [id, device, createdAt, lastUsedAt, expiresAt, current]
+      properties:
+        id:
+          type: integer
+          format: int64
+        device:
+          type: [string, "null"]
+          description: The label given at sign-in.
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+          description: Updated at most once an hour.
+        expiresAt:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+          description: Whether this is the session making the request.

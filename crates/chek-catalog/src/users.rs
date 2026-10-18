@@ -49,7 +49,18 @@ impl User {
 #[derive(Debug, Clone)]
 pub struct SessionUser {
     pub user: User,
+    pub session_id: i64,
     pub device: Option<String>,
+}
+
+/// A signed-in device. Times are RFC 3339 UTC, like the catalog's other dates.
+#[derive(Debug, Clone)]
+pub struct Session {
+    pub id: i64,
+    pub device: Option<String>,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub expires_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -254,30 +265,68 @@ impl Catalog {
         refresh_after: i64,
         expires_at: i64,
     ) -> Result<Option<SessionUser>> {
-        let session: Option<(i64, i64, Option<String>)> = {
+        let session: Option<(i64, i64, i64, Option<String>)> = {
             let conn = self.conn();
             let session = conn
                 .query_row(
-                    "SELECT user_id, last_used_at, device FROM session
+                    "SELECT id, user_id, last_used_at, device FROM session
                      WHERE token_hash = ?1 AND expires_at > ?2",
                     params![token_hash, now],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()?;
-            if let Some((_, last_used_at, _)) = session
+            if let Some((id, _, last_used_at, _)) = session
                 && now - last_used_at >= refresh_after
             {
                 conn.execute(
-                    "UPDATE session SET last_used_at = ?2, expires_at = ?3 WHERE token_hash = ?1",
-                    params![token_hash, now, expires_at],
+                    "UPDATE session SET last_used_at = ?2, expires_at = ?3 WHERE id = ?1",
+                    params![id, now, expires_at],
                 )?;
             }
             session
         };
-        let Some((user_id, _, device)) = session else {
+        let Some((session_id, user_id, _, device)) = session else {
             return Ok(None);
         };
-        Ok(self.user(user_id)?.map(|user| SessionUser { user, device }))
+        Ok(self.user(user_id)?.map(|user| SessionUser {
+            user,
+            session_id,
+            device,
+        }))
+    }
+
+    /// A user's sessions that haven't expired, most recently used first.
+    pub fn sessions(&self, user_id: i64, now: i64) -> Result<Vec<Session>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, device,
+                 strftime('%Y-%m-%dT%H:%M:%SZ', created_at, 'unixepoch'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', last_used_at, 'unixepoch'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', expires_at, 'unixepoch')
+             FROM session
+             WHERE user_id = ?1 AND expires_at > ?2
+             ORDER BY last_used_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map(params![user_id, now], |row| {
+            Ok(Session {
+                id: row.get(0)?,
+                device: row.get(1)?,
+                created_at: row.get(2)?,
+                last_used_at: row.get(3)?,
+                expires_at: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Ends one of a user's sessions. Returns false when the user has no
+    /// session with that id.
+    pub fn delete_user_session(&self, user_id: i64, session_id: i64) -> Result<bool> {
+        let deleted = self.conn().execute(
+            "DELETE FROM session WHERE id = ?1 AND user_id = ?2",
+            params![session_id, user_id],
+        )?;
+        Ok(deleted == 1)
     }
 
     pub fn delete_session(&self, token_hash: &str) -> Result<()> {

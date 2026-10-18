@@ -4,6 +4,7 @@
 //! which they send as `Authorization: Bearer <token>`. Only a hash of each
 //! token is stored. Passwords are hashed with Argon2id.
 
+use std::net::IpAddr;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::api::{ApiError, AppState, blocking};
+use crate::limit::{ClientIp, client_ip};
 
 /// Sessions last this long after their last use.
 const SESSION_SECONDS: i64 = 90 * 24 * 60 * 60;
@@ -37,6 +39,8 @@ pub struct CurrentUser {
     pub user: User,
     /// The device name given at sign-in.
     pub device: Option<String>,
+    /// The session's id; `None` for a request signed with Basic auth.
+    pub session_id: Option<i64>,
     /// The session token's hash; `None` for a request signed with Basic auth.
     token_hash: Option<String>,
 }
@@ -72,7 +76,8 @@ impl FromRequestParts<AppState> for CurrentUser {
         let token = match credentials {
             Some((scheme, token)) if scheme.eq_ignore_ascii_case("Bearer") => token,
             Some((scheme, encoded)) if scheme.eq_ignore_ascii_case("Basic") => {
-                return basic_user(state, encoded).await;
+                let ip = client_ip(parts, &state.trusted_proxies);
+                return basic_user(state, encoded, ip).await;
             }
             _ => {
                 return Err(unauthorized(
@@ -93,6 +98,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         Ok(Self {
             user: session.user,
             device: session.device,
+            session_id: Some(session.session_id),
             token_hash: Some(token_hash),
         })
     }
@@ -103,7 +109,11 @@ impl FromRequestParts<AppState> for CurrentUser {
 /// request would be slow, so a successful check is remembered for that exact
 /// password and stored hash; changing the password changes the hash and
 /// forgets it.
-async fn basic_user(state: &AppState, encoded: &str) -> Result<CurrentUser, ApiError> {
+async fn basic_user(
+    state: &AppState,
+    encoded: &str,
+    ip: Option<IpAddr>,
+) -> Result<CurrentUser, ApiError> {
     let invalid = || unauthorized("the name or password is wrong");
     let decoded = STANDARD.decode(encoded).map_err(|_| invalid())?;
     let decoded = String::from_utf8(decoded).map_err(|_| invalid())?;
@@ -111,8 +121,10 @@ async fn basic_user(state: &AppState, encoded: &str) -> Result<CurrentUser, ApiE
     let (name, password) = (name.trim().to_owned(), password.to_owned());
     let found = blocking(state, move |c| c.user_by_name(&name)).await?;
     let Some(found) = found else {
+        state.password_limiter.check(ip)?;
         // Same cost as a real check, so timing doesn't reveal which names exist.
         verify_password(password, dummy_hash().to_owned()).await?;
+        state.password_limiter.record_failure(ip);
         return Err(invalid());
     };
     let key = *blake3::Hasher::new()
@@ -126,8 +138,12 @@ async fn basic_user(state: &AppState, encoded: &str) -> Result<CurrentUser, ApiE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .contains(&key);
+    // A remembered password needs no check, so apps already signed in keep
+    // working while someone else at the same address is locked out.
     if !known {
+        state.password_limiter.check(ip)?;
         if !verify_password(password, found.password_hash).await? {
+            state.password_limiter.record_failure(ip);
             return Err(invalid());
         }
         let mut cache = state
@@ -142,6 +158,7 @@ async fn basic_user(state: &AppState, encoded: &str) -> Result<CurrentUser, ApiE
     Ok(CurrentUser {
         user: found.user,
         device: None,
+        session_id: None,
         token_hash: None,
     })
 }
@@ -276,9 +293,11 @@ pub struct SignInRequest {
 
 pub async fn sign_in(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     body: Result<Json<SignInRequest>, JsonRejection>,
 ) -> Result<Json<SessionDto>, ApiError> {
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
+    state.password_limiter.check(ip)?;
     let name = body.name.trim().to_owned();
     let found = blocking(&state, move |c| c.user_by_name(&name)).await?;
     // Verify against a dummy hash when the name is unknown, so the response
@@ -290,7 +309,10 @@ pub async fn sign_in(
     let verified = verify_password(body.password, hash).await?;
     let user = match (user, verified) {
         (Some(user), true) => user,
-        _ => return Err(unauthorized("the name or password is wrong")),
+        _ => {
+            state.password_limiter.record_failure(ip);
+            return Err(unauthorized("the name or password is wrong"));
+        }
     };
     let device = body
         .device
@@ -315,6 +337,56 @@ pub async fn sign_out(
 
 pub async fn me(current: CurrentUser) -> Json<UserDto> {
     Json(current.user.into())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfoDto {
+    id: i64,
+    device: Option<String>,
+    created_at: String,
+    last_used_at: String,
+    expires_at: String,
+    /// Whether this is the session making the request.
+    current: bool,
+}
+
+/// The signed-in user's sessions, most recently used first.
+pub async fn list_sessions(
+    State(state): State<AppState>,
+    current: CurrentUser,
+) -> Result<Json<Vec<SessionInfoDto>>, ApiError> {
+    let user_id = current.user.id;
+    let now = now();
+    let sessions = blocking(&state, move |c| c.sessions(user_id, now)).await?;
+    Ok(Json(
+        sessions
+            .into_iter()
+            .map(|s| SessionInfoDto {
+                id: s.id,
+                device: s.device,
+                created_at: s.created_at,
+                // Refreshed at most hourly, so this is approximate.
+                last_used_at: s.last_used_at,
+                expires_at: s.expires_at,
+                current: Some(s.id) == current.session_id,
+            })
+            .collect(),
+    ))
+}
+
+/// Ends one of the signed-in user's sessions, such as a lost device's.
+pub async fn delete_session(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = current.user.id;
+    if blocking(&state, move |c| c.delete_user_session(user_id, id)).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found(format!("session {id} does not exist")))
+    }
 }
 
 #[derive(Deserialize)]

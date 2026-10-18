@@ -67,6 +67,15 @@ are in the planning doc; this page keeps the decisions next to the code.
   names so timing doesn't reveal which names exist. Changing a password signs
   out the user's other sessions.
 - The server keeps at least one admin; demoting or deleting the last one fails.
+- People can list their signed-in devices and sign any one out. Sessions have
+  a plain id for this, so the token hash never leaves the server.
+- After 10 wrong passwords from one address within 15 minutes, password
+  checks from it answer `429 too_many_attempts` until the oldest failure is
+  15 minutes old. Limits are per address, not per account, so a stranger
+  can't lock someone out. Session tokens and already accepted Basic
+  credentials aren't affected. Behind a reverse proxy, list it in
+  `CHEK_TRUSTED_PROXIES` so the client's address is read from
+  `X-Forwarded-For`; otherwise every client shares the proxy's address.
 - Requests can also send HTTP Basic credentials, because OPDS reader apps
   can't hold session tokens. A passing check is remembered in memory, keyed
   by the password and the stored hash, so later requests skip Argon2; a

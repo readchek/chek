@@ -33,6 +33,9 @@ pub struct AppState {
     pub setup_token: Arc<std::sync::Mutex<Option<String>>>,
     /// Basic auth checks that passed; see [`crate::auth`].
     pub basic_auth_cache: Arc<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>>,
+    pub password_limiter: Arc<crate::limit::PasswordLimiter>,
+    /// Reverse proxies whose `X-Forwarded-For` is believed.
+    pub trusted_proxies: Arc<Vec<std::net::IpAddr>>,
 }
 
 /// Starts a background scan of every folder library.
@@ -62,6 +65,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/sign-out", post(auth::sign_out))
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", put(auth::change_password))
+        .route("/api/v1/me/sessions", get(auth::list_sessions))
+        .route(
+            "/api/v1/me/sessions/{id}",
+            axum::routing::delete(auth::delete_session),
+        )
         .route(
             "/api/v1/users",
             get(auth::list_users).post(auth::create_user),
