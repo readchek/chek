@@ -1,0 +1,14 @@
+[package]
+name = "chek-formats"
+description = "Format detection and page indexes for the files Chek serves."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+zip.workspace = true
+
+[lints]
+workspace = true

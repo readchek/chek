@@ -32,10 +32,35 @@ finalized.
 
 ## Repositories
 
-This repository is the Chek server. It has no code yet; its structure is being
-re-planned.
+This repository is the Chek server. It is in early development: it can scan a
+folder and list what it finds. See [server design](docs/server.md) for what is
+settled and what comes next.
 
 - [chek.page](https://github.com/readchek/chek.page): the landing page.
 - [chek-reader](https://github.com/readchek/chek-reader): the reading engine for Apple platforms.
 
 The clients' planned scope is described in [product direction](docs/product.md).
+
+## Running the server
+
+The server has no sign-in yet, so it listens on `127.0.0.1:8080` by default.
+Don't expose it beyond a network you trust.
+
+```sh
+cargo run --bin chek
+curl -X POST localhost:8080/api/v1/libraries \
+  -H 'content-type: application/json' \
+  -d '{"name": "Comics", "path": "/path/to/comics"}'
+curl localhost:8080/api/v1/libraries/1/publications
+```
+
+Settings come from environment variables: `CHEK_BIND` (address), `CHEK_DATA_DIR`
+(database folder, default `./data`) and `CHEK_SCAN_WORKERS` (default one fewer
+than the cores). The API is described in [openapi.yaml](openapi.yaml).
+
+With Docker:
+
+```sh
+docker build -t chek .
+docker run -p 127.0.0.1:8080:8080 -v chek-data:/data -v /path/to/comics:/library:ro chek
+```

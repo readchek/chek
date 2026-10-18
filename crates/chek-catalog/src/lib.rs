@@ -1,0 +1,409 @@
+//! Chek's data model, SQLite migrations and queries.
+//!
+//! [`Catalog`] wraps one SQLite connection. Every method blocks, so callers on
+//! an async runtime run them on a blocking thread.
+
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
+
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+
+/// Migrations in order. A database records how many it has applied in
+/// `PRAGMA user_version`, so each one runs exactly once.
+const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_catalog.sql")];
+
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogError {
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("database was created by a newer server (schema {found}, this server knows {known})")]
+    NewerSchema { found: usize, known: usize },
+}
+
+pub type Result<T> = std::result::Result<T, CatalogError>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryKind {
+    Folder,
+    Source,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanStatus {
+    Idle,
+    Scanning,
+    Failed,
+}
+
+impl ScanStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            ScanStatus::Idle => "idle",
+            ScanStatus::Scanning => "scanning",
+            ScanStatus::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Library {
+    pub id: i64,
+    pub name: String,
+    pub kind: LibraryKind,
+    pub root_path: Option<String>,
+    pub scan_status: ScanStatus,
+    pub scan_error: Option<String>,
+    pub scanned_at: Option<String>,
+    pub created_at: String,
+}
+
+/// A publication as listed in a library.
+#[derive(Debug, Clone)]
+pub struct PublicationSummary {
+    pub id: i64,
+    pub series_id: i64,
+    pub series_title: String,
+    pub title: String,
+    pub number_label: Option<String>,
+    pub format: String,
+    pub page_count: Option<i64>,
+    pub available: bool,
+}
+
+/// The size and modification time recorded for a file, which a scan compares
+/// against the disk to skip files that haven't changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileStamp {
+    pub size: u64,
+    pub modified_at: i64,
+}
+
+/// Everything a scan records about one file.
+#[derive(Debug, Clone)]
+pub struct ScannedFile {
+    pub relative_path: String,
+    pub series_key: String,
+    pub series_title: String,
+    pub title: String,
+    pub format: &'static str,
+    pub stamp: FileStamp,
+    pub hash: String,
+    pub pages: Vec<PageRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PageRecord {
+    pub entry_name: String,
+    pub data_offset: u64,
+    pub compressed_size: u64,
+    pub size: u64,
+    pub compression: &'static str,
+}
+
+pub struct Catalog {
+    conn: Mutex<Connection>,
+}
+
+impl Catalog {
+    /// Opens or creates the database at `path` and applies pending migrations.
+    pub fn open(path: &Path) -> Result<Self> {
+        Self::init(Connection::open(path)?)
+    }
+
+    pub fn open_in_memory() -> Result<Self> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(mut conn: Connection) -> Result<Self> {
+        conn.pragma_update(None, "journal_mode", "wal")?;
+        conn.pragma_update(None, "synchronous", "normal")?;
+        conn.pragma_update(None, "foreign_keys", "on")?;
+        migrate(&mut conn)?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        // A panic while holding the lock leaves SQLite itself consistent, since
+        // every write runs in a transaction, so a poisoned lock is still usable.
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn add_folder_library(&self, name: &str, root_path: &str) -> Result<Library> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO library (name, kind, root_path) VALUES (?1, 'folder', ?2)",
+            params![name, root_path],
+        )?;
+        let id = conn.last_insert_rowid();
+        Ok(library_by_id(&conn, id)?.expect("library was just inserted"))
+    }
+
+    pub fn libraries(&self) -> Result<Vec<Library>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!("{LIBRARY_SELECT} ORDER BY id"))?;
+        let rows = stmt.query_map([], library_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn library(&self, id: i64) -> Result<Option<Library>> {
+        library_by_id(&self.conn(), id)
+    }
+
+    /// Marks a library as scanning. Returns false when a scan is already
+    /// running, so two scans of one library never overlap.
+    pub fn begin_scan(&self, library_id: i64) -> Result<bool> {
+        let changed = self.conn().execute(
+            "UPDATE library SET scan_status = 'scanning', scan_error = NULL
+             WHERE id = ?1 AND scan_status != 'scanning'",
+            [library_id],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub fn finish_scan(&self, library_id: i64, error: Option<&str>) -> Result<()> {
+        let status = if error.is_some() {
+            ScanStatus::Failed
+        } else {
+            ScanStatus::Idle
+        };
+        self.conn().execute(
+            "UPDATE library SET scan_status = ?2, scan_error = ?3,
+                 scanned_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE id = ?1",
+            params![library_id, status.as_str(), error],
+        )?;
+        Ok(())
+    }
+
+    /// Libraries left in `scanning` by a server that stopped mid-scan.
+    pub fn reset_interrupted_scans(&self) -> Result<usize> {
+        Ok(self.conn().execute(
+            "UPDATE library SET scan_status = 'failed', scan_error = 'The server stopped during the scan.'
+             WHERE scan_status = 'scanning'",
+            [],
+        )?)
+    }
+
+    pub fn file_stamp(&self, library_id: i64, relative_path: &str) -> Result<Option<FileStamp>> {
+        let conn = self.conn();
+        let stamp = conn
+            .query_row(
+                "SELECT size, modified_at FROM content
+                 WHERE library_id = ?1 AND relative_path = ?2",
+                params![library_id, relative_path],
+                |row| {
+                    Ok(FileStamp {
+                        size: row.get::<_, i64>(0)? as u64,
+                        modified_at: row.get(1)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(stamp)
+    }
+
+    /// Records a new or changed file. An existing file keeps its publication
+    /// id, so progress survives edits to the file.
+    pub fn record_file(&self, library_id: i64, file: &ScannedFile) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        record_file(&tx, library_id, file)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Marks each file publication in the library available if its path was
+    /// seen by the scan and unavailable otherwise. Missing files are kept, not
+    /// deleted, so a disconnected drive doesn't erase anyone's progress.
+    pub fn set_availability(&self, library_id: i64, seen: &HashSet<String>) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut select = tx.prepare(
+                "SELECT c.relative_path, c.publication_id, p.available
+                 FROM content c JOIN publication p ON p.id = c.publication_id
+                 WHERE c.library_id = ?1 AND c.kind = 'file'",
+            )?;
+            let mut update = tx.prepare("UPDATE publication SET available = ?2 WHERE id = ?1")?;
+            let rows = select.query_map([library_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (path, publication_id, available) = row?;
+                let present = seen.contains(&path);
+                if present != available {
+                    update.execute(params![publication_id, present])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Lists a library's publications in id order, starting after the
+    /// publication id `after`.
+    pub fn publications(
+        &self,
+        library_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available
+             FROM publication p JOIN series s ON s.id = p.series_id
+             WHERE s.library_id = ?1 AND p.id > ?2
+             ORDER BY p.id
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![library_id, after.unwrap_or(0), limit], |row| {
+            Ok(PublicationSummary {
+                id: row.get(0)?,
+                series_id: row.get(1)?,
+                series_title: row.get(2)?,
+                title: row.get(3)?,
+                number_label: row.get(4)?,
+                format: row.get(5)?,
+                page_count: row.get(6)?,
+                available: row.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+fn migrate(conn: &mut Connection) -> Result<()> {
+    let applied: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let applied = usize::try_from(applied).unwrap_or(usize::MAX);
+    if applied > MIGRATIONS.len() {
+        return Err(CatalogError::NewerSchema {
+            found: applied,
+            known: MIGRATIONS.len(),
+        });
+    }
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(applied) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+const LIBRARY_SELECT: &str = "SELECT id, name, kind, root_path, scan_status, scan_error, scanned_at, created_at FROM library";
+
+fn library_by_id(conn: &Connection, id: i64) -> Result<Option<Library>> {
+    Ok(conn
+        .query_row(
+            &format!("{LIBRARY_SELECT} WHERE id = ?1"),
+            [id],
+            library_from_row,
+        )
+        .optional()?)
+}
+
+fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
+    let kind = match row.get_ref(2)?.as_str()? {
+        "source" => LibraryKind::Source,
+        _ => LibraryKind::Folder,
+    };
+    let scan_status = match row.get_ref(4)?.as_str()? {
+        "scanning" => ScanStatus::Scanning,
+        "failed" => ScanStatus::Failed,
+        _ => ScanStatus::Idle,
+    };
+    Ok(Library {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        kind,
+        root_path: row.get(3)?,
+        scan_status,
+        scan_error: row.get(5)?,
+        scanned_at: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Result<()> {
+    let series_id: i64 = tx.query_row(
+        "INSERT INTO series (library_id, title, sort_title, path_key) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (library_id, path_key) DO UPDATE SET title = excluded.title, sort_title = excluded.sort_title
+         RETURNING id",
+        params![library_id, file.series_title, file.series_title.to_lowercase(), file.series_key],
+        |row| row.get(0),
+    )?;
+
+    let page_count = (!file.pages.is_empty()).then_some(file.pages.len() as i64);
+    let existing: Option<(i64, i64)> = tx
+        .query_row(
+            "SELECT id, publication_id FROM content WHERE library_id = ?1 AND relative_path = ?2",
+            params![library_id, file.relative_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+
+    let content_id = match existing {
+        Some((content_id, publication_id)) => {
+            tx.execute(
+                "UPDATE publication SET series_id = ?2, title = ?3, format = ?4, page_count = ?5, available = 1
+                 WHERE id = ?1",
+                params![publication_id, series_id, file.title, file.format, page_count],
+            )?;
+            tx.execute(
+                "UPDATE content SET size = ?2, hash = ?3, modified_at = ?4 WHERE id = ?1",
+                params![
+                    content_id,
+                    file.stamp.size as i64,
+                    file.hash,
+                    file.stamp.modified_at
+                ],
+            )?;
+            tx.execute("DELETE FROM page WHERE content_id = ?1", [content_id])?;
+            content_id
+        }
+        None => {
+            tx.execute(
+                "INSERT INTO publication (series_id, title, format, page_count) VALUES (?1, ?2, ?3, ?4)",
+                params![series_id, file.title, file.format, page_count],
+            )?;
+            let publication_id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO content (publication_id, library_id, kind, relative_path, size, hash, modified_at)
+                 VALUES (?1, ?2, 'file', ?3, ?4, ?5, ?6)",
+                params![
+                    publication_id,
+                    library_id,
+                    file.relative_path,
+                    file.stamp.size as i64,
+                    file.hash,
+                    file.stamp.modified_at
+                ],
+            )?;
+            tx.last_insert_rowid()
+        }
+    };
+
+    let mut insert = tx.prepare(
+        "INSERT INTO page (content_id, page_index, entry_name, data_offset, compressed_size, size, compression)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    for (index, page) in file.pages.iter().enumerate() {
+        insert.execute(params![
+            content_id,
+            index as i64,
+            page.entry_name,
+            page.data_offset as i64,
+            page.compressed_size as i64,
+            page.size as i64,
+            page.compression
+        ])?;
+    }
+    Ok(())
+}

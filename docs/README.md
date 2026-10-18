@@ -1,6 +1,7 @@
 # Chek documentation
 
 - [Product direction](product.md): the reader, source choices, planned server, and Chibi Manga predecessor.
+- [Server design](server.md): the server's settled decisions and code layout.
 
 Product guides describe intent. They do not imply that planned features are
 implemented or released. Website and design guides live in

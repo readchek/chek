@@ -1,0 +1,19 @@
+[package]
+name = "chek-library"
+description = "Folder scanning for Chek libraries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+blake3.workspace = true
+chek-catalog.workspace = true
+chek-formats.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+
+[lints]
+workspace = true
