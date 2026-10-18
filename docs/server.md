@@ -9,7 +9,7 @@ are in the planning doc; this page keeps the decisions next to the code.
   comics, browses them, reads them in the Chek app and resumes on another
   device. The public release adds uploads, Komga and Kavita import, extension
   sources, more formats, metadata editing, sign-in providers, bookmarks and
-  annotations, and OPDS 2.
+  annotations.
 - **Stack.** Rust with axum on tokio, SQLite for storage and libvips for images.
   A latency spike on the real reader corpus measured a comic page from disk at
   6.1 ms p50 and 18 ms p99 under 16 concurrent clients.
@@ -18,7 +18,8 @@ are in the planning doc; this page keeps the decisions next to the code.
   from day one. Ids are server-made and never derived from paths or titles.
   Missing files are marked unavailable, not deleted.
 - **API.** A hand-written [`openapi.yaml`](../openapi.yaml) is the contract. The
-  app generates its client from a tagged release. OPDS 2 arrives at public release.
+  app generates its client from a tagged release. An OPDS 2 catalog under
+  `/opds/v2` serves other reader apps.
 - **Extensions.** WebAssembly components installed per user from extension
   repositories, run in a sandbox with no file or network access except the
   sites they declare. The admin keeps an allow list that ships with the
@@ -66,6 +67,19 @@ are in the planning doc; this page keeps the decisions next to the code.
   names so timing doesn't reveal which names exist. Changing a password signs
   out the user's other sessions.
 - The server keeps at least one admin; demoting or deleting the last one fails.
+- Requests can also send HTTP Basic credentials, because OPDS reader apps
+  can't hold session tokens. A passing check is remembered in memory, keyed
+  by the password and the stored hash, so later requests skip Argon2; a
+  password change changes the hash and forgets it. OPDS routes answer 401
+  with a Basic challenge so apps prompt for a name and password.
+
+## OPDS
+
+- `/opds/v2/catalog` lists the libraries the user may open; each library is a
+  feed of its publications, 50 per page. Files and covers are served under
+  `/opds/v2` too, so apps send the credentials they used for the catalog.
+- Publication metadata follows the Readium Web Publication model, so roles
+  such as penciler or translator keep their own keys.
 
 ## Metadata
 

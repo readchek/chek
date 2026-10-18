@@ -9,12 +9,15 @@ info:
 
     Every operation except `/health`, `/api/v1/setup` and sign-in needs a
     session token from sign-in, sent as `Authorization: Bearer <token>`.
+    HTTP Basic credentials (name and password) work too, for OPDS reader apps
+    that can't hold a token.
     Admins see every library; readers see only the libraries they were granted,
     and other libraries and their publications answer as not found.
 servers:
   - url: http://localhost:8080
 security:
   - session: []
+  - basic: []
 tags:
   - name: Health
     description: Whether the server is up.
@@ -28,6 +31,10 @@ tags:
     description: Files, pages and covers.
   - name: Progress
     description: Reading positions synced between devices.
+  - name: OPDS
+    description: |
+      An [OPDS 2](https://drafts.opds.io/opds-2.0) catalog for other reader
+      apps. Unauthenticated requests get a Basic challenge.
 paths:
   /health:
     get:
@@ -695,12 +702,129 @@ paths:
                 $ref: "#/components/schemas/ProgressConflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /opds/v2/catalog:
+    get:
+      tags: [OPDS]
+      operationId: getOpdsCatalog
+      summary: OPDS start feed
+      description: Navigation to each library the user may open.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 navigation feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsLibrary
+      summary: OPDS feed of a library
+      description: Publications 50 at a time; a `next` link points to the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/publications/{publicationId}:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsPublication
+      summary: OPDS publication
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publication.
+          content:
+            application/opds-publication+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/publications/{publicationId}/file:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsPublicationFile
+      summary: Download a publication from OPDS
+      description: The same as `/api/v1/publications/{publicationId}/file`, with a Basic challenge on 401.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: The original file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: The requested byte range.
+        "304":
+          description: The client's copy is current.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ContentChanged"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/publications/{publicationId}/cover:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsPublicationCover
+      summary: Get a cover from OPDS
+      description: The same as `/api/v1/publications/{publicationId}/cover`, with a Basic challenge on 401.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: A JPEG thumbnail.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The client's copy is current.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
 components:
   securitySchemes:
     session:
       type: http
       scheme: bearer
       description: The token from sign-in or setup.
+    basic:
+      type: http
+      scheme: basic
+      description: A user's name and password, for apps that can't sign in first.
   headers:
     ETag:
       description: Changes whenever the file's content changes. Send it back in `If-None-Match`.
@@ -739,6 +863,17 @@ components:
   responses:
     Unauthorized:
       description: The request has no valid session token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OpdsUnauthorized:
+      description: No valid credentials; the challenge asks for a name and password.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Basic realm="Chek", charset="UTF-8"
       content:
         application/json:
           schema:
@@ -1054,3 +1189,16 @@ components:
               type: string
             after:
               type: string
+    OpdsDocument:
+      type: object
+      description: |
+        An OPDS 2 feed or publication, defined by the
+        [OPDS 2 schemas](https://drafts.opds.io/opds-2.0) rather than here.
+        Publication metadata follows the Readium Web Publication model.
+      properties:
+        metadata:
+          type: object
+        links:
+          type: array
+          items:
+            type: object

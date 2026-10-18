@@ -3,6 +3,7 @@
 mod api;
 mod auth;
 mod config;
+mod opds;
 mod progress;
 
 use std::sync::Arc;
@@ -41,6 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             covers_dir: config.data_dir.join("covers"),
         },
         setup_token: Arc::default(),
+        basic_auth_cache: Arc::default(),
     };
     auth::prepare_setup(&state).await?;
     // Unchanged files are skipped by size and modification time, so this is
