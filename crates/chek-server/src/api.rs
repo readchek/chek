@@ -13,7 +13,7 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use chek_catalog::{
     Catalog, CatalogError, Library, LibraryKind, PageRecord, PublicationFile, PublicationSummary,
-    ScanStatus,
+    ScanStatus, SeriesSummary,
 };
 use chek_formats::{Compression, PageEntry};
 use chek_library::ScanOptions;
@@ -62,6 +62,12 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/libraries/{id}/publications",
             get(list_publications),
+        )
+        .route("/api/v1/libraries/{id}/series", get(list_series))
+        .route("/api/v1/series/{id}", get(get_series))
+        .route(
+            "/api/v1/series/{id}/publications",
+            get(list_series_publications),
         )
         .route("/api/v1/setup", post(auth::setup))
         .route("/api/v1/auth/sign-in", post(auth::sign_in))
@@ -341,6 +347,116 @@ async fn list_publications(
         return Err(ApiError::library_not_found(id));
     }
 
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|p| p.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SeriesDto {
+    id: i64,
+    library_id: i64,
+    title: String,
+    publication_count: i64,
+    cover_publication_id: Option<i64>,
+}
+
+impl From<SeriesSummary> for SeriesDto {
+    fn from(s: SeriesSummary) -> Self {
+        Self {
+            id: s.id,
+            library_id: s.library_id,
+            title: s.title,
+            publication_count: s.publication_count,
+            cover_publication_id: s.cover_publication_id,
+        }
+    }
+}
+
+/// Reads a cursor, which is always the id of the last item on the previous
+/// page.
+pub(crate) fn parse_cursor(cursor: Option<&str>) -> Result<Option<i64>, ApiError> {
+    cursor
+        .map(|c| {
+            c.parse::<i64>()
+                .map_err(|_| ApiError::bad_request("cursor is not valid"))
+        })
+        .transpose()
+}
+
+async fn list_series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<SeriesDto>>, ApiError> {
+    if !current.user.can_read(id) {
+        return Err(ApiError::library_not_found(id));
+    }
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let (library, items) = blocking(&state, move |c| {
+        let library = c.library(id)?;
+        let items = match library {
+            Some(_) => c.series_list(id, after, limit)?,
+            None => Vec::new(),
+        };
+        Ok((library, items))
+    })
+    .await?;
+    if library.is_none() {
+        return Err(ApiError::library_not_found(id));
+    }
+    let next_cursor = (items.len() == limit as usize)
+        .then(|| items.last().map(|s| s.id.to_string()))
+        .flatten();
+    Ok(Json(Page {
+        items: items.into_iter().map(Into::into).collect(),
+        next_cursor,
+    }))
+}
+
+/// A series the user may open; others answer as not found.
+pub(crate) async fn readable_series(
+    state: &AppState,
+    current: &CurrentUser,
+    id: i64,
+) -> Result<SeriesSummary, ApiError> {
+    blocking(state, move |c| c.series(id))
+        .await?
+        .filter(|s| current.user.can_read(s.library_id))
+        .ok_or_else(|| ApiError::series_not_found(id))
+}
+
+async fn get_series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Json<SeriesDto>, ApiError> {
+    Ok(Json(readable_series(&state, &current, id).await?.into()))
+}
+
+async fn list_series_publications(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<PublicationDto>>, ApiError> {
+    readable_series(&state, &current, id).await?;
+    let after = parse_cursor(query.cursor.as_deref())?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let items = blocking(&state, move |c| c.series_publications(id, after, limit)).await?;
     let next_cursor = (items.len() == limit as usize)
         .then(|| items.last().map(|p| p.id.to_string()))
         .flatten();
@@ -704,6 +820,10 @@ impl ApiError {
 
     pub fn library_not_found(id: i64) -> Self {
         Self::not_found(format!("library {id} does not exist"))
+    }
+
+    pub fn series_not_found(id: i64) -> Self {
+        Self::not_found(format!("series {id} does not exist"))
     }
 
     pub fn publication_not_found(id: i64) -> Self {

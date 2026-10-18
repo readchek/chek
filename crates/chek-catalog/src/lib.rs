@@ -92,6 +92,18 @@ pub struct PublicationSummary {
     pub has_cover: bool,
 }
 
+/// A series as listed in a library.
+#[derive(Debug, Clone)]
+pub struct SeriesSummary {
+    pub id: i64,
+    pub library_id: i64,
+    pub title: String,
+    pub publication_count: i64,
+    /// The first publication in reading order that has a cover, to show as
+    /// the series' cover.
+    pub cover_publication_id: Option<i64>,
+}
+
 /// Where a publication's file is and what the last scan recorded about it.
 #[derive(Debug, Clone)]
 pub struct PublicationFile {
@@ -177,6 +189,14 @@ pub struct Catalog {
 /// makes every key unique.
 const ORDER_KEY: &str =
     "s.sort_title, s.id, p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id";
+
+/// A series with its publication count and the first publication, in
+/// reading order, that has a cover.
+const SERIES_SELECT: &str = "SELECT s.id, s.library_id, s.title,
+        (SELECT count(*) FROM publication p WHERE p.series_id = s.id),
+        (SELECT p.id FROM publication p WHERE p.series_id = s.id AND p.cover IS NOT NULL
+         ORDER BY p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id LIMIT 1)
+     FROM series s";
 
 impl Catalog {
     /// Opens or creates the database at `path` and applies pending migrations.
@@ -339,6 +359,29 @@ impl Catalog {
         after: Option<i64>,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
+        self.list_publications("s.library_id", library_id, after, limit)
+    }
+
+    /// Lists a series' publications in reading order, starting after the
+    /// publication id `after`.
+    pub fn series_publications(
+        &self,
+        series_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
+        self.list_publications("s.id", series_id, after, limit)
+    }
+
+    /// Publications whose `scope` column equals `scope_id`, in [`ORDER_KEY`]
+    /// order.
+    fn list_publications(
+        &self,
+        scope: &'static str,
+        scope_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<PublicationSummary>> {
         // The cursor is the last publication's id; comparing whole sort keys
         // against that row's keeps pages stable and complete as long as the
         // row exists, and publications are never deleted, only marked
@@ -347,14 +390,45 @@ impl Catalog {
         let mut stmt = conn.prepare(&format!(
             "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
              FROM publication p JOIN series s ON s.id = p.series_id
-             WHERE s.library_id = ?1
+             WHERE {scope} = ?1
                AND (?2 IS NULL OR ({ORDER_KEY}) > (
                    SELECT {ORDER_KEY} FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?2))
              ORDER BY {ORDER_KEY}
              LIMIT ?3"
         ))?;
-        let rows = stmt.query_map(params![library_id, after, limit], summary_from_row)?;
+        let rows = stmt.query_map(params![scope_id, after, limit], summary_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Lists a library's series by title, starting after the series id
+    /// `after`.
+    pub fn series_list(
+        &self,
+        library_id: i64,
+        after: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<SeriesSummary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "{SERIES_SELECT}
+             WHERE s.library_id = ?1
+               AND (?2 IS NULL OR (s.sort_title, s.id) > (SELECT sort_title, id FROM series WHERE id = ?2))
+             ORDER BY s.sort_title, s.id
+             LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(params![library_id, after, limit], series_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn series(&self, id: i64) -> Result<Option<SeriesSummary>> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!("{SERIES_SELECT} WHERE s.id = ?1"),
+                [id],
+                series_from_row,
+            )
+            .optional()?)
     }
 
     pub fn publication(&self, id: i64) -> Result<Option<PublicationSummary>> {
@@ -532,6 +606,16 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
         scan_error: row.get(5)?,
         scanned_at: row.get(6)?,
         created_at: row.get(7)?,
+    })
+}
+
+fn series_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SeriesSummary> {
+    Ok(SeriesSummary {
+        id: row.get(0)?,
+        library_id: row.get(1)?,
+        title: row.get(2)?,
+        publication_count: row.get(3)?,
+        cover_publication_id: row.get(4)?,
     })
 }
 

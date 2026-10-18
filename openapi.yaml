@@ -516,6 +516,97 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/libraries/{libraryId}/series:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+    get:
+      tags: [Catalog]
+      operationId: listLibrarySeries
+      summary: List a library's series
+      description: Series in title order, with numbers inside titles compared by value.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of series.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Series"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/series/{seriesId}:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+    get:
+      tags: [Catalog]
+      operationId: getSeries
+      summary: Get a series
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/series/{seriesId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+    get:
+      tags: [Catalog]
+      operationId: listSeriesPublications
+      summary: List a series' publications
+      description: >-
+        Numbered publications first in number order, then the rest by title.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: One page of publications.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicationSummary"
+                  nextCursor:
+                    type: string
+                    description: Pass as `cursor` to get the next page. Absent on the last page.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/publications/{publicationId}:
     parameters:
       - $ref: "#/components/parameters/PublicationId"
@@ -790,8 +881,59 @@ paths:
     get:
       tags: [OPDS]
       operationId: getOpdsLibrary
-      summary: OPDS feed of a library
-      description: Publications 50 at a time; a `next` link points to the following page.
+      summary: OPDS navigation feed of a library
+      description: >-
+        The library's series 50 at a time, each linking to its feed. The first
+        page starts with an "All publications" link; a `next` link points to
+        the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 navigation feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/libraries/{libraryId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/LibraryId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsLibraryPublications
+      summary: OPDS feed of a library's publications
+      description: Every publication, series by series, 50 at a time; a `next` link points to the following page.
+      responses:
+        "401":
+          $ref: "#/components/responses/OpdsUnauthorized"
+        "200":
+          description: An OPDS 2 publications feed.
+          content:
+            application/opds+json:
+              schema:
+                $ref: "#/components/schemas/OpdsDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /opds/v2/series/{seriesId}:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [OPDS]
+      operationId: getOpdsSeries
+      summary: OPDS feed of a series
+      description: The series' publications in reading order, 50 at a time; a `next` link points to the following page.
       responses:
         "401":
           $ref: "#/components/responses/OpdsUnauthorized"
@@ -904,6 +1046,13 @@ components:
         format: int64
     LibraryId:
       name: libraryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    SeriesId:
+      name: seriesId
       in: path
       required: true
       schema:
@@ -1079,6 +1228,27 @@ components:
         createdAt:
           type: string
           format: date-time
+    Series:
+      type: object
+      required: [id, libraryId, title, publicationCount]
+      properties:
+        id:
+          type: integer
+          format: int64
+        libraryId:
+          type: integer
+          format: int64
+        title:
+          type: string
+        publicationCount:
+          type: integer
+          format: int64
+        coverPublicationId:
+          type: [integer, "null"]
+          format: int64
+          description: >-
+            The first publication in the series that has a cover; fetch its
+            cover to show the series.
     ScanState:
       type: object
       required: [status, error, finishedAt]
