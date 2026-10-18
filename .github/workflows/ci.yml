@@ -27,16 +27,24 @@ jobs:
     # always use GitHub's runners. See .github/RUNNERS.md.
     runs-on: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('["self-hosted","chek-linux"]') || 'ubuntu-latest' }}
     # On the server the job runs in the image the Dockerfile builds with, and
-    # Docker volumes keep the registry and target directory between runs, which
-    # is faster than restoring a cache from GitHub.
-    container: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('{"image":"rust:1.97-slim-trixie","volumes":["chek-cargo-registry:/usr/local/cargo/registry","chek-cargo-target:/cargo-target"]}') || '' }}
+    # Docker volumes keep the registry, target directory and apt downloads
+    # between runs, which is faster than restoring a cache from GitHub.
+    container: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('{"image":"rust:1.97-slim-trixie","volumes":["chek-cargo-registry:/usr/local/cargo/registry","chek-cargo-target:/cargo-target","chek-apt-cache:/var/cache/apt","chek-apt-lists:/var/lib/apt/lists"]}') || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up the server's container
         if: runner.environment == 'self-hosted'
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends libvips-dev libarchive-dev pkg-config
+          # Keep downloaded packages in the apt volumes, and refresh the package
+          # lists at most daily, so most runs install without downloading.
+          rm -f /etc/apt/apt.conf.d/docker-clean
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+          packages="libvips-dev libarchive-dev pkg-config"
+          if [ -z "$(find /var/lib/apt/lists -maxdepth 1 -name '*Packages*' -mmin -1440)" ]; then
+            apt-get update
+          fi
+          apt-get install -y --no-install-recommends $packages \
+            || { apt-get update && apt-get install -y --no-install-recommends $packages; }
           rustup component add rustfmt clippy
           echo CARGO_TARGET_DIR=/cargo-target >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.97

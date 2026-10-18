@@ -29,6 +29,7 @@ covers installing Docker and the runner. The job needs a runner with the
    jobs wait for it.
 
 The job runs in the `rust:1.97-slim-trixie` container and keeps the Cargo
-registry and target directory in the Docker volumes `chek-cargo-registry` and
-`chek-cargo-target`. If a build behaves oddly, remove them with
-`docker volume rm chek-cargo-registry chek-cargo-target`.
+registry, target directory and apt downloads in the Docker volumes
+`chek-cargo-registry`, `chek-cargo-target`, `chek-apt-cache` and
+`chek-apt-lists`. If a build behaves oddly, remove them with
+`docker volume rm chek-cargo-registry chek-cargo-target chek-apt-cache chek-apt-lists`.
