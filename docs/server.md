@@ -33,7 +33,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-catalog` | Data model, SQLite migrations and queries |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
 | `chek-library` | Folder scanning, change detection and scan jobs, with workers capped below the core count |
-| `chek-sources` | Extension host for WebAssembly sources (empty until extensions land) |
+| `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
 ## Serving
@@ -209,6 +209,30 @@ are in the planning doc; this page keeps the decisions next to the code.
   fetch elsewhere.
 - A publication holds up to 5,000 annotations per user and a note up to
   10,000 characters, so one response always carries the whole list.
+
+## Extension host
+
+- An extension is a WebAssembly component built against the `source` world
+  in [`wit/source.wit`](../crates/chek-sources/wit/source.wit). It exports a
+  manifest and four calls: search, series, chapters and pages. Series and
+  chapter ids are the source's own, stored as remote ids; pages and covers
+  come back as URLs with headers, which the server fetches itself.
+- Each call runs in a fresh instance, so extensions keep no state between
+  calls. WASI is linked with nothing in it: no files, environment, sockets or
+  name lookups. The only way out is the host's `http` import.
+- The manifest names the hosts the extension may reach, exactly or as
+  `*.example.org` for any subdomain. Requests, redirects and image fetches
+  go over HTTPS to those hosts only. IP addresses and local names such as
+  `localhost` are refused as sites. The manifest itself is read with no
+  network.
+- A call may use 64 MiB of memory, about 5 billion instructions (half a
+  second of a tight loop) and 100 requests. Response bodies are capped at
+  16 MiB and images at 32 MiB, and each request times out after 30 seconds.
+  Going over a limit fails that call, not the server.
+- Not yet decided or built: the repository index and installing, the admin
+  allow list, source libraries in the catalog, and the API. A site name can
+  still resolve to a private address; the allow list of repositories is the
+  guard until the host checks resolved addresses.
 
 ## Observability
 
