@@ -3012,7 +3012,7 @@ components:
             "3", "1.5" or "Vol. 3".
         format:
           type: string
-          enum: [epub, pdf, cbz, cbt, cbr, cb7, remote]
+          enum: [epub, pdf, cbz, cbt, cbr, cb7, mobi, azw3, fb2, txt, markdown, remote]
           description: |
             Comic archives get their format from their bytes, so a ZIP named
             `.cbr` is `cbz`. `remote` is a chapter from an extension: it has

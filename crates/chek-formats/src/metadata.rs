@@ -384,7 +384,7 @@ fn cut(value: String, max_chars: usize) -> Option<String> {
 
 /// Keeps the `YYYY`, `YYYY-MM` or `YYYY-MM-DD` start of a date, so dates with
 /// times or time zones still sort and display the same.
-fn date(value: &str) -> Option<String> {
+pub(crate) fn date(value: &str) -> Option<String> {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     let mut parts = value.get(..value.len().min(10))?.split('-');
     let year = parts.next().filter(|y| y.len() == 4 && digits(y))?;

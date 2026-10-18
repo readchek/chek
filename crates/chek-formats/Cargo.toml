@@ -7,7 +7,9 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
 compress-tools.workspace = true
+encoding_rs.workspace = true
 flate2.workspace = true
 libvips.workspace = true
 quick-xml.workspace = true

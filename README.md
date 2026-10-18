@@ -33,7 +33,8 @@ finalized.
 ## Repositories
 
 This repository is the Chek server. It is in early development: it can scan a
-folder, read EPUB, ComicInfo and PDF metadata, serve the files, comic pages and
+folder, read EPUB, ComicInfo, PDF, MOBI, AZW3, FB2, plain text and Markdown
+metadata, serve the files, comic pages and
 covers, and sync each reader's position between devices. See [server design](docs/server.md) for
 what is settled and what comes next.
 
