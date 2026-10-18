@@ -9,9 +9,11 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+mod annotations;
 mod progress;
 mod users;
 
+pub use annotations::{Annotation, AnnotationChanges, AnnotationKind, NewAnnotation};
 pub use progress::{Progress, ProgressSave};
 pub use users::{
     NewUser, Role, Session, SessionUser, User, UserChanges, UserUpdate, UserWithPassword,
@@ -30,6 +32,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0008_metadata_series.sql"),
     include_str!("../migrations/0009_pdf_metadata.sql"),
     include_str!("../migrations/0010_search.sql"),
+    include_str!("../migrations/0011_annotations.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

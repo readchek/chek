@@ -165,6 +165,18 @@ are in the planning doc; this page keeps the decisions next to the code.
   ids grow as scans find new files; a file changed in place keeps its place.
   Both leave out unavailable publications and libraries the user can't read.
 
+## Bookmarks and highlights
+
+- Each user keeps their own bookmarks and highlights per publication, each a
+  Readium Locator with an optional color and note. A highlight's locator
+  carries the highlighted text in `text.highlight`.
+- Changes are last save wins, since two devices editing the same note at
+  once is rare and neither position nor text is at stake. Clients fetch the
+  whole list for a publication, so deletions on one device show on the next
+  fetch elsewhere.
+- A publication holds up to 5,000 annotations per user and a note up to
+  10,000 characters, so one response always carries the whole list.
+
 ## Observability
 
 - Every request is logged with its method, route, path, status, duration,

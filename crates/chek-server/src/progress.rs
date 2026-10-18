@@ -16,7 +16,7 @@ use crate::api::{ApiError, AppState, blocking, check_publication};
 use crate::auth::CurrentUser;
 
 /// Locators carry a short quote around the position, not whole chapters.
-const MAX_LOCATOR_BYTES: usize = 16 * 1024;
+pub(crate) const MAX_LOCATOR_BYTES: usize = 16 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,7 +109,7 @@ pub async fn save_progress(
 
 /// Checks the fields of a Readium Locator that readers rely on. Other fields
 /// are kept as sent.
-fn check_locator(locator: &Value) -> Result<(), String> {
+pub(crate) fn check_locator(locator: &Value) -> Result<(), String> {
     let locator = locator
         .as_object()
         .ok_or("the locator must be a Readium Locator object")?;

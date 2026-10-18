@@ -1,5 +1,6 @@
 //! The Chek library server.
 
+mod annotations;
 mod api;
 mod auth;
 mod config;
