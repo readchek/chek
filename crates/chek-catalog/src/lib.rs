@@ -9,9 +9,11 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+mod progress;
 mod users;
 
-pub use users::{NewUser, Role, User, UserChanges, UserUpdate, UserWithPassword};
+pub use progress::{Progress, ProgressSave};
+pub use users::{NewUser, Role, SessionUser, User, UserChanges, UserUpdate, UserWithPassword};
 
 /// Migrations in order. A database records how many it has applied in
 /// `PRAGMA user_version`, so each one runs exactly once.
@@ -19,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_catalog.sql"),
     include_str!("../migrations/0002_covers.sql"),
     include_str!("../migrations/0003_users.sql"),
+    include_str!("../migrations/0004_progress.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

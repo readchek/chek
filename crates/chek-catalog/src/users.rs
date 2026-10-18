@@ -45,6 +45,13 @@ impl User {
     }
 }
 
+/// A signed-in user and the device name their session was started with.
+#[derive(Debug, Clone)]
+pub struct SessionUser {
+    pub user: User,
+    pub device: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct UserWithPassword {
     pub user: User,
@@ -246,17 +253,18 @@ impl Catalog {
         now: i64,
         refresh_after: i64,
         expires_at: i64,
-    ) -> Result<Option<User>> {
-        let session: Option<(i64, i64)> = {
+    ) -> Result<Option<SessionUser>> {
+        let session: Option<(i64, i64, Option<String>)> = {
             let conn = self.conn();
             let session = conn
                 .query_row(
-                    "SELECT user_id, last_used_at FROM session WHERE token_hash = ?1 AND expires_at > ?2",
+                    "SELECT user_id, last_used_at, device FROM session
+                     WHERE token_hash = ?1 AND expires_at > ?2",
                     params![token_hash, now],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            if let Some((_, last_used_at)) = session
+            if let Some((_, last_used_at, _)) = session
                 && now - last_used_at >= refresh_after
             {
                 conn.execute(
@@ -266,10 +274,10 @@ impl Catalog {
             }
             session
         };
-        match session {
-            Some((user_id, _)) => self.user(user_id),
-            None => Ok(None),
-        }
+        let Some((user_id, _, device)) = session else {
+            return Ok(None);
+        };
+        Ok(self.user(user_id)?.map(|user| SessionUser { user, device }))
     }
 
     pub fn delete_session(&self, token_hash: &str) -> Result<()> {

@@ -3,6 +3,7 @@
 mod api;
 mod auth;
 mod config;
+mod progress;
 
 use std::sync::Arc;
 

@@ -33,6 +33,8 @@ const MAX_NAME_CHARS: usize = 64;
 /// The signed-in user making a request.
 pub struct CurrentUser {
     pub user: User,
+    /// The device name given at sign-in.
+    pub device: Option<String>,
     token_hash: String,
 }
 
@@ -72,14 +74,18 @@ impl FromRequestParts<AppState> for CurrentUser {
         let token_hash = hash_token(token);
         let lookup = token_hash.clone();
         let now = now();
-        let user = blocking(state, move |c| {
+        let session = blocking(state, move |c| {
             c.session_user(&lookup, now, SESSION_REFRESH_SECONDS, now + SESSION_SECONDS)
         })
         .await?
         .ok_or_else(|| {
             unauthorized("the session token is invalid or has expired; sign in again")
         })?;
-        Ok(Self { user, token_hash })
+        Ok(Self {
+            user: session.user,
+            device: session.device,
+            token_hash,
+        })
     }
 }
 

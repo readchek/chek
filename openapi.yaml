@@ -26,6 +26,8 @@ tags:
     description: Series and publications found in libraries.
   - name: Reading
     description: Files, pages and covers.
+  - name: Progress
+    description: Reading positions synced between devices.
 paths:
   /health:
     get:
@@ -625,6 +627,74 @@ paths:
           $ref: "#/components/responses/ContentChanged"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/publications/{publicationId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/PublicationId"
+    get:
+      tags: [Progress]
+      operationId: getProgress
+      summary: Get your reading position
+      description: Revision 0 with a null locator means nothing has been saved yet.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The saved position.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Progress"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [Progress]
+      operationId: saveProgress
+      summary: Save your reading position
+      description: |
+        Saves only if the stored revision is still `expectedRevision`. If
+        another device saved since, the response is a conflict carrying that
+        position; the client asks the reader which one to keep and saves
+        again with the revision from the conflict. The server never resolves a
+        conflict by keeping the position furthest along.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, locator]
+              properties:
+                expectedRevision:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: The revision last read, or 0 when nothing was saved.
+                locator:
+                  $ref: "#/components/schemas/Locator"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The position was saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Progress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Another device saved first; `current` is its position.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressConflict"
+        "500":
+          $ref: "#/components/responses/Internal"
 components:
   securitySchemes:
     session:
@@ -769,6 +839,7 @@ components:
             - already_set_up
             - name_taken
             - last_admin
+            - progress_conflict
             - internal
         message:
           type: string
@@ -854,3 +925,79 @@ components:
           type: integer
           format: int64
           description: The image's size in bytes.
+    Progress:
+      type: object
+      required: [revision, locator, device, updatedAt]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Counts saves; 0 when nothing has been saved.
+        locator:
+          oneOf:
+            - $ref: "#/components/schemas/Locator"
+            - type: "null"
+        device:
+          type: [string, "null"]
+          description: The device name of the session that saved it.
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+    ProgressConflict:
+      type: object
+      required: [code, message, current]
+      properties:
+        code:
+          type: string
+          const: progress_conflict
+        message:
+          type: string
+        current:
+          $ref: "#/components/schemas/Progress"
+    Locator:
+      type: object
+      description: |
+        A [Readium Locator](https://readium.org/architecture/models/locators/).
+        The server checks the fields below and stores the rest as sent, up to
+        16 KiB in all.
+      required: [href, type]
+      properties:
+        href:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          description: The resource's media type.
+          example: application/xhtml+xml
+        title:
+          type: string
+        locations:
+          type: object
+          properties:
+            fragments:
+              type: array
+              items:
+                type: string
+            progression:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: Position within the resource.
+            totalProgression:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: Position within the publication.
+            position:
+              type: integer
+              minimum: 1
+        text:
+          type: object
+          properties:
+            before:
+              type: string
+            highlight:
+              type: string
+            after:
+              type: string
