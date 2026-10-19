@@ -11,6 +11,7 @@ use reqwest::{Method, Url};
 
 use crate::bindings::chek::source::http::Method as RequestMethod;
 use crate::bindings::chek::source::http::{HttpError, Request, Response};
+use crate::cookies::Jar;
 use crate::sites::Sites;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -32,11 +33,13 @@ pub(crate) enum FetchError {
 }
 
 impl Net {
-    pub(crate) fn new(sites: Sites) -> Result<Self, String> {
+    /// Sends and fills `jar` on every request.
+    pub(crate) fn new(sites: Sites, jar: Arc<Jar>) -> Result<Self, String> {
         let sites = Arc::new(sites);
         let redirect_sites = Arc::clone(&sites);
         let client = Client::builder()
             .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
+            .cookie_provider(jar)
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::custom(move |attempt| {
@@ -57,6 +60,18 @@ impl Net {
         Ok(Net { client, sites })
     }
 
+    /// Parses `url` and checks that it's HTTPS on a declared site.
+    pub(crate) fn allowed_url(&self, url: &str) -> Result<Url, String> {
+        let url = Url::parse(url).map_err(|error| format!("`{url}`: {error}"))?;
+        if url.scheme() != "https" {
+            return Err(format!("`{url}` isn't HTTPS"));
+        }
+        if !url.host_str().is_some_and(|host| self.sites.allows(host)) {
+            return Err(format!("`{url}` isn't on a site the extension declares"));
+        }
+        Ok(url)
+    }
+
     /// Sends a request and reads at most `max_body` bytes of the response.
     pub(crate) fn send(
         &self,
@@ -66,16 +81,7 @@ impl Net {
         body: Option<Vec<u8>>,
         max_body: u64,
     ) -> Result<(u16, HeaderMap, Vec<u8>), FetchError> {
-        let url =
-            Url::parse(url).map_err(|error| FetchError::NotAllowed(format!("`{url}`: {error}")))?;
-        if url.scheme() != "https" {
-            return Err(FetchError::NotAllowed(format!("`{url}` isn't HTTPS")));
-        }
-        if !url.host_str().is_some_and(|host| self.sites.allows(host)) {
-            return Err(FetchError::NotAllowed(format!(
-                "`{url}` isn't on a site the extension declares"
-            )));
-        }
+        let url = self.allowed_url(url).map_err(FetchError::NotAllowed)?;
         let mut header_map = HeaderMap::new();
         for (name, value) in headers {
             let name = HeaderName::try_from(name.as_str())
@@ -135,6 +141,7 @@ impl Net {
             status,
             headers,
             body,
+            cached: false,
         })
     }
 }

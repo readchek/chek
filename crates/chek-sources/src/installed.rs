@@ -16,10 +16,11 @@ pub struct Extensions {
 }
 
 impl Extensions {
-    /// Keeps component files in `dir`, which is made on the first install.
+    /// Keeps component files in `dir`, along with `state.db`, which holds
+    /// extensions' caches and cookies.
     pub fn new(dir: PathBuf) -> Result<Self, Error> {
         Ok(Self {
-            host: Host::new()?,
+            host: Host::new(&dir.join("state.db"))?,
             dir,
             loaded: Mutex::default(),
         })

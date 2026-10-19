@@ -319,9 +319,26 @@ are in the planning doc; this page keeps the decisions next to the code.
   manifest and four calls: search, series, chapters and pages. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
   come back as URLs with headers, which the server fetches itself.
-- Each call runs in a fresh instance, so extensions keep no state between
-  calls. WASI is linked with nothing in it: no files, environment, sockets or
-  name lookups. The only way out is the host's `http` import.
+- Each call runs in a fresh instance, so nothing in memory carries over
+  between calls. WASI is linked with nothing in it: no files, environment,
+  sockets or name lookups. The only ways out are the host's imports: `http`,
+  `cache` and `cookies`.
+- `cache` keeps values an extension sets, and a GET can ask for its 2xx
+  response to be kept for a number of seconds and reused for the same URL
+  and headers. Cached responses don't count toward a call's requests. Values
+  and responses are capped at 4 MiB each and 30 days, and an extension's
+  entries at 128 MiB together, past which the oldest are dropped.
+- Every extension has a cookie jar that requests and image fetches send and
+  fill, as a browser would, so a login or a challenge clearance carries over
+  between calls. `cookies` reads and sets it directly, held to the
+  extension's sites. A jar keeps up to 1,000 cookies, session cookies
+  included.
+- Caches and cookie jars are kept per extension id and sites in
+  `extensions/state.db` in the data folder, so they survive restarts and
+  updates, and everyone who installs the same extension shares them. A
+  component that reuses another's id with different sites starts empty, and
+  an update that changes the sites does too. None is available while the
+  manifest is read.
 - The manifest names the hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
