@@ -37,6 +37,12 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
+Source extensions live in [`extensions/`](../extensions/README.md), a
+workspace of its own that builds to WebAssembly: the `chek-extension` SDK,
+one crate per source, and `build.sh`, which writes a repository folder.
+`cargo run -p chek-sources --example extension-index -- <folder>` writes
+the `index.json` for any folder of components.
+
 ## Serving
 
 - Comic pages are read from the offset stored in the page index, so a request

@@ -1,0 +1,10 @@
+[package]
+name = "chek-extension"
+description = "Writes Chek source extensions: the contract's bindings and helpers for requests."
+version = "0.2.0"
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+wit-bindgen.workspace = true
