@@ -166,6 +166,13 @@ impl Manga {
 }
 
 impl Guest for MangaDex {
+    fn transform_image(
+        _: Image,
+        _: chek_extension::http::Response,
+    ) -> Result<Option<ImageData>, Error> {
+        Ok(None)
+    }
+
     fn manifest() -> Manifest {
         Manifest {
             id: "page.chek.mangadex".into(),

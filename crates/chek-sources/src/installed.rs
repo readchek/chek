@@ -45,6 +45,8 @@ impl Extensions {
             .iter()
             .map(|c| match c {
                 Capability::Browser => "browser",
+                Capability::BrowserSession => "browser-session",
+                Capability::ImageTransform => "image-transform",
             })
             .collect();
         let mut listed_capabilities: Vec<&str> =

@@ -21,9 +21,11 @@ const MAX_REDIRECTS: usize = 10;
 /// The network one extension may use.
 pub(crate) struct Net {
     client: Client,
+    browser_client: Client,
     sites: Arc<Sites>,
     /// Set when the extension may use the browser solver.
     browser: Option<Arc<Browser>>,
+    allow_solver: bool,
 }
 
 /// A failed request, before it's mapped to what the extension or the
@@ -42,12 +44,13 @@ impl Net {
         sites: Sites,
         jar: Arc<Jar>,
         browser: Option<Arc<Browser>>,
+        allow_solver: bool,
     ) -> Result<Self, String> {
         let sites = Arc::new(sites);
         let redirect_sites = Arc::clone(&sites);
         let client = Client::builder()
             .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
-            .cookie_provider(jar)
+            .cookie_provider(Arc::clone(&jar))
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::custom(move |attempt| {
@@ -65,15 +68,81 @@ impl Net {
             }))
             .build()
             .map_err(|error| error.to_string())?;
+        let browser_client = Client::builder()
+            .timeout(TIMEOUT)
+            .https_only(true)
+            .redirect(Policy::none())
+            .build()
+            .map_err(|error| error.to_string())?;
         Ok(Net {
             client,
+            browser_client,
             sites,
             browser,
+            allow_solver,
         })
+    }
+
+    pub(crate) fn sites(&self) -> &Sites {
+        &self.sites
+    }
+
+    /// One browser request. Redirects return to Chromium and pass this
+    /// check again; never invoke the challenge solver recursively here.
+    pub(crate) fn send_browser(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+        timeout: Duration,
+    ) -> Result<(u16, HeaderMap, Vec<u8>), String> {
+        let url = self.allowed_url(url)?;
+        let method = match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            "HEAD" => Method::HEAD,
+            "OPTIONS" => Method::OPTIONS,
+            _ => return Err("browser request method isn't allowed".to_owned()),
+        };
+        let mut request = self
+            .browser_client
+            .request(method, url)
+            .timeout(timeout.min(TIMEOUT));
+        for (name, value) in headers {
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "host"
+                    | "connection"
+                    | "content-length"
+                    | "proxy-authorization"
+                    | "proxy-connection"
+                    | "transfer-encoding"
+            ) {
+                continue;
+            }
+            request = request.header(name, value);
+        }
+        let response = request.body(body).send().map_err(|e| describe(&e))?;
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let mut bytes = Vec::new();
+        response
+            .take(crate::MAX_RESPONSE + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > crate::MAX_RESPONSE {
+            return Err("browser response is too large".to_owned());
+        }
+        Ok((status, headers, bytes))
     }
 
     pub(crate) fn browser(&self) -> Option<&Browser> {
         self.browser.as_deref()
+    }
+
+    pub(crate) fn solver(&self) -> Option<&Browser> {
+        self.browser().filter(|_| self.allow_solver)
     }
 
     /// Parses `url` and checks that it's HTTPS on a declared site.
@@ -106,7 +175,7 @@ impl Net {
                 .map_err(|_| FetchError::Failed(format!("invalid value for header `{name}`")))?;
             header_map.append(name, value);
         }
-        let Some(browser) = &self.browser else {
+        let Some(browser) = self.solver() else {
             return self.send_once(method, url, header_map, body, max_body);
         };
         let seen = browser.solves();

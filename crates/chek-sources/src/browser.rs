@@ -175,7 +175,7 @@ impl Solver for FlareSolverr {
 
 /// One extension's use of the solver.
 pub(crate) struct Browser {
-    solver: Arc<dyn Solver>,
+    solver: Option<Arc<dyn Solver>>,
     jar: Arc<Jar>,
     store: Arc<Store>,
     scope: String,
@@ -192,7 +192,7 @@ pub(crate) struct Browser {
 
 impl Browser {
     pub(crate) fn new(
-        solver: Arc<dyn Solver>,
+        solver: Option<Arc<dyn Solver>>,
         jar: Arc<Jar>,
         store: Arc<Store>,
         scope: String,
@@ -232,25 +232,33 @@ impl Browser {
 
     /// Loads `url` in the browser, keeping what it earned.
     pub(crate) fn load(&self, url: &Url) -> Result<Solution, String> {
-        let solution = self.solver.solve(url)?;
+        let solution = self
+            .solver
+            .as_ref()
+            .ok_or("no browser solver is configured")?
+            .solve(url)?;
         // Cookies for other sites are refused by the jar, which only takes
         // cookies `url` may set.
         let _ = self
             .jar
             .set(url, solution.set_cookies.iter().map(String::as_str));
         if let Some(agent) = solution.user_agent.as_deref().filter(|a| !a.is_empty()) {
-            let _ = self.store.set(
-                &self.scope,
-                Namespace::Browser,
-                USER_AGENT_KEY,
-                None,
-                agent.as_bytes(),
-                MAX_TTL,
-            );
-            *lock(&self.user_agent) = Some(agent.to_owned());
+            self.remember_agent(agent);
         }
         self.solves.fetch_add(1, Ordering::SeqCst);
         Ok(solution)
+    }
+
+    pub(crate) fn remember_agent(&self, agent: &str) {
+        let _ = self.store.set(
+            &self.scope,
+            Namespace::Browser,
+            USER_AGENT_KEY,
+            None,
+            agent.as_bytes(),
+            MAX_TTL,
+        );
+        *lock(&self.user_agent) = Some(agent.to_owned());
     }
 }
 

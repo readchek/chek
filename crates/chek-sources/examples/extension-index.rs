@@ -24,6 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &Options {
             image_cache_bytes: 0,
             browser_solver: None,
+            browser_executable: None,
+            worker_executable: None,
         },
     )?;
     let mut files: Vec<_> = std::fs::read_dir(&dir)?
@@ -56,6 +58,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .map(|c| match c {
                     Capability::Browser => "browser".to_owned(),
+                    Capability::BrowserSession => "browser-session".to_owned(),
+                    Capability::ImageTransform => "image-transform".to_owned(),
                 })
                 .collect(),
         });

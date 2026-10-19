@@ -36,10 +36,10 @@ pub mod bindings {
 }
 
 pub use bindings::chek::source::types::{
-    Capability, Chapter, Contributor, Error, Image, Manifest, ReadingDirection, Series, SeriesItem,
-    SeriesPage,
+    Capability, Chapter, Contributor, Error, Image, ImageData, Manifest, ReadingDirection, Series,
+    SeriesItem, SeriesPage,
 };
-pub use bindings::chek::source::{browser, cache, cookies, http};
+pub use bindings::chek::source::{browser, browser_session, cache, cookies, http, images};
 pub use bindings::{Guest, export_source};
 pub use serde_json::{self, Value};
 
@@ -48,8 +48,8 @@ use bindings::chek::source::http::{HttpError, Method, Request, Response};
 /// What most extensions import.
 pub mod prelude {
     pub use crate::{
-        Capability, Chapter, Contributor, Error, Get, Guest, Image, Manifest, ReadingDirection,
-        Series, SeriesItem, SeriesPage, Value, encode, export_source, image,
+        Capability, Chapter, Contributor, Error, Get, Guest, Image, ImageData, Manifest,
+        ReadingDirection, Series, SeriesItem, SeriesPage, Value, encode, export_source, image,
     };
 }
 
@@ -132,6 +132,7 @@ pub fn image(url: impl Into<String>) -> Image {
     Image {
         url: url.into(),
         headers: Vec::new(),
+        transform: None,
     }
 }
 
