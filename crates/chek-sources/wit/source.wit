@@ -6,9 +6,13 @@
 // `http` interface, and the server lets it reach only the sites the
 // extension's manifest declares.
 //
-// Every call starts from a fresh instance, so an extension can't keep state
-// between calls.
-package chek:source@0.1.0;
+// Every call starts from a fresh instance, so memory doesn't carry over
+// between calls. What should carry over goes through the server instead:
+// `cache` keeps values, a request can ask for its response to be cached, and
+// `cookies` holds a jar the server sends and fills on every request, as a
+// browser would. All three are kept per extension id and sites, across
+// versions and restarts, and none is available while the manifest is read.
+package chek:source@0.2.0;
 
 interface types {
     type header = tuple<string, string>;
@@ -39,6 +43,18 @@ interface types {
         sites: list<string>,
         // BCP 47 tags of the languages the source serves, empty if any.
         languages: list<string>,
+        // What the extension needs beyond plain requests. The repository's
+        // index must list the same.
+        capabilities: list<capability>,
+    }
+
+    enum capability {
+        // A real browser, through the solver service the server's admin
+        // runs. Requests that meet a Cloudflare challenge are passed to it
+        // and retried with the cookies and user agent it earned, and the
+        // `browser` interface loads pages in it directly. Without a
+        // solver, challenges come back as the site sent them.
+        browser,
     }
 
     record series-item {
@@ -106,12 +122,19 @@ interface http {
         url: string,
         headers: list<header>,
         body: option<list<u8>>,
+        // Seconds the server may answer a GET from its cache. A 2xx
+        // response is kept for this long and reused for the same URL and
+        // headers, without counting toward the call's requests. Responses
+        // over 4 MiB aren't kept, and 30 days is the most.
+        cache: option<u32>,
     }
 
     record response {
         status: u16,
         headers: list<header>,
         body: list<u8>,
+        // Whether the response came from the server's cache.
+        cached: bool,
     }
 
     variant http-error {
@@ -130,8 +153,51 @@ interface http {
     fetch: func(request: request) -> result<response, http-error>;
 }
 
+// Values an extension keeps between calls, such as a token or a parsed
+// listing. Keys are the extension's own; values expire after their TTL.
+// Each value may be up to 4 MiB, and an extension's values and cached
+// responses together up to 128 MiB, past which the oldest are dropped.
+interface cache {
+    // The value stored under `key`, unless it expired or was dropped.
+    get: func(key: string) -> option<list<u8>>;
+    // Stores `value` for `ttl` seconds, at most 30 days.
+    set: func(key: string, value: list<u8>, ttl: u32) -> result<_, string>;
+    delete: func(key: string);
+}
+
+// The extension's cookie jar. `http.fetch` already sends it and stores what
+// sites set, so most extensions never call this. It's for cookies that
+// arrive another way, such as a session an admin pasted in.
+interface cookies {
+    use types.{header};
+
+    // The cookies a request to `url` would carry, as name and value.
+    get: func(url: string) -> list<header>;
+    // Stores cookies as if `url` had answered with these `Set-Cookie`
+    // values. `url` must be on one of the manifest's sites.
+    set: func(url: string, set-cookies: list<string>) -> result<_, string>;
+    // Removes every cookie, such as to sign out.
+    clear: func();
+}
+
+// Loads pages in a real browser, for extensions with the `browser`
+// capability. Slow, so most extensions only need `http.fetch`, which already
+// gets past challenges on its own; this is for pages that only work with
+// scripts running.
+interface browser {
+    use http.{response, http-error};
+
+    // Loads `url` in the browser and returns the page as rendered, with its
+    // cookies kept in the jar. The URL must be on one of the manifest's
+    // sites. Counts as a request.
+    load: func(url: string) -> result<response, http-error>;
+}
+
 world source {
     import http;
+    import cache;
+    import cookies;
+    import browser;
     use types.{manifest, series-page, series, chapter, image, error};
 
     // Called without network access, before anything else.

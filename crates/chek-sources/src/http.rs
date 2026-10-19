@@ -5,12 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::blocking::Client;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::{Method, Url};
 
 use crate::bindings::chek::source::http::Method as RequestMethod;
 use crate::bindings::chek::source::http::{HttpError, Request, Response};
+use crate::browser::{Browser, is_challenge};
+use crate::cookies::Jar;
 use crate::sites::Sites;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -20,6 +22,8 @@ const MAX_REDIRECTS: usize = 10;
 pub(crate) struct Net {
     client: Client,
     sites: Arc<Sites>,
+    /// Set when the extension may use the browser solver.
+    browser: Option<Arc<Browser>>,
 }
 
 /// A failed request, before it's mapped to what the extension or the
@@ -32,11 +36,18 @@ pub(crate) enum FetchError {
 }
 
 impl Net {
-    pub(crate) fn new(sites: Sites) -> Result<Self, String> {
+    /// Sends and fills `jar` on every request, and passes challenges through
+    /// `browser` when there is one.
+    pub(crate) fn new(
+        sites: Sites,
+        jar: Arc<Jar>,
+        browser: Option<Arc<Browser>>,
+    ) -> Result<Self, String> {
         let sites = Arc::new(sites);
         let redirect_sites = Arc::clone(&sites);
         let client = Client::builder()
             .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
+            .cookie_provider(jar)
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::custom(move |attempt| {
@@ -54,7 +65,27 @@ impl Net {
             }))
             .build()
             .map_err(|error| error.to_string())?;
-        Ok(Net { client, sites })
+        Ok(Net {
+            client,
+            sites,
+            browser,
+        })
+    }
+
+    pub(crate) fn browser(&self) -> Option<&Browser> {
+        self.browser.as_deref()
+    }
+
+    /// Parses `url` and checks that it's HTTPS on a declared site.
+    pub(crate) fn allowed_url(&self, url: &str) -> Result<Url, String> {
+        let url = Url::parse(url).map_err(|error| format!("`{url}`: {error}"))?;
+        if url.scheme() != "https" {
+            return Err(format!("`{url}` isn't HTTPS"));
+        }
+        if !url.host_str().is_some_and(|host| self.sites.allows(host)) {
+            return Err(format!("`{url}` isn't on a site the extension declares"));
+        }
+        Ok(url)
     }
 
     /// Sends a request and reads at most `max_body` bytes of the response.
@@ -66,16 +97,7 @@ impl Net {
         body: Option<Vec<u8>>,
         max_body: u64,
     ) -> Result<(u16, HeaderMap, Vec<u8>), FetchError> {
-        let url =
-            Url::parse(url).map_err(|error| FetchError::NotAllowed(format!("`{url}`: {error}")))?;
-        if url.scheme() != "https" {
-            return Err(FetchError::NotAllowed(format!("`{url}` isn't HTTPS")));
-        }
-        if !url.host_str().is_some_and(|host| self.sites.allows(host)) {
-            return Err(FetchError::NotAllowed(format!(
-                "`{url}` isn't on a site the extension declares"
-            )));
-        }
+        let url = self.allowed_url(url).map_err(FetchError::NotAllowed)?;
         let mut header_map = HeaderMap::new();
         for (name, value) in headers {
             let name = HeaderName::try_from(name.as_str())
@@ -84,7 +106,41 @@ impl Net {
                 .map_err(|_| FetchError::Failed(format!("invalid value for header `{name}`")))?;
             header_map.append(name, value);
         }
-        let mut request = self.client.request(method, url).headers(header_map);
+        let Some(browser) = &self.browser else {
+            return self.send_once(method, url, header_map, body, max_body);
+        };
+        let seen = browser.solves();
+        let first = self.send_once(
+            method.clone(),
+            url.clone(),
+            header_map.clone(),
+            body.clone(),
+            max_body,
+        )?;
+        if !is_challenge(first.0, &first.1, &first.2) {
+            return Ok(first);
+        }
+        // A failed solve answers with the challenge page, as the site did.
+        if browser.clear(&url, seen).is_err() {
+            return Ok(first);
+        }
+        self.send_once(method, url, header_map, body, max_body)
+    }
+
+    fn send_once(
+        &self,
+        method: Method,
+        url: Url,
+        mut headers: HeaderMap,
+        body: Option<Vec<u8>>,
+        max_body: u64,
+    ) -> Result<(u16, HeaderMap, Vec<u8>), FetchError> {
+        if let Some(agent) = self.browser.as_ref().and_then(|b| b.user_agent())
+            && let Ok(agent) = HeaderValue::try_from(agent)
+        {
+            headers.insert(USER_AGENT, agent);
+        }
+        let mut request = self.client.request(method, url).headers(headers);
         if let Some(body) = body {
             request = request.body(body);
         }
@@ -135,6 +191,7 @@ impl Net {
             status,
             headers,
             body,
+            cached: false,
         })
     }
 }

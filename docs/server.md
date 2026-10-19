@@ -37,6 +37,12 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
+Source extensions live in [`extensions/`](../extensions/README.md), a
+workspace of its own that builds to WebAssembly: the `chek-extension` SDK,
+one crate per source, and `build.sh`, which writes a repository folder.
+`cargo run -p chek-sources --example extension-index -- <folder>` writes
+the `index.json` for any folder of components.
+
 ## Serving
 
 - Comic pages are read from the offset stored in the page index, so a request
@@ -319,9 +325,41 @@ are in the planning doc; this page keeps the decisions next to the code.
   manifest and four calls: search, series, chapters and pages. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
   come back as URLs with headers, which the server fetches itself.
-- Each call runs in a fresh instance, so extensions keep no state between
-  calls. WASI is linked with nothing in it: no files, environment, sockets or
-  name lookups. The only way out is the host's `http` import.
+- Each call runs in a fresh instance, so nothing in memory carries over
+  between calls. WASI is linked with nothing in it: no files, environment,
+  sockets or name lookups. The only ways out are the host's imports: `http`,
+  `cache` and `cookies`.
+- `cache` keeps values an extension sets, and a GET can ask for its 2xx
+  response to be kept for a number of seconds and reused for the same URL
+  and headers. Cached responses don't count toward a call's requests. Values
+  and responses are capped at 4 MiB each and 30 days, and an extension's
+  entries at 128 MiB together, past which the oldest are dropped.
+- Every extension has a cookie jar that requests and image fetches send and
+  fill, as a browser would, so a login or a challenge clearance carries over
+  between calls. `cookies` reads and sets it directly, held to the
+  extension's sites. A jar keeps up to 1,000 cookies, session cookies
+  included.
+- Caches and cookie jars are kept per extension id and sites in
+  `extensions/state.db` in the data folder, so they survive restarts and
+  updates, and everyone who installs the same extension shares them. A
+  component that reuses another's id with different sites starts empty, and
+  an update that changes the sites does too. None is available while the
+  manifest is read.
+- Sites behind a Cloudflare challenge need a real browser. The host doesn't
+  run one: an admin points `CHEK_BROWSER_SOLVER_URL` at a
+  FlareSolverr-compatible service, such as `http://flaresolverr:8191/v1`,
+  and extensions whose manifest lists the `browser` capability may use it.
+  When one of their requests or image fetches meets a challenge (a 403, 429
+  or 503 with `cf-mitigated: challenge`, or Cloudflare's challenge page),
+  the host has the solver load the URL, keeps the cookies it earned for that
+  site and its user agent, and retries once. Later requests send both, so
+  they pass without the solver until the clearance expires. A burst of
+  challenged requests waits on one solve. Without a solver, or if solving
+  fails, the challenge comes back as the site sent it.
+- The `browser` interface loads a page in the solver directly and returns
+  the rendered HTML, for pages that only work with scripts running. It
+  counts as a request. The solver's browser follows the page wherever it
+  leads, so the solver is the admin's to trust, like the server itself.
 - The manifest names the hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
@@ -338,7 +376,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 - A repository is an `index.json` served over HTTPS that lists its
   extensions: id, name, version, the component file relative to the index,
-  its SHA-256 digest, sites and languages. Indexes are capped at 1 MiB and
+  its SHA-256 digest, sites, languages and capabilities. Indexes are capped at 1 MiB and
   1,000 extensions.
 - Repositories without an owner are the admin's allow list, which everyone
   sees. It starts with the official repository,
@@ -365,8 +403,8 @@ are in the planning doc; this page keeps the decisions next to the code.
 - Each user installs extensions for themselves from the repositories they
   can use. Installing downloads the component the index lists, at most
   32 MiB, checks its SHA-256 digest, and checks that its manifest has the
-  index's id, version and sites, so a repository can't show one set of sites
-  and ship another.
+  index's id, version, sites and capabilities, so a repository can't show
+  one set and ship another.
 - Components are stored in the data folder as `extensions/<sha256>.wasm`,
   shared by everyone on the same version, and deleted when no install uses
   them. Compiled sources stay in memory once loaded.
@@ -383,6 +421,13 @@ are in the planning doc; this page keeps the decisions next to the code.
   which carry the image request the extension made. The server fetches the
   image, held to the extension's sites, and sends its bytes unchanged with
   `nosniff`, so the app never contacts a source's sites itself.
+- Covers and pages fetched through extensions, for browsing and for
+  extension libraries alike, are kept on disk in `extensions/images` and
+  served from there the next time anyone asks for the same image from the
+  same extension. `CHEK_EXTENSION_IMAGE_CACHE_MB` caps the folder, 2048 by
+  default; past it, the least recently read images are deleted, and an
+  image larger than a tenth of the cap isn't kept. 0 turns the cache off and
+  empties the folder at startup.
 - Browsing stores nothing; following a series into an extension library
   does.
 

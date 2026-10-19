@@ -2834,7 +2834,7 @@ components:
               type: string
     AvailableExtension:
       type: object
-      required: [repositoryId, id, name, version, sites, languages, installedVersion]
+      required: [repositoryId, id, name, version, sites, languages, capabilities, installedVersion]
       properties:
         installedVersion:
           type: [string, "null"]
@@ -2857,6 +2857,14 @@ components:
         languages:
           type: array
           description: BCP 47 tags of the languages the source serves; empty for any.
+          items:
+            type: string
+        capabilities:
+          type: array
+          description: >-
+            What the extension needs beyond plain requests. `browser` means it
+            uses the server's browser solver, set with `CHEK_BROWSER_SOLVER_URL`,
+            to get past challenges such as Cloudflare's.
           items:
             type: string
     RemoteImageUrl:

@@ -6,34 +6,46 @@
 //! It can only reach the sites its manifest declares, over HTTPS, through the
 //! host's `http` import. Each call is capped in memory, instructions and
 //! requests, so a broken or hostile extension fails its call rather than
-//! the server.
+//! the server. What an extension keeps between calls, its cache and cookies,
+//! lives in the host's state database, kept apart per extension.
 //!
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
+mod browser;
+mod cookies;
 mod http;
+mod images;
 mod installed;
 pub mod repository;
 mod sites;
+mod store;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
+use serde_json::json;
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 pub use crate::installed::Extensions;
 
+use crate::browser::{Browser, FlareSolverr, Solver};
+use crate::cookies::Jar;
 use crate::http::{FetchError, Net};
+use crate::images::ImageCache;
 use crate::sites::Sites;
+use crate::store::Namespace;
 
 mod bindings {
     wasmtime::component::bindgen!({ path: "wit", world: "source" });
 }
 
 pub use bindings::chek::source::types::{
-    Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection, Series,
-    SeriesItem, SeriesPage,
+    Capability, Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection,
+    Series, SeriesItem, SeriesPage,
 };
 
 /// Memory one instance may grow to.
@@ -47,6 +59,8 @@ const MAX_REQUESTS: u32 = 100;
 const MAX_RESPONSE: u64 = 16 << 20;
 /// The largest image the host fetches for an extension.
 const MAX_IMAGE: u64 = 32 << 20;
+/// The longest key an extension may store a value under.
+const MAX_KEY: usize = 1024;
 /// Manifest text fields are cut off after this many bytes.
 pub(crate) const MAX_FIELD: usize = 200;
 
@@ -83,10 +97,44 @@ fn describe(error: &SourceError) -> String {
 pub struct Host {
     engine: Engine,
     linker: Linker<State>,
+    store: Arc<store::Store>,
+    images: Arc<ImageCache>,
+    solver: Option<Arc<dyn Solver>>,
+    /// One jar and browser per extension, so every loaded version shares
+    /// them.
+    scopes: Mutex<HashMap<String, Scope>>,
+}
+
+#[derive(Clone)]
+struct Scope {
+    jar: Arc<Jar>,
+    browser: Option<Arc<Browser>>,
+}
+
+/// How the host is set up.
+pub struct Options {
+    /// The most bytes of fetched images to keep on disk; 0 keeps none.
+    pub image_cache_bytes: u64,
+    /// A FlareSolverr-compatible endpoint, such as
+    /// `http://flaresolverr:8191/v1`, for extensions that need a browser.
+    pub browser_solver: Option<String>,
 }
 
 impl Host {
-    pub fn new() -> Result<Self, Error> {
+    /// Keeps extensions' caches and cookies in `state.db` in `dir`, which
+    /// is made if it's missing, and fetched images in `images` there.
+    pub fn new(dir: &Path, options: &Options) -> Result<Self, Error> {
+        let store = Arc::new(store::Store::open(&dir.join("state.db")).map_err(Error::Storage)?);
+        let images = Arc::new(ImageCache::open(
+            dir.join("images"),
+            options.image_cache_bytes,
+        ));
+        let solver = match options.browser_solver.as_deref() {
+            Some(endpoint) => Some(
+                Arc::new(FlareSolverr::new(endpoint).map_err(Error::Storage)?) as Arc<dyn Solver>,
+            ),
+            None => None,
+        };
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config).map_err(trap)?;
@@ -94,7 +142,14 @@ impl Host {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(trap)?;
         bindings::Source::add_to_linker::<State, HasSelf<State>>(&mut linker, |state| state)
             .map_err(trap)?;
-        Ok(Host { engine, linker })
+        Ok(Host {
+            engine,
+            linker,
+            store,
+            images,
+            solver,
+            scopes: Mutex::default(),
+        })
     }
 
     /// Compiles an extension and reads its manifest. Compiling takes a
@@ -112,8 +167,43 @@ impl Host {
         let manifest = run(&pre, None, |bindings, store| bindings.call_manifest(store))?;
         let manifest = check_manifest(manifest)?;
         let sites = Sites::parse(&manifest.sites).map_err(Error::Manifest)?;
-        let net = Arc::new(Net::new(sites).map_err(Error::Manifest)?);
-        Ok(Source { pre, manifest, net })
+        // State belongs to the id and sites together, so a component from
+        // another repository that reuses an id can't read what the original
+        // kept unless it could reach the same sites anyway.
+        let mut declared = manifest.sites.clone();
+        declared.sort();
+        let scope = format!("{} {}", manifest.id, declared.join(" "));
+        let Scope { jar, browser } = self
+            .scopes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(scope.clone())
+            .or_insert_with(|| {
+                let jar = Arc::new(Jar::load(&scope, Arc::clone(&self.store)));
+                let browser = self.solver.as_ref().map(|solver| {
+                    Arc::new(Browser::new(
+                        Arc::clone(solver),
+                        Arc::clone(&jar),
+                        Arc::clone(&self.store),
+                        scope.clone(),
+                    ))
+                });
+                Scope { jar, browser }
+            })
+            .clone();
+        let browser = browser.filter(|_| manifest.capabilities.contains(&Capability::Browser));
+        let context = Arc::new(Context {
+            scope,
+            net: Net::new(sites, Arc::clone(&jar), browser).map_err(Error::Manifest)?,
+            store: Arc::clone(&self.store),
+            images: Arc::clone(&self.images),
+            jar,
+        });
+        Ok(Source {
+            pre,
+            manifest,
+            context,
+        })
     }
 }
 
@@ -121,7 +211,17 @@ impl Host {
 pub struct Source {
     pre: bindings::SourcePre<State>,
     manifest: Manifest,
-    net: Arc<Net>,
+    context: Arc<Context>,
+}
+
+/// What an extension's calls may use beyond their own instance.
+struct Context {
+    /// Names the extension's state: its id and sites.
+    scope: String,
+    net: Net,
+    store: Arc<store::Store>,
+    images: Arc<ImageCache>,
+    jar: Arc<Jar>,
 }
 
 /// An image's bytes as the site sent them.
@@ -161,7 +261,19 @@ impl Source {
 
     /// Fetches a cover or page the extension returned, held to the same sites.
     pub fn fetch_image(&self, image: &Image) -> Result<Fetched, Error> {
+        let key = repository::sha256_hex(
+            json!([self.context.scope, request_key(&image.url, &image.headers)])
+                .to_string()
+                .as_bytes(),
+        );
+        if let Some((content_type, bytes)) = self.context.images.get(&key) {
+            return Ok(Fetched {
+                content_type,
+                bytes,
+            });
+        }
         let (status, headers, bytes) = self
+            .context
             .net
             .send(Method::GET, &image.url, &image.headers, None, MAX_IMAGE)
             .map_err(|error| {
@@ -175,8 +287,12 @@ impl Source {
         if !(200..300).contains(&status) {
             return Err(Error::Image(format!("the site answered {status}")));
         }
+        let content_type = http::content_type(&headers);
+        self.context
+            .images
+            .put(&key, content_type.as_deref(), &bytes);
         Ok(Fetched {
-            content_type: http::content_type(&headers),
+            content_type,
             bytes,
         })
     }
@@ -185,14 +301,14 @@ impl Source {
         &self,
         export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> Result<R, Error> {
-        run(&self.pre, Some(Arc::clone(&self.net)), export)
+        run(&self.pre, Some(Arc::clone(&self.context)), export)
     }
 }
 
 /// Runs one export in a fresh instance.
 fn run<R>(
     pre: &bindings::SourcePre<State>,
-    net: Option<Arc<Net>>,
+    context: Option<Arc<Context>>,
     export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
 ) -> Result<R, Error> {
     let state = State {
@@ -203,7 +319,7 @@ fn run<R>(
             .build(),
         table: ResourceTable::new(),
         limits: StoreLimitsBuilder::new().memory_size(MAX_MEMORY).build(),
-        net,
+        context,
         requests: 0,
     };
     let mut store = Store::new(pre.engine(), state);
@@ -217,7 +333,8 @@ struct State {
     wasi: WasiCtx,
     table: ResourceTable,
     limits: StoreLimits,
-    net: Option<Arc<Net>>,
+    /// None while the manifest is read.
+    context: Option<Arc<Context>>,
     requests: u32,
 }
 
@@ -238,17 +355,156 @@ impl bindings::chek::source::http::Host for State {
         request: bindings::chek::source::http::Request,
     ) -> Result<bindings::chek::source::http::Response, bindings::chek::source::http::HttpError>
     {
-        use bindings::chek::source::http::HttpError;
-        let Some(net) = &self.net else {
+        use bindings::chek::source::http::{HttpError, Method, Response};
+        let Some(context) = &self.context else {
             return Err(HttpError::NotAllowed(
                 "the manifest is read without network".to_owned(),
             ));
         };
+        let cache = request
+            .cache
+            .filter(|ttl| *ttl > 0 && matches!(request.method, Method::Get))
+            .map(|ttl| (ttl, request_key(&request.url, &request.headers)));
+        if let Some((_, key)) = &cache
+            && let Some((Some(meta), body)) =
+                context.store.get(&context.scope, Namespace::Response, key)
+            && let Ok((status, headers)) =
+                serde_json::from_str::<(u16, Vec<(String, String)>)>(&meta)
+        {
+            return Ok(Response {
+                status,
+                headers,
+                body,
+                cached: true,
+            });
+        }
         if self.requests >= MAX_REQUESTS {
             return Err(HttpError::TooManyRequests);
         }
         self.requests += 1;
-        net.fetch(request, MAX_RESPONSE)
+        let response = context.net.fetch(request, MAX_RESPONSE)?;
+        if let Some((ttl, key)) = cache
+            && (200..300).contains(&response.status)
+            && response.body.len() <= store::MAX_ENTRY
+        {
+            let meta = json!([response.status, response.headers]).to_string();
+            // A response that can't be kept is still returned.
+            let _ = context.store.set(
+                &context.scope,
+                Namespace::Response,
+                &key,
+                Some(&meta),
+                &response.body,
+                ttl,
+            );
+        }
+        Ok(response)
+    }
+}
+
+/// Names a cached response by what was asked for, so requests that differ
+/// only in a header, such as a language, are kept apart.
+fn request_key(url: &str, headers: &[(String, String)]) -> String {
+    let mut headers: Vec<_> = headers
+        .iter()
+        .map(|(name, value)| (name.to_ascii_lowercase(), value.as_str()))
+        .collect();
+    headers.sort();
+    repository::sha256_hex(json!([url, headers]).to_string().as_bytes())
+}
+
+impl State {
+    fn context(&self) -> Result<&Context, String> {
+        self.context
+            .as_deref()
+            .ok_or_else(|| "not available while the manifest is read".to_owned())
+    }
+}
+
+impl bindings::chek::source::cache::Host for State {
+    fn get(&mut self, key: String) -> Option<Vec<u8>> {
+        let context = self.context().ok()?;
+        context
+            .store
+            .get(&context.scope, Namespace::Value, &key)
+            .map(|(_, value)| value)
+    }
+
+    fn set(&mut self, key: String, value: Vec<u8>, ttl: u32) -> Result<(), String> {
+        let context = self.context()?;
+        if key.len() > MAX_KEY {
+            return Err(format!("keys are limited to {MAX_KEY} bytes"));
+        }
+        context
+            .store
+            .set(&context.scope, Namespace::Value, &key, None, &value, ttl)
+    }
+
+    fn delete(&mut self, key: String) {
+        if let Ok(context) = self.context() {
+            context.store.delete(&context.scope, Namespace::Value, &key);
+        }
+    }
+}
+
+impl bindings::chek::source::browser::Host for State {
+    fn load(
+        &mut self,
+        url: String,
+    ) -> Result<bindings::chek::source::http::Response, bindings::chek::source::http::HttpError>
+    {
+        use bindings::chek::source::http::{HttpError, Response};
+        if self.requests >= MAX_REQUESTS {
+            return Err(HttpError::TooManyRequests);
+        }
+        self.requests += 1;
+        let context = self.context().map_err(HttpError::NotAllowed)?;
+        let Some(browser) = context.net.browser() else {
+            return Err(HttpError::NotAllowed(
+                "the browser needs the `browser` capability and a solver the admin set up"
+                    .to_owned(),
+            ));
+        };
+        let url = context
+            .net
+            .allowed_url(&url)
+            .map_err(HttpError::NotAllowed)?;
+        let solution = browser.load(&url).map_err(HttpError::Failed)?;
+        if solution.html.len() as u64 > MAX_RESPONSE {
+            return Err(HttpError::TooLarge);
+        }
+        Ok(Response {
+            status: solution.status,
+            headers: vec![("content-type".to_owned(), "text/html".to_owned())],
+            body: solution.html.into_bytes(),
+            cached: false,
+        })
+    }
+}
+
+impl bindings::chek::source::cookies::Host for State {
+    fn get(&mut self, url: String) -> Vec<(String, String)> {
+        let Ok(context) = self.context() else {
+            return Vec::new();
+        };
+        match context.net.allowed_url(&url) {
+            Ok(url) => context.jar.get(&url),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn set(&mut self, url: String, set_cookies: Vec<String>) -> Result<(), String> {
+        let context = self.context()?;
+        let url = context.net.allowed_url(&url)?;
+        context
+            .jar
+            .set(&url, set_cookies.iter().map(String::as_str))
+    }
+
+    fn clear(&mut self) {
+        if let Ok(context) = self.context() {
+            context.jar.clear();
+        }
     }
 }
 

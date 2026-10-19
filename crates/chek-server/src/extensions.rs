@@ -68,6 +68,7 @@ pub struct ExtensionDto {
     version: String,
     sites: Vec<String>,
     languages: Vec<String>,
+    capabilities: Vec<String>,
     /// The version the user installed from this repository, if any.
     installed_version: Option<String>,
 }
@@ -274,6 +275,7 @@ pub async fn list_extensions(
                 version: e.version,
                 sites: e.sites,
                 languages: e.languages,
+                capabilities: e.capabilities,
             })
         })
         .collect();

@@ -51,6 +51,9 @@ pub struct IndexEntry {
     pub sites: Vec<String>,
     #[serde(default)]
     pub languages: Vec<String>,
+    /// What the extension needs beyond plain requests, such as `browser`.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 /// How to sign in to a private repository.
