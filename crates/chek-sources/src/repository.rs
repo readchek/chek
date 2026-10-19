@@ -1,11 +1,17 @@
 //! Extension repositories: an `index.json` listing the extensions a
 //! repository offers, and the component files next to it.
+//!
+//! A repository is named by its index's URL, by the folder that holds
+//! `index.json`, or by a GitHub repository as `github:owner/repo`. Private
+//! repositories take credentials, which are sent only to the index's own
+//! origin.
 
 use std::io::Read;
 use std::time::Duration;
 
 use reqwest::Url;
 use reqwest::blocking::Client;
+use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 
@@ -47,6 +53,73 @@ pub struct IndexEntry {
     pub languages: Vec<String>,
 }
 
+/// How to sign in to a private repository.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Credentials {
+    /// `Authorization: Bearer`, such as a GitHub access token.
+    Bearer { token: String },
+    /// HTTP Basic.
+    Basic { username: String, password: String },
+    /// Any other header, such as an API key.
+    Header { name: String, value: String },
+}
+
+// Credentials are secrets, so they never reach a log.
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Credentials::Bearer { .. } => "Bearer",
+            Credentials::Basic { .. } => "Basic",
+            Credentials::Header { .. } => "Header",
+        };
+        write!(f, "Credentials::{kind}(..)")
+    }
+}
+
+impl Credentials {
+    /// Checks the credentials can be sent as a header.
+    pub fn check(&self) -> Result<(), RepositoryError> {
+        let invalid = |what: &str| Err(RepositoryError::Credentials(what.to_owned()));
+        match self {
+            Credentials::Bearer { token } if token.trim().is_empty() => {
+                invalid("the token is empty")
+            }
+            Credentials::Basic { username, .. } if username.is_empty() => {
+                invalid("the username is empty")
+            }
+            Credentials::Header { name, .. } if HeaderName::try_from(name.as_str()).is_err() => {
+                invalid("the header name isn't valid")
+            }
+            _ => match self.header() {
+                Some(_) => Ok(()),
+                None => invalid("the value can't be sent as a header"),
+            },
+        }
+    }
+
+    fn header(&self) -> Option<(HeaderName, HeaderValue)> {
+        use base64::Engine;
+        let (name, value) = match self {
+            Credentials::Bearer { token } => (AUTHORIZATION, format!("Bearer {}", token.trim())),
+            Credentials::Basic { username, password } => (
+                AUTHORIZATION,
+                format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD
+                        .encode(format!("{username}:{password}"))
+                ),
+            ),
+            Credentials::Header { name, value } => {
+                (HeaderName::try_from(name.as_str()).ok()?, value.clone())
+            }
+        };
+        let mut value = HeaderValue::try_from(value).ok()?;
+        value.set_sensitive(true);
+        Some((name, value))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
     #[error("`{0}` isn't an HTTPS URL")]
@@ -55,21 +128,71 @@ pub enum RepositoryError {
     Fetch(String),
     #[error("the index is invalid: {0}")]
     Invalid(String),
+    #[error("the credentials can't be used: {0}")]
+    Credentials(String),
 }
 
-/// Checks that a repository URL is something the server will fetch, and
-/// returns it in normal form.
-pub fn repository_url(url: &str) -> Result<String, RepositoryError> {
-    let parsed = Url::parse(url.trim()).map_err(|_| RepositoryError::NotHttps(url.to_owned()))?;
+/// Turns what a user typed into the URL of the repository's index, which is
+/// how the repository is stored. It accepts:
+///
+/// - the index itself, such as `https://example.org/chek/index.json`;
+/// - the folder holding it, such as `https://chek.page/extensions`, with or
+///   without `https://`;
+/// - a GitHub repository as `github:owner/repo`, optionally with a branch
+///   or tag as `@ref` and a folder as `/path`, read from the repository's
+///   raw files.
+pub fn repository_url(input: &str) -> Result<String, RepositoryError> {
+    let input = input.trim();
+    let not_https = || RepositoryError::NotHttps(input.to_owned());
+    let url = if let Some(github) = input.strip_prefix("github:") {
+        github_url(github).ok_or_else(not_https)?
+    } else if input.contains("://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    let mut parsed = Url::parse(&url).map_err(|_| not_https())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
-        return Err(RepositoryError::NotHttps(url.to_owned()));
+        return Err(not_https());
+    }
+    if !parsed.path().ends_with(".json") {
+        if !parsed.path().ends_with('/') {
+            let path = format!("{}/", parsed.path());
+            parsed.set_path(&path);
+        }
+        parsed = parsed.join("index.json").map_err(|_| not_https())?;
     }
     Ok(parsed.to_string())
 }
 
+/// `owner/repo[@ref][/path]` as the raw URL of the folder holding the
+/// index. Without a ref, GitHub serves the default branch as `HEAD`.
+fn github_url(spec: &str) -> Option<String> {
+    let mut parts = spec.trim_matches('/').splitn(3, '/');
+    let owner = parts.next().filter(|s| !s.is_empty())?;
+    let repo = parts.next().filter(|s| !s.is_empty())?;
+    let path = parts.next().unwrap_or("");
+    let (repo, reference) = match repo.split_once('@') {
+        Some((repo, reference)) if !reference.is_empty() => (repo, reference),
+        Some(_) => return None,
+        None => (repo, "HEAD"),
+    };
+    let plain = |s: &str| {
+        s.bytes().any(|b| b != b'.')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    if !plain(owner) || !plain(repo) || reference.contains("..") {
+        return None;
+    }
+    Some(format!(
+        "https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}"
+    ))
+}
+
 /// Fetches and checks a repository's index.
-pub fn fetch_index(url: &str) -> Result<Index, RepositoryError> {
-    let bytes = get(url, MAX_INDEX)?;
+pub fn fetch_index(url: &str, credentials: Option<&Credentials>) -> Result<Index, RepositoryError> {
+    let bytes = get(url, url, credentials, MAX_INDEX)?;
     parse_index(&bytes)
 }
 
@@ -120,13 +243,17 @@ pub fn parse_index(bytes: &[u8]) -> Result<Index, RepositoryError> {
 
 /// Downloads an entry's component from the repository at `index_url` and
 /// checks it against the entry's digest.
-pub fn download(index_url: &str, entry: &IndexEntry) -> Result<Vec<u8>, RepositoryError> {
+pub fn download(
+    index_url: &str,
+    entry: &IndexEntry,
+    credentials: Option<&Credentials>,
+) -> Result<Vec<u8>, RepositoryError> {
     let base =
         Url::parse(index_url).map_err(|_| RepositoryError::NotHttps(index_url.to_owned()))?;
     let url = base
         .join(&entry.file)
         .map_err(|e| RepositoryError::Invalid(format!("`{}`: {e}", entry.file)))?;
-    let bytes = get(url.as_str(), MAX_COMPONENT)?;
+    let bytes = get(url.as_str(), index_url, credentials, MAX_COMPONENT)?;
     if sha256_hex(&bytes) != entry.sha256 {
         return Err(RepositoryError::Invalid(format!(
             "{url} doesn't match the digest in the index"
@@ -144,18 +271,50 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Sends a GET over HTTPS and reads at most `max` bytes.
-pub(crate) fn get(url: &str, max: u64) -> Result<Vec<u8>, RepositoryError> {
-    let url = repository_url(url)?;
+/// Sends a GET over HTTPS and reads at most `max` bytes. Credentials go
+/// only to the index's origin, and a request carrying them isn't followed
+/// to another origin, so a repository can't send them elsewhere.
+fn get(
+    url: &str,
+    index_url: &str,
+    credentials: Option<&Credentials>,
+    max: u64,
+) -> Result<Vec<u8>, RepositoryError> {
+    let url = Url::parse(url).map_err(|_| RepositoryError::NotHttps(url.to_owned()))?;
+    if url.scheme() != "https" {
+        return Err(RepositoryError::NotHttps(url.to_string()));
+    }
+    let origin = Url::parse(index_url)
+        .map_err(|_| RepositoryError::NotHttps(index_url.to_owned()))?
+        .origin();
+    let credentials = credentials.filter(|_| url.origin() == origin);
+    let header = match credentials {
+        Some(credentials) => Some(credentials.header().ok_or_else(|| {
+            RepositoryError::Credentials("the value can't be sent as a header".to_owned())
+        })?),
+        None => None,
+    };
+    let signed = header.is_some();
     let client = Client::builder()
         .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
         .timeout(TIMEOUT)
         .https_only(true)
-        .redirect(Policy::limited(5))
+        .redirect(Policy::custom(move |attempt| {
+            if attempt.previous().len() >= 5 {
+                attempt.error("too many redirects")
+            } else if signed && attempt.url().origin() != origin {
+                attempt.error("redirected to another site, which isn't sent the credentials")
+            } else {
+                attempt.follow()
+            }
+        }))
         .build()
         .map_err(|e| RepositoryError::Fetch(e.to_string()))?;
-    let response = client
-        .get(&url)
+    let mut request = client.get(url.clone());
+    if let Some((name, value)) = header {
+        request = request.header(name, value);
+    }
+    let response = request
         .send()
         .map_err(|e| RepositoryError::Fetch(crate::http::describe(&e)))?;
     if !response.status().is_success() {

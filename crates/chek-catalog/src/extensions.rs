@@ -18,6 +18,8 @@ pub struct ExtensionRepository {
     /// Why the last fetch failed, cleared by the next one that works.
     pub fetch_error: Option<String>,
     pub created_at: String,
+    /// How to sign in to a private repository, as the server's JSON.
+    pub credentials: Option<String>,
 }
 
 /// An extension a user installed.
@@ -41,7 +43,8 @@ const SELECT_INSTALL: &str = "SELECT user_id, extension_id, repository_id, name,
             sites, languages, installed_at
      FROM extension_install";
 
-const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fetch_error, created_at
+const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fetch_error, created_at,
+            credentials
      FROM extension_repository"#;
 
 const ALLOW_ANY_REPOSITORY: &str = "allow_any_repository";
@@ -75,13 +78,14 @@ impl Catalog {
         owner_id: Option<i64>,
         name: Option<&str>,
         index: &str,
+        credentials: Option<&str>,
     ) -> Result<ExtensionRepository> {
         let conn = self.conn();
         let inserted = conn.query_row(
-            r#"INSERT INTO extension_repository (url, owner_id, name, "index", fetched_at)
-             VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            r#"INSERT INTO extension_repository (url, owner_id, name, "index", fetched_at, credentials)
+             VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?5)
              RETURNING id"#,
-            params![url, owner_id, name, index],
+            params![url, owner_id, name, index, credentials],
             |row| row.get::<_, i64>(0),
         );
         let id = match inserted {
@@ -117,6 +121,28 @@ impl Catalog {
                 params![id, error],
             )?,
         };
+        Ok(conn
+            .query_row(&format!("{SELECT} WHERE id = ?1"), [id], from_row)
+            .optional()?)
+    }
+
+    /// Replaces a repository's credentials along with the index fetched
+    /// with them.
+    pub fn set_repository_credentials(
+        &self,
+        id: i64,
+        credentials: Option<&str>,
+        name: Option<&str>,
+        index: &str,
+    ) -> Result<Option<ExtensionRepository>> {
+        let conn = self.conn();
+        conn.execute(
+            r#"UPDATE extension_repository
+             SET credentials = ?2, name = ?3, "index" = ?4, fetch_error = NULL,
+                 fetched_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE id = ?1"#,
+            params![id, credentials, name, index],
+        )?;
         Ok(conn
             .query_row(&format!("{SELECT} WHERE id = ?1"), [id], from_row)
             .optional()?)
@@ -303,5 +329,6 @@ fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionRepository> {
         fetched_at: row.get(5)?,
         fetch_error: row.get(6)?,
         created_at: row.get(7)?,
+        credentials: row.get(8)?,
     })
 }

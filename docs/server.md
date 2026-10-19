@@ -350,6 +350,15 @@ are in the planning doc; this page keeps the decisions next to the code.
 - The server fetches an index when the repository is added, and refuses one
   it can't read. A refresh that fails records why and keeps the last good
   index.
+- A repository can be named by its index, by the folder holding
+  `index.json` (`chek.page/extensions`), or as `github:owner/repo[@ref][/path]`,
+  which reads the repository's raw files. It's stored as its index's URL.
+- Private repositories take credentials: a bearer token, a username and
+  password, or any header. They're stored in the database like a Komga
+  library's settings and never returned. They're sent only to the index's
+  origin, so components hosted elsewhere are fetched without them, and a
+  signed request isn't followed to another origin. A private GitHub
+  repository with a fine-grained, read-only token is the simplest host.
 
 ## Installing extensions
 

@@ -1680,8 +1680,17 @@ paths:
               properties:
                 url:
                   type: string
-                  format: uri
-                  description: The HTTPS URL of the repository's `index.json`.
+                  description: |
+                    Where the repository is, stored as its index's URL:
+                    - the index itself, such as `https://example.org/chek/index.json`;
+                    - the folder holding `index.json`, such as
+                      `https://chek.page/extensions` or `chek.page/extensions`;
+                    - a GitHub repository as `github:owner/repo`, optionally
+                      with `@ref` for a branch or tag and `/path` for a folder,
+                      read from its raw files.
+                  example: chek.page/extensions
+                credentials:
+                  $ref: "#/components/schemas/RepositoryCredentials"
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1712,6 +1721,47 @@ paths:
   /api/v1/extension-repositories/{repositoryId}:
     parameters:
       - $ref: "#/components/parameters/RepositoryId"
+    patch:
+      tags: [Extensions]
+      operationId: updateExtensionRepository
+      summary: Change a repository's credentials
+      description: >-
+        Replaces the repository's credentials, or removes them with `null`.
+        The index is fetched with the new credentials first, and credentials
+        that don't work are refused. Only an admin can change a repository on
+        the allow list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [credentials]
+              properties:
+                credentials:
+                  oneOf:
+                    - $ref: "#/components/schemas/RepositoryCredentials"
+                    - type: "null"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The repository, with the index fetched with the new credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtensionRepository"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/RepositoryUnreadable"
+        "500":
+          $ref: "#/components/responses/Internal"
     delete:
       tags: [Extensions]
       operationId: deleteExtensionRepository
@@ -2712,7 +2762,7 @@ components:
           description: Explains the problem to a developer.
     ExtensionRepository:
       type: object
-      required: [id, url, name, allowListed, usable, extensionCount, fetchedAt, fetchError, createdAt]
+      required: [id, url, name, allowListed, usable, hasCredentials, extensionCount, fetchedAt, fetchError, createdAt]
       properties:
         id:
           type: integer
@@ -2731,6 +2781,9 @@ components:
           description: >-
             Whether its extensions can be installed and run. A user's own
             repository isn't while the admin allows only the allow list.
+        hasCredentials:
+          type: boolean
+          description: Whether credentials are stored for it. They're never returned.
         extensionCount:
           type: integer
         fetchedAt:
@@ -2743,6 +2796,42 @@ components:
         createdAt:
           type: string
           format: date-time
+    RepositoryCredentials:
+      description: >-
+        How to sign in to a private repository. They're sent only to the
+        index's own origin, and a request carrying them isn't followed to
+        another origin. For a private GitHub repository, use `bearer` with a
+        fine-grained token that can read its contents.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type, token]
+          properties:
+            type:
+              const: bearer
+            token:
+              type: string
+        - type: object
+          additionalProperties: false
+          required: [type, username, password]
+          properties:
+            type:
+              const: basic
+            username:
+              type: string
+            password:
+              type: string
+        - type: object
+          additionalProperties: false
+          required: [type, name, value]
+          properties:
+            type:
+              const: header
+            name:
+              type: string
+              example: X-Api-Key
+            value:
+              type: string
     AvailableExtension:
       type: object
       required: [repositoryId, id, name, version, sites, languages, installedVersion]

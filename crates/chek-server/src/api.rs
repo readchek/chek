@@ -172,7 +172,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/extension-repositories/{id}",
-            axum::routing::delete(extensions::delete_repository),
+            axum::routing::delete(extensions::delete_repository)
+                .patch(extensions::update_repository),
         )
         .route(
             "/api/v1/extension-repositories/{id}/refresh",
