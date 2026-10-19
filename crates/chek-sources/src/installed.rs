@@ -17,10 +17,11 @@ pub struct Extensions {
 
 impl Extensions {
     /// Keeps component files in `dir`, along with `state.db`, which holds
-    /// extensions' caches and cookies.
-    pub fn new(dir: PathBuf) -> Result<Self, Error> {
+    /// extensions' caches and cookies, and up to `image_cache_bytes` of
+    /// fetched images in `images`.
+    pub fn new(dir: PathBuf, image_cache_bytes: u64) -> Result<Self, Error> {
         Ok(Self {
-            host: Host::new(&dir.join("state.db"))?,
+            host: Host::new(&dir.join("state.db"), dir.join("images"), image_cache_bytes)?,
             dir,
             loaded: Mutex::default(),
         })

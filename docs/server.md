@@ -391,6 +391,13 @@ are in the planning doc; this page keeps the decisions next to the code.
   which carry the image request the extension made. The server fetches the
   image, held to the extension's sites, and sends its bytes unchanged with
   `nosniff`, so the app never contacts a source's sites itself.
+- Covers and pages fetched through extensions, for browsing and for
+  extension libraries alike, are kept on disk in `extensions/images` and
+  served from there the next time anyone asks for the same image from the
+  same extension. `CHEK_EXTENSION_IMAGE_CACHE_MB` caps the folder, 2048 by
+  default; past it, the least recently read images are deleted, and an
+  image larger than a tenth of the cap isn't kept. 0 turns the cache off and
+  empties the folder at startup.
 - Browsing stores nothing; following a series into an extension library
   does.
 

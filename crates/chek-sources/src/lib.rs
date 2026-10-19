@@ -13,13 +13,14 @@
 
 mod cookies;
 mod http;
+mod images;
 mod installed;
 pub mod repository;
 mod sites;
 mod store;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
@@ -32,6 +33,7 @@ pub use crate::installed::Extensions;
 
 use crate::cookies::Jar;
 use crate::http::{FetchError, Net};
+use crate::images::ImageCache;
 use crate::sites::Sites;
 use crate::store::Namespace;
 
@@ -94,15 +96,18 @@ pub struct Host {
     engine: Engine,
     linker: Linker<State>,
     store: Arc<store::Store>,
+    images: Arc<ImageCache>,
     /// One jar per extension, so every loaded version shares it.
     jars: Mutex<HashMap<String, Arc<Jar>>>,
 }
 
 impl Host {
     /// Keeps extensions' caches and cookies in the SQLite file at `state`,
-    /// which is made if it's missing.
-    pub fn new(state: &Path) -> Result<Self, Error> {
+    /// which is made if it's missing, and up to `image_cache_bytes` of the
+    /// images it fetches in `image_dir`; 0 turns the image cache off.
+    pub fn new(state: &Path, image_dir: PathBuf, image_cache_bytes: u64) -> Result<Self, Error> {
         let store = Arc::new(store::Store::open(state).map_err(Error::Storage)?);
+        let images = Arc::new(ImageCache::open(image_dir, image_cache_bytes));
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config).map_err(trap)?;
@@ -114,6 +119,7 @@ impl Host {
             engine,
             linker,
             store,
+            images,
             jars: Mutex::default(),
         })
     }
@@ -150,6 +156,7 @@ impl Host {
             scope,
             net: Net::new(sites, Arc::clone(&jar)).map_err(Error::Manifest)?,
             store: Arc::clone(&self.store),
+            images: Arc::clone(&self.images),
             jar,
         });
         Ok(Source {
@@ -173,6 +180,7 @@ struct Context {
     scope: String,
     net: Net,
     store: Arc<store::Store>,
+    images: Arc<ImageCache>,
     jar: Arc<Jar>,
 }
 
@@ -213,6 +221,17 @@ impl Source {
 
     /// Fetches a cover or page the extension returned, held to the same sites.
     pub fn fetch_image(&self, image: &Image) -> Result<Fetched, Error> {
+        let key = repository::sha256_hex(
+            json!([self.context.scope, request_key(&image.url, &image.headers)])
+                .to_string()
+                .as_bytes(),
+        );
+        if let Some((content_type, bytes)) = self.context.images.get(&key) {
+            return Ok(Fetched {
+                content_type,
+                bytes,
+            });
+        }
         let (status, headers, bytes) = self
             .context
             .net
@@ -228,8 +247,12 @@ impl Source {
         if !(200..300).contains(&status) {
             return Err(Error::Image(format!("the site answered {status}")));
         }
+        let content_type = http::content_type(&headers);
+        self.context
+            .images
+            .put(&key, content_type.as_deref(), &bytes);
         Ok(Fetched {
-            content_type: http::content_type(&headers),
+            content_type,
             bytes,
         })
     }
@@ -301,7 +324,7 @@ impl bindings::chek::source::http::Host for State {
         let cache = request
             .cache
             .filter(|ttl| *ttl > 0 && matches!(request.method, Method::Get))
-            .map(|ttl| (ttl, response_key(&request.url, &request.headers)));
+            .map(|ttl| (ttl, request_key(&request.url, &request.headers)));
         if let Some((_, key)) = &cache
             && let Some((Some(meta), body)) =
                 context.store.get(&context.scope, Namespace::Response, key)
@@ -341,7 +364,7 @@ impl bindings::chek::source::http::Host for State {
 
 /// Names a cached response by what was asked for, so requests that differ
 /// only in a header, such as a language, are kept apart.
-fn response_key(url: &str, headers: &[(String, String)]) -> String {
+fn request_key(url: &str, headers: &[(String, String)]) -> String {
     let mut headers: Vec<_> = headers
         .iter()
         .map(|(name, value)| (name.to_ascii_lowercase(), value.as_str()))

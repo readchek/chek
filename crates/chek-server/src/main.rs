@@ -65,6 +65,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_upload_bytes: config.max_upload_bytes,
         extensions: Arc::new(chek_sources::Extensions::new(
             config.data_dir.join("extensions"),
+            config.extension_image_cache_mb.saturating_mul(1 << 20),
         )?),
         progress_writes: remote::progress_writer(chek_library::http_client()?),
         oidc: Arc::new(oidc::Oidc::new(
