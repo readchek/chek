@@ -10,7 +10,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chek_catalog::{ExtensionRepository, Role};
-use chek_sources::repository::{self, Index, RepositoryError};
+use chek_sources::repository::{self, Credentials, Index, RepositoryError};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -27,6 +27,8 @@ pub struct RepositoryDto {
     /// Whether its extensions can be installed and run. A user's own
     /// repository isn't while the admin allows only the allow list.
     usable: bool,
+    /// Whether credentials are stored for it. They're never returned.
+    has_credentials: bool,
     extension_count: usize,
     fetched_at: Option<String>,
     fetch_error: Option<String>,
@@ -40,6 +42,7 @@ impl RepositoryDto {
             id: repository.id,
             allow_listed: repository.owner_id.is_none(),
             usable: repository.owner_id.is_none() || allow_any,
+            has_credentials: repository.credentials.is_some(),
             url: repository.url,
             name: repository.name,
             extension_count,
@@ -85,6 +88,14 @@ pub struct SettingsDto {
 #[serde(deny_unknown_fields)]
 pub struct NewRepository {
     url: String,
+    credentials: Option<Credentials>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryChanges {
+    /// New credentials, or `null` to remove them.
+    credentials: Option<Credentials>,
 }
 
 pub async fn list_repositories(
@@ -126,10 +137,18 @@ pub async fn add_repository(
                 .to_owned(),
         });
     }
-    let index = fetch(url.clone()).await?;
+    let credentials = checked(body.credentials)?;
+    let index = fetch(url.clone(), credentials.clone()).await?;
     let stored = serde_json::to_string(&index).map_err(ApiError::internal)?;
+    let credentials = stored_credentials(credentials.as_ref())?;
     let repository = blocking(&state, move |c| {
-        c.add_extension_repository(&url, owner_id, index.name.as_deref(), &stored)
+        c.add_extension_repository(
+            &url,
+            owner_id,
+            index.name.as_deref(),
+            &stored,
+            credentials.as_deref(),
+        )
     })
     .await?;
     Ok((
@@ -160,6 +179,39 @@ pub async fn delete_repository(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Replaces or removes a repository's credentials. The index is fetched
+/// with the new ones first, so credentials that don't work are refused.
+pub async fn update_repository(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    body: Result<Json<RepositoryChanges>, JsonRejection>,
+) -> Result<Json<RepositoryDto>, ApiError> {
+    let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
+    let repository = visible_repository(&state, &current, id).await?;
+    if repository.owner_id.is_none() {
+        current.require_admin()?;
+    }
+    let credentials = checked(body.credentials)?;
+    let index = fetch(repository.url, credentials.clone()).await?;
+    let stored = serde_json::to_string(&index).map_err(ApiError::internal)?;
+    let credentials = stored_credentials(credentials.as_ref())?;
+    let (repository, allow_any) = blocking(&state, move |c| {
+        Ok((
+            c.set_repository_credentials(
+                id,
+                credentials.as_deref(),
+                index.name.as_deref(),
+                &stored,
+            )?,
+            c.allow_any_repository()?,
+        ))
+    })
+    .await?;
+    let repository = repository.ok_or_else(|| repository_not_found(id))?;
+    Ok(Json(RepositoryDto::new(repository, allow_any)))
+}
+
 /// Fetches the repository's index again. A failed fetch is recorded on the
 /// repository, which keeps its last good index, rather than failing the
 /// request.
@@ -169,7 +221,8 @@ pub async fn refresh_repository(
     Path(id): Path<i64>,
 ) -> Result<Json<RepositoryDto>, ApiError> {
     let repository = visible_repository(&state, &current, id).await?;
-    let fetched = match fetch(repository.url).await {
+    let credentials = credentials(&repository)?;
+    let fetched = match fetch(repository.url, credentials).await {
         Ok(index) => Ok((
             index.name.clone(),
             serde_json::to_string(&index).map_err(ApiError::internal)?,
@@ -271,8 +324,34 @@ pub(crate) fn parsed_index(repository: &ExtensionRepository) -> Option<Index> {
     repository::parse_index(repository.index.as_deref()?.as_bytes()).ok()
 }
 
-async fn fetch(url: String) -> Result<Index, ApiError> {
-    tokio::task::spawn_blocking(move || repository::fetch_index(&url))
+/// The repository's stored credentials.
+pub(crate) fn credentials(
+    repository: &ExtensionRepository,
+) -> Result<Option<Credentials>, ApiError> {
+    repository
+        .credentials
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(ApiError::internal)
+}
+
+fn checked(credentials: Option<Credentials>) -> Result<Option<Credentials>, ApiError> {
+    if let Some(credentials) = &credentials {
+        credentials.check().map_err(repository_error)?;
+    }
+    Ok(credentials)
+}
+
+fn stored_credentials(credentials: Option<&Credentials>) -> Result<Option<String>, ApiError> {
+    credentials
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(ApiError::internal)
+}
+
+async fn fetch(url: String, credentials: Option<Credentials>) -> Result<Index, ApiError> {
+    tokio::task::spawn_blocking(move || repository::fetch_index(&url, credentials.as_ref()))
         .await
         .map_err(ApiError::internal)?
         .map_err(repository_error)
@@ -280,7 +359,9 @@ async fn fetch(url: String) -> Result<Index, ApiError> {
 
 pub(crate) fn repository_error(error: RepositoryError) -> ApiError {
     let (status, code) = match error {
-        RepositoryError::NotHttps(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+        RepositoryError::NotHttps(_) | RepositoryError::Credentials(_) => {
+            (StatusCode::BAD_REQUEST, "bad_request")
+        }
         RepositoryError::Fetch(_) | RepositoryError::Invalid(_) => {
             (StatusCode::BAD_GATEWAY, "repository_unreadable")
         }

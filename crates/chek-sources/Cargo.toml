@@ -7,6 +7,7 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
 cookie_store.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true

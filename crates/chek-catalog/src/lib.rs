@@ -48,6 +48,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0014_extension_repositories.sql"),
     include_str!("../migrations/0015_extension_installs.sql"),
     include_str!("../migrations/0016_identities.sql"),
+    include_str!("../migrations/0017_repository_credentials.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
