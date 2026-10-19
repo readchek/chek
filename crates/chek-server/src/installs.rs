@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
 use crate::auth::CurrentUser;
-use crate::extensions::{parsed_index, repository_error, visible_repository};
+use crate::extensions::{credentials, parsed_index, repository_error, visible_repository};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,8 +106,10 @@ pub async fn install(
 
     let extensions = Arc::clone(&state.extensions);
     let index_url = repository.url.clone();
+    let credentials = credentials(&repository)?;
     let (digest, source) = tokio::task::spawn_blocking(move || {
-        let bytes = repository::download(&index_url, &entry).map_err(repository_error)?;
+        let bytes = repository::download(&index_url, &entry, credentials.as_ref())
+            .map_err(repository_error)?;
         let digest = repository::sha256_hex(&bytes);
         let source = extensions
             .install(&bytes, &entry)
