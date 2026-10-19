@@ -339,6 +339,21 @@ are in the planning doc; this page keeps the decisions next to the code.
   component that reuses another's id with different sites starts empty, and
   an update that changes the sites does too. None is available while the
   manifest is read.
+- Sites behind a Cloudflare challenge need a real browser. The host doesn't
+  run one: an admin points `CHEK_BROWSER_SOLVER_URL` at a
+  FlareSolverr-compatible service, such as `http://flaresolverr:8191/v1`,
+  and extensions whose manifest lists the `browser` capability may use it.
+  When one of their requests or image fetches meets a challenge (a 403, 429
+  or 503 with `cf-mitigated: challenge`, or Cloudflare's challenge page),
+  the host has the solver load the URL, keeps the cookies it earned for that
+  site and its user agent, and retries once. Later requests send both, so
+  they pass without the solver until the clearance expires. A burst of
+  challenged requests waits on one solve. Without a solver, or if solving
+  fails, the challenge comes back as the site sent it.
+- The `browser` interface loads a page in the solver directly and returns
+  the rendered HTML, for pages that only work with scripts running. It
+  counts as a request. The solver's browser follows the page wherever it
+  leads, so the solver is the admin's to trust, like the server itself.
 - The manifest names the hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
@@ -355,7 +370,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 
 - A repository is an `index.json` served over HTTPS that lists its
   extensions: id, name, version, the component file relative to the index,
-  its SHA-256 digest, sites and languages. Indexes are capped at 1 MiB and
+  its SHA-256 digest, sites, languages and capabilities. Indexes are capped at 1 MiB and
   1,000 extensions.
 - Repositories without an owner are the admin's allow list, which everyone
   sees. It starts with the official repository,
@@ -373,8 +388,8 @@ are in the planning doc; this page keeps the decisions next to the code.
 - Each user installs extensions for themselves from the repositories they
   can use. Installing downloads the component the index lists, at most
   32 MiB, checks its SHA-256 digest, and checks that its manifest has the
-  index's id, version and sites, so a repository can't show one set of sites
-  and ship another.
+  index's id, version, sites and capabilities, so a repository can't show
+  one set and ship another.
 - Components are stored in the data folder as `extensions/<sha256>.wasm`,
   shared by everyone on the same version, and deleted when no install uses
   them. Compiled sources stay in memory once loaded.

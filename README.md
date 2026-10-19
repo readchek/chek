@@ -95,7 +95,9 @@ needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
 Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages and
 files from; see [Komga libraries](docs/server.md#komga-libraries). Covers and
 pages fetched through source extensions are cached on disk up to
-`CHEK_EXTENSION_IMAGE_CACHE_MB` (default 2048; 0 turns it off). People can
+`CHEK_EXTENSION_IMAGE_CACHE_MB` (default 2048; 0 turns it off), and
+`CHEK_BROWSER_SOLVER_URL` points extensions that need a browser, for sites
+behind Cloudflare, at a FlareSolverr-compatible service. People can
 sign in through OpenID Connect providers such as Authentik, Authelia or
 Google, set up with `CHEK_PUBLIC_URL`, `CHEK_OIDC_PROVIDERS` and
 `CHEK_OIDC_<ID>_*`; see [Sign-in providers](docs/server.md#sign-in-providers).

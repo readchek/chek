@@ -11,6 +11,7 @@
 //!
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
+mod browser;
 mod cookies;
 mod http;
 mod images;
@@ -20,7 +21,7 @@ mod sites;
 mod store;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
@@ -31,6 +32,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 pub use crate::installed::Extensions;
 
+use crate::browser::{Browser, FlareSolverr, Solver};
 use crate::cookies::Jar;
 use crate::http::{FetchError, Net};
 use crate::images::ImageCache;
@@ -42,8 +44,8 @@ mod bindings {
 }
 
 pub use bindings::chek::source::types::{
-    Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection, Series,
-    SeriesItem, SeriesPage,
+    Capability, Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection,
+    Series, SeriesItem, SeriesPage,
 };
 
 /// Memory one instance may grow to.
@@ -97,17 +99,42 @@ pub struct Host {
     linker: Linker<State>,
     store: Arc<store::Store>,
     images: Arc<ImageCache>,
-    /// One jar per extension, so every loaded version shares it.
-    jars: Mutex<HashMap<String, Arc<Jar>>>,
+    solver: Option<Arc<dyn Solver>>,
+    /// One jar and browser per extension, so every loaded version shares
+    /// them.
+    scopes: Mutex<HashMap<String, Scope>>,
+}
+
+#[derive(Clone)]
+struct Scope {
+    jar: Arc<Jar>,
+    browser: Option<Arc<Browser>>,
+}
+
+/// How the host is set up.
+pub struct Options {
+    /// The most bytes of fetched images to keep on disk; 0 keeps none.
+    pub image_cache_bytes: u64,
+    /// A FlareSolverr-compatible endpoint, such as
+    /// `http://flaresolverr:8191/v1`, for extensions that need a browser.
+    pub browser_solver: Option<String>,
 }
 
 impl Host {
-    /// Keeps extensions' caches and cookies in the SQLite file at `state`,
-    /// which is made if it's missing, and up to `image_cache_bytes` of the
-    /// images it fetches in `image_dir`; 0 turns the image cache off.
-    pub fn new(state: &Path, image_dir: PathBuf, image_cache_bytes: u64) -> Result<Self, Error> {
-        let store = Arc::new(store::Store::open(state).map_err(Error::Storage)?);
-        let images = Arc::new(ImageCache::open(image_dir, image_cache_bytes));
+    /// Keeps extensions' caches and cookies in `state.db` in `dir`, which
+    /// is made if it's missing, and fetched images in `images` there.
+    pub fn new(dir: &Path, options: &Options) -> Result<Self, Error> {
+        let store = Arc::new(store::Store::open(&dir.join("state.db")).map_err(Error::Storage)?);
+        let images = Arc::new(ImageCache::open(
+            dir.join("images"),
+            options.image_cache_bytes,
+        ));
+        let solver = match options.browser_solver.as_deref() {
+            Some(endpoint) => Some(
+                Arc::new(FlareSolverr::new(endpoint).map_err(Error::Storage)?) as Arc<dyn Solver>,
+            ),
+            None => None,
+        };
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config).map_err(trap)?;
@@ -120,7 +147,8 @@ impl Host {
             linker,
             store,
             images,
-            jars: Mutex::default(),
+            solver,
+            scopes: Mutex::default(),
         })
     }
 
@@ -145,16 +173,28 @@ impl Host {
         let mut declared = manifest.sites.clone();
         declared.sort();
         let scope = format!("{} {}", manifest.id, declared.join(" "));
-        let jar = Arc::clone(
-            self.jars
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .entry(scope.clone())
-                .or_insert_with(|| Arc::new(Jar::load(&scope, Arc::clone(&self.store)))),
-        );
+        let Scope { jar, browser } = self
+            .scopes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(scope.clone())
+            .or_insert_with(|| {
+                let jar = Arc::new(Jar::load(&scope, Arc::clone(&self.store)));
+                let browser = self.solver.as_ref().map(|solver| {
+                    Arc::new(Browser::new(
+                        Arc::clone(solver),
+                        Arc::clone(&jar),
+                        Arc::clone(&self.store),
+                        scope.clone(),
+                    ))
+                });
+                Scope { jar, browser }
+            })
+            .clone();
+        let browser = browser.filter(|_| manifest.capabilities.contains(&Capability::Browser));
         let context = Arc::new(Context {
             scope,
-            net: Net::new(sites, Arc::clone(&jar)).map_err(Error::Manifest)?,
+            net: Net::new(sites, Arc::clone(&jar), browser).map_err(Error::Manifest)?,
             store: Arc::clone(&self.store),
             images: Arc::clone(&self.images),
             jar,
@@ -404,6 +444,41 @@ impl bindings::chek::source::cache::Host for State {
         if let Ok(context) = self.context() {
             context.store.delete(&context.scope, Namespace::Value, &key);
         }
+    }
+}
+
+impl bindings::chek::source::browser::Host for State {
+    fn load(
+        &mut self,
+        url: String,
+    ) -> Result<bindings::chek::source::http::Response, bindings::chek::source::http::HttpError>
+    {
+        use bindings::chek::source::http::{HttpError, Response};
+        if self.requests >= MAX_REQUESTS {
+            return Err(HttpError::TooManyRequests);
+        }
+        self.requests += 1;
+        let context = self.context().map_err(HttpError::NotAllowed)?;
+        let Some(browser) = context.net.browser() else {
+            return Err(HttpError::NotAllowed(
+                "the browser needs the `browser` capability and a solver the admin set up"
+                    .to_owned(),
+            ));
+        };
+        let url = context
+            .net
+            .allowed_url(&url)
+            .map_err(HttpError::NotAllowed)?;
+        let solution = browser.load(&url).map_err(HttpError::Failed)?;
+        if solution.html.len() as u64 > MAX_RESPONSE {
+            return Err(HttpError::TooLarge);
+        }
+        Ok(Response {
+            status: solution.status,
+            headers: vec![("content-type".to_owned(), "text/html".to_owned())],
+            body: solution.html.into_bytes(),
+            cached: false,
+        })
     }
 }
 

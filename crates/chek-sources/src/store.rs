@@ -29,6 +29,8 @@ pub(crate) enum Namespace {
     Value,
     /// Responses to requests the extension marked cacheable.
     Response,
+    /// What the browser solver earned, such as its user agent.
+    Browser,
 }
 
 impl Namespace {
@@ -36,6 +38,7 @@ impl Namespace {
         match self {
             Namespace::Value => "value",
             Namespace::Response => "response",
+            Namespace::Browser => "browser",
         }
     }
 }

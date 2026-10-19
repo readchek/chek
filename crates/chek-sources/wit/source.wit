@@ -43,6 +43,18 @@ interface types {
         sites: list<string>,
         // BCP 47 tags of the languages the source serves, empty if any.
         languages: list<string>,
+        // What the extension needs beyond plain requests. The repository's
+        // index must list the same.
+        capabilities: list<capability>,
+    }
+
+    enum capability {
+        // A real browser, through the solver service the server's admin
+        // runs. Requests that meet a Cloudflare challenge are passed to it
+        // and retried with the cookies and user agent it earned, and the
+        // `browser` interface loads pages in it directly. Without a
+        // solver, challenges come back as the site sent them.
+        browser,
     }
 
     record series-item {
@@ -168,10 +180,24 @@ interface cookies {
     clear: func();
 }
 
+// Loads pages in a real browser, for extensions with the `browser`
+// capability. Slow, so most extensions only need `http.fetch`, which already
+// gets past challenges on its own; this is for pages that only work with
+// scripts running.
+interface browser {
+    use http.{response, http-error};
+
+    // Loads `url` in the browser and returns the page as rendered, with its
+    // cookies kept in the jar. The URL must be on one of the manifest's
+    // sites. Counts as a request.
+    load: func(url: string) -> result<response, http-error>;
+}
+
 world source {
     import http;
     import cache;
     import cookies;
+    import browser;
     use types.{manifest, series-page, series, chapter, image, error};
 
     // Called without network access, before anything else.

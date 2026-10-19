@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::repository::{IndexEntry, sha256_hex};
-use crate::{Error, Host, Source};
+use crate::{Capability, Error, Host, Options, Source};
 
 pub struct Extensions {
     host: Host,
@@ -17,11 +17,10 @@ pub struct Extensions {
 
 impl Extensions {
     /// Keeps component files in `dir`, along with `state.db`, which holds
-    /// extensions' caches and cookies, and up to `image_cache_bytes` of
-    /// fetched images in `images`.
-    pub fn new(dir: PathBuf, image_cache_bytes: u64) -> Result<Self, Error> {
+    /// extensions' caches and cookies, and fetched images in `images`.
+    pub fn new(dir: PathBuf, options: &Options) -> Result<Self, Error> {
         Ok(Self {
-            host: Host::new(&dir.join("state.db"), dir.join("images"), image_cache_bytes)?,
+            host: Host::new(&dir, options)?,
             dir,
             loaded: Mutex::default(),
         })
@@ -39,6 +38,27 @@ impl Extensions {
         let mut listed = entry.sites.clone();
         declared.sort();
         listed.sort();
+        // Users see the index's capabilities before installing, so the
+        // component can't need more than it lists.
+        let mut capabilities: Vec<&str> = manifest
+            .capabilities
+            .iter()
+            .map(|c| match c {
+                Capability::Browser => "browser",
+            })
+            .collect();
+        let mut listed_capabilities: Vec<&str> =
+            entry.capabilities.iter().map(String::as_str).collect();
+        for list in [&mut capabilities, &mut listed_capabilities] {
+            list.sort();
+            list.dedup();
+        }
+        if capabilities != listed_capabilities {
+            return Err(Error::Mismatch(format!(
+                "the index lists the capabilities {:?}, but the component needs {capabilities:?}",
+                entry.capabilities
+            )));
+        }
         if manifest.id != entry.id || manifest.version != entry.version || declared != listed {
             return Err(Error::Mismatch(format!(
                 "the index lists {} {} for {:?}, but the component is {} {} for {:?}",

@@ -40,6 +40,10 @@ pub struct Config {
     /// fetched through extensions to keep on disk. Default 2048; 0 keeps
     /// none.
     pub extension_image_cache_mb: u64,
+    /// `CHEK_BROWSER_SOLVER_URL`, a FlareSolverr-compatible endpoint such as
+    /// `http://flaresolverr:8191/v1`, which extensions with the `browser`
+    /// capability use to get past challenges. Default none.
+    pub browser_solver: Option<String>,
     /// `CHEK_PUBLIC_URL`, the address people reach the server at, such as
     /// `https://chek.example.com`. Needed for sign-in providers, which send
     /// people back to it.
@@ -104,6 +108,19 @@ impl Config {
             max_upload_bytes: parse("CHEK_MAX_UPLOAD_BYTES", "2147483648")?,
             source_sync_minutes: parse("CHEK_SOURCE_SYNC_MINUTES", "60")?,
             extension_image_cache_mb: parse("CHEK_EXTENSION_IMAGE_CACHE_MB", "2048")?,
+            browser_solver: match env::var("CHEK_BROWSER_SOLVER_URL") {
+                Ok(url) if !url.trim().is_empty() => {
+                    let parsed = parse::<Url>("CHEK_BROWSER_SOLVER_URL", "")?;
+                    if !matches!(parsed.scheme(), "http" | "https") {
+                        return Err(ConfigError {
+                            name: "CHEK_BROWSER_SOLVER_URL",
+                            reason: "use an http or https address".to_owned(),
+                        });
+                    }
+                    Some(url.trim().to_owned())
+                }
+                _ => None,
+            },
             public_url: match env::var("CHEK_PUBLIC_URL") {
                 Ok(url) if !url.trim().is_empty() => {
                     let url = parse::<Url>("CHEK_PUBLIC_URL", "")?;
