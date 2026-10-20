@@ -270,7 +270,7 @@ pub(crate) async fn usable_source(
     let source = tokio::task::spawn_blocking(move || extensions.source(&digest))
         .await
         .map_err(ApiError::internal)?
-        .map_err(ApiError::internal)?;
+        .map_err(load_error)?;
     Ok((install, source))
 }
 
@@ -284,6 +284,19 @@ where
         .await
         .map_err(ApiError::internal)?
         .map_err(source_error)
+}
+
+/// Why an installed extension couldn't be loaded. One built for another
+/// contract version isn't the server's fault, and updating it fixes it.
+pub(crate) fn load_error(error: chek_sources::Error) -> ApiError {
+    match error {
+        chek_sources::Error::Incompatible(_) => ApiError {
+            status: StatusCode::BAD_GATEWAY,
+            code: "source_unavailable",
+            message: "this extension was built for another version of Chek; update it from its repository, or ask its author for a new build".to_owned(),
+        },
+        error => ApiError::internal(error),
+    }
 }
 
 pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {

@@ -1896,7 +1896,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          description: The component isn't a valid source extension, or doesn't match the index.
+          description: >-
+            The component isn't a valid source extension (`extension_invalid`),
+            doesn't match the index (`extension_mismatch`), or was built for
+            another version of the source contract (`extension_incompatible`).
           content:
             application/json:
               schema:
