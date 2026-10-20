@@ -44,6 +44,10 @@ pub struct CurrentUser {
     pub session_id: Option<i64>,
     /// The session token's hash; `None` for a request signed with Basic auth.
     token_hash: Option<String>,
+    /// A shared demo account named in `CHEK_DEMO_USERS`. Its password is
+    /// public, so it can't change what other visitors rely on, and its
+    /// reading places aren't kept.
+    pub demo: bool,
 }
 
 impl CurrentUser {
@@ -58,6 +62,23 @@ impl CurrentUser {
             })
         }
     }
+
+    /// Refuses changes a shared demo account can't make.
+    pub fn refuse_demo(&self) -> Result<(), ApiError> {
+        if self.demo {
+            Err(ApiError {
+                status: StatusCode::FORBIDDEN,
+                code: "demo_account",
+                message: "this is a shared demo account, which can't be changed".to_owned(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn is_demo(state: &AppState, user: &User) -> bool {
+    state.demo_users.contains(&user.name)
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -97,6 +118,7 @@ impl FromRequestParts<AppState> for CurrentUser {
             unauthorized("the session token is invalid or has expired; sign in again")
         })?;
         Ok(Self {
+            demo: is_demo(state, &session.user),
             user: session.user,
             device: session.device,
             session_id: Some(session.session_id),
@@ -157,6 +179,7 @@ async fn basic_user(
         cache.insert(key);
     }
     Ok(CurrentUser {
+        demo: is_demo(state, &found.user),
         user: found.user,
         device: None,
         session_id: None,
@@ -381,6 +404,8 @@ pub async fn list_sessions(
     Ok(Json(
         sessions
             .into_iter()
+            // Other visitors' devices are theirs to know.
+            .filter(|s| !current.demo || Some(s.id) == current.session_id)
             .map(|s| SessionInfoDto {
                 id: s.id,
                 device: s.device,
@@ -400,6 +425,8 @@ pub async fn delete_session(
     current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    // Visitors would sign each other out.
+    current.refuse_demo()?;
     let user_id = current.user.id;
     if blocking(&state, move |c| c.delete_user_session(user_id, id)).await? {
         Ok(StatusCode::NO_CONTENT)
@@ -423,6 +450,7 @@ pub async fn change_password(
     current: CurrentUser,
     body: Result<Json<ChangePasswordRequest>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let user_id = current.user.id;
     let hash = blocking(&state, move |c| c.password_hash(user_id))
