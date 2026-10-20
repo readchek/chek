@@ -5,9 +5,10 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cookie_store::CookieStore;
+use cookie_store::{CookieDomain, CookieExpiration, CookieStore};
 use reqwest::Url;
 use reqwest::header::HeaderValue;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::store::Store;
@@ -23,6 +24,73 @@ pub(crate) struct Jar {
 }
 
 impl Jar {
+    pub(crate) fn browser_cookies(&self) -> Vec<BrowserCookie> {
+        Self::snapshot(&self.lock())
+    }
+
+    fn snapshot(cookies: &CookieStore) -> Vec<BrowserCookie> {
+        cookies
+            .iter_unexpired()
+            .filter_map(|cookie| {
+                let domain = match &cookie.domain {
+                    CookieDomain::HostOnly(domain) => domain.clone(),
+                    CookieDomain::Suffix(domain) => format!(".{domain}"),
+                    _ => return None,
+                };
+                Some(BrowserCookie {
+                    name: cookie.name().to_owned(),
+                    value: cookie.value().to_owned(),
+                    domain,
+                    path: cookie.path.as_ref().to_owned(),
+                    expires: match cookie.expires {
+                        CookieExpiration::AtUtc(at) => at.unix_timestamp() as f64,
+                        CookieExpiration::SessionEnd => -1.0,
+                    },
+                    secure: cookie.secure().unwrap_or(false),
+                    http_only: cookie.http_only().unwrap_or(false),
+                    same_site: cookie.same_site().map(|s| s.to_string()),
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn merge_browser_cookies(
+        &self,
+        before: &[BrowserCookie],
+        after: &[BrowserCookie],
+        sites: &crate::sites::Sites,
+    ) -> Result<(), String> {
+        if after.len() > MAX_COOKIES {
+            return Err("browser returned too many cookies".to_owned());
+        }
+        for cookie in after.iter().filter(|cookie| !before.contains(cookie)) {
+            let host = cookie.domain.trim_start_matches('.');
+            if !sites.allows_cookie_domain(host) {
+                continue;
+            }
+            let url = Url::parse(&format!("https://{host}/")).map_err(|e| e.to_string())?;
+            let header = cookie.header()?;
+            self.set(&url, [header.as_str()])?;
+        }
+        let mut cookies = self.lock();
+        let current = Self::snapshot(&cookies);
+        for cookie in before {
+            if current.contains(cookie)
+                && !after.iter().any(|c| {
+                    c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path
+                })
+            {
+                cookies.remove(
+                    cookie.domain.trim_start_matches('.'),
+                    &cookie.path,
+                    &cookie.name,
+                );
+            }
+        }
+        self.save(&cookies);
+        Ok(())
+    }
+
     pub(crate) fn load(extension_id: &str, store: Arc<Store>) -> Self {
         let cookies = store
             .cookie_jar(extension_id)
@@ -102,6 +170,53 @@ impl Jar {
         if let Err(error) = saved {
             warn!(extension = self.extension_id, %error, "couldn't save cookies");
         }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrowserCookie {
+    pub(crate) name: String,
+    value: String,
+    pub(crate) domain: String,
+    path: String,
+    expires: f64,
+    secure: bool,
+    http_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    same_site: Option<String>,
+}
+
+impl BrowserCookie {
+    fn header(&self) -> Result<String, String> {
+        for value in [&self.name, &self.value, &self.domain, &self.path] {
+            if value.len() > 4096 || value.contains([';', '\r', '\n']) {
+                return Err("browser returned an invalid cookie".to_owned());
+            }
+        }
+        let mut header = format!("{}={}; Path={}", self.name, self.value, self.path);
+        if self.domain.starts_with('.') {
+            header.push_str(&format!("; Domain={}", self.domain));
+        }
+        if self.expires >= 0.0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64());
+            header.push_str(&format!(
+                "; Max-Age={}",
+                (self.expires - now).max(0.0) as u64
+            ));
+        }
+        if self.secure {
+            header.push_str("; Secure");
+        }
+        if self.http_only {
+            header.push_str("; HttpOnly");
+        }
+        if let Some(site @ ("Strict" | "Lax" | "None")) = self.same_site.as_deref() {
+            header.push_str(&format!("; SameSite={site}"));
+        }
+        Ok(header)
     }
 }
 

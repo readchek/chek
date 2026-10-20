@@ -27,8 +27,21 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--extension-image-worker") {
+        return chek_sources::image_worker().map_err(Into::into);
+    }
+    if std::env::args().nth(1).as_deref() == Some("--extension-browser-worker") {
+        let executable = std::env::args_os()
+            .nth(2)
+            .ok_or("browser executable is missing")?;
+        return chek_sources::browser_worker(std::path::Path::new(&executable)).map_err(Into::into);
+    }
+    server_main()
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn server_main() -> Result<(), Box<dyn std::error::Error>> {
     let telemetry = telemetry::init()?;
     let result = run().await;
     if let Err(e) = &result {
@@ -68,6 +81,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             &chek_sources::Options {
                 image_cache_bytes: config.extension_image_cache_mb.saturating_mul(1 << 20),
                 browser_solver: config.browser_solver,
+                browser_executable: config.browser_executable,
+                worker_executable: Some(std::env::current_exe()?),
             },
         )?),
         progress_writes: remote::progress_writer(chek_library::http_client()?),

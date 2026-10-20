@@ -111,6 +111,8 @@ struct ImageRef {
     url: String,
     #[serde(default)]
     headers: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transform: Option<String>,
 }
 
 pub async fn search(
@@ -333,6 +335,7 @@ pub(crate) fn image_json(image: &Image) -> String {
     let reference = ImageRef {
         url: image.url.clone(),
         headers: image.headers.clone(),
+        transform: image.transform.clone(),
     };
     serde_json::to_string(&reference).unwrap_or_default()
 }
@@ -342,6 +345,7 @@ pub(crate) fn image_from_json(json: &[u8]) -> Option<Image> {
     Some(Image {
         url: reference.url,
         headers: reference.headers,
+        transform: reference.transform,
     })
 }
 

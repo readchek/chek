@@ -97,7 +97,9 @@ files from; see [Komga libraries](docs/server.md#komga-libraries). Covers and
 pages fetched through source extensions are cached on disk up to
 `CHEK_EXTENSION_IMAGE_CACHE_MB` (default 2048; 0 turns it off), and
 `CHEK_BROWSER_SOLVER_URL` points extensions that need a browser, for sites
-behind Cloudflare, at a FlareSolverr-compatible service. People can
+behind Cloudflare, at a FlareSolverr-compatible service. Interactive browser
+sessions use `CHEK_BROWSER_EXECUTABLE`, an absolute Chromium path; see the
+[extension guide](extensions/README.md#interactive-pages). People can
 sign in through OpenID Connect providers such as Authentik, Authelia or
 Google, set up with `CHEK_PUBLIC_URL`, `CHEK_OIDC_PROVIDERS` and
 `CHEK_OIDC_<ID>_*`; see [Sign-in providers](docs/server.md#sign-in-providers).

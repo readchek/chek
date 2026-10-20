@@ -329,18 +329,18 @@ the `index.json` for any folder of components.
 
 - An extension is a WebAssembly component built against the `source` world
   in [`wit/source.wit`](../crates/chek-sources/wit/source.wit). It exports a
-  manifest and four calls: search, series, chapters and pages. Series and
+  manifest, search, series, chapters, pages and an image transform hook. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
   come back as URLs with headers, which the server fetches itself. A series
   also says whether it's still going, the year it started and its genres,
   where the source knows, which the API passes on as it is.
-- The contract's version is in the package name, `chek:source@0.3.0`. A
+- The contract's version is in the package name, `chek:source@0.4.0`. A
   component built against another version doesn't link, so every change to
   a record or call bumps it, and every source is rebuilt and republished.
 - Each call runs in a fresh instance, so nothing in memory carries over
   between calls. WASI is linked with nothing in it: no files, environment,
   sockets or name lookups. The only ways out are the host's imports: `http`,
-  `cache` and `cookies`.
+  `cache`, `cookies`, `browser`, `browser-session` and `images`.
 - `cache` keeps values an extension sets, and a GET can ask for its 2xx
   response to be kept for a number of seconds and reused for the same URL
   and headers. Cached responses don't count toward a call's requests. Values
@@ -357,8 +357,7 @@ the `index.json` for any folder of components.
   component that reuses another's id with different sites starts empty, and
   an update that changes the sites does too. None is available while the
   manifest is read.
-- Sites behind a Cloudflare challenge need a real browser. The host doesn't
-  run one: an admin points `CHEK_BROWSER_SOLVER_URL` at a
+- For challenge solving, an admin points `CHEK_BROWSER_SOLVER_URL` at a
   FlareSolverr-compatible service, such as `http://flaresolverr:8191/v1`,
   and extensions whose manifest lists the `browser` capability may use it.
   When one of their requests or image fetches meets a challenge (a 403, 429
@@ -372,6 +371,29 @@ the `index.json` for any folder of components.
   the rendered HTML, for pages that only work with scripts running. It
   counts as a request. The solver's browser follows the page wherever it
   leads, so the solver is the admin's to trust, like the server itself.
+- Interactive pages use a separate `browser-session` capability. With
+  `CHEK_BROWSER_EXECUTABLE` set to an absolute Chromium/headless-shell path,
+  Chek starts a Rust CDP worker for one export call. It provides async script
+  evaluation, click and scroll, with no Playwright or JavaScript runtime on
+  the host. Browser HTTP requests are intercepted and relayed through the
+  host's HTTPS/site checks, including frames and redirects; a non-forwarding
+  proxy blocks direct networking. Cookies merge into the extension's shared
+  jar after successful operations. This path does not invoke the solver.
+  Sessions allow 32 operations, 30 seconds each and 120 seconds total; script
+  input is capped at 64 KiB and JSON results at 1 MiB. Four browser/image
+  workers may run together. A supervisor kills the process group and removes
+  its temporary directory on close, failure or expiry. Chromium's memory is
+  outside the WASM cap; process separation is not an OS security sandbox.
+- An image may carry source-defined transform parameters. With the
+  `image-transform` capability, the host invokes `transform-image` after
+  fetching and caches the result by extension scope, version, component
+  digest, URL, headers and parameters. The hook has no network or mutable
+  state access and must depend only on its inputs and code. Input/output
+  bodies are capped at 8 MiB. `images.rearrange` moves tiles using libvips in
+  a supervised ten-second worker: at most 256 tiles, 8 million pixels, four
+  8-bit channels and one operation per hook. See the
+  [extension guide](../extensions/README.md) for setup, limits and the required
+  rebuild from contract 0.3 to 0.4.
 - The manifest names the hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as

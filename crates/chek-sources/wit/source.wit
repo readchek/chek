@@ -3,7 +3,7 @@
 // An extension is a WebAssembly component that targets the `source` world. It
 // runs with an empty WASI environment: no files, no environment variables, no
 // sockets and no clock beyond what WASI always gives. The only way out is the
-// `http` interface, and the server lets it reach only the sites the
+// host interfaces, and the server lets HTTP requests reach only the sites the
 // extension's manifest declares.
 //
 // Every call starts from a fresh instance, so memory doesn't carry over
@@ -12,7 +12,7 @@
 // `cookies` holds a jar the server sends and fills on every request, as a
 // browser would. All three are kept per extension id and sites, across
 // versions and restarts, and none is available while the manifest is read.
-package chek:source@0.3.0;
+package chek:source@0.4.0;
 
 interface types {
     type header = tuple<string, string>;
@@ -23,6 +23,14 @@ interface types {
     record image {
         url: string,
         headers: list<header>,
+        // Source-defined transform parameters, included in the image cache
+        // key. None keeps the ordinary fetch path without calling the hook.
+        transform: option<string>,
+    }
+
+    record image-data {
+        content-type: string,
+        body: list<u8>,
     }
 
     enum reading-direction {
@@ -55,6 +63,10 @@ interface types {
         // `browser` interface loads pages in it directly. Without a
         // solver, challenges come back as the site sent them.
         browser,
+        // A private interactive browser during one export call.
+        browser-session,
+        // May transform fetched images and use the image operations below.
+        image-transform,
     }
 
     record series-item {
@@ -208,12 +220,38 @@ interface browser {
     load: func(url: string) -> result<response, http-error>;
 }
 
+// One session per export call. Opening another replaces it. Closing, a
+// failure, a trap or the end of the call releases it. Sessions last at most
+// 120 seconds, with 32 operations, 30 seconds per operation and 1 MiB results.
+// JavaScript runs in the page, never in the worker or server.
+interface browser-session {
+    open: func(url: string) -> result<_, string>;
+    // An expression or async function invocation; returns JSON text.
+    evaluate: func(script: string) -> result<string, string>;
+    // Coordinates in viewport CSS pixels. These use native browser input.
+    click: func(x: u32, y: u32) -> result<_, string>;
+    scroll: func(x: u32, y: u32, delta-x: s32, delta-y: s32) -> result<_, string>;
+    close: func();
+}
+
+// Native raster operations run in an isolated, time-limited worker. Only
+// 8-bit JPEG, PNG and WebP inputs, up to 8 MiB and 8 million pixels, are accepted.
+interface images {
+    // Output is lossless PNG. `order[destination]` names the source tile;
+    // it must be a permutation of rows * columns, at most 256 tiles.
+    // Partial pixels along the right and bottom edges stay in place.
+    rearrange: func(body: list<u8>, columns: u32, rows: u32, order: list<u32>) -> result<list<u8>, string>;
+}
+
 world source {
     import http;
     import cache;
     import cookies;
     import browser;
-    use types.{manifest, series-page, series, chapter, image, error};
+    import browser-session;
+    import images;
+    use types.{manifest, series-page, series, chapter, image, image-data, error};
+    use http.{response};
 
     // Called without network access, before anything else.
     export manifest: func() -> manifest;
@@ -225,4 +263,9 @@ world source {
     export chapters: func(series-id: string) -> result<list<chapter>, error>;
     // The chapter's pages in reading order.
     export pages: func(chapter-id: string) -> result<list<image>, error>;
+    // Called only for images with transform parameters, after fetching.
+    // None preserves the response. Inputs and output are capped at 8 MiB.
+    // Must depend only on image, response and this component's code; all
+    // additional parameters belong in image.transform, not mutable state.
+    export transform-image: func(image: image, response: response) -> result<option<image-data>, error>;
 }

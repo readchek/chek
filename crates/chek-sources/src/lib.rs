@@ -12,16 +12,20 @@
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
 mod browser;
+mod cdp;
 mod cookies;
 mod http;
 mod images;
 mod installed;
 pub mod repository;
+mod session;
 mod sites;
 mod store;
+mod transform;
+mod worker;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
@@ -30,7 +34,9 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
+pub use crate::cdp::browser_worker;
 pub use crate::installed::Extensions;
+pub use crate::transform::image_worker;
 
 use crate::browser::{Browser, FlareSolverr, Solver};
 use crate::cookies::Jar;
@@ -44,13 +50,13 @@ mod bindings {
 }
 
 pub use bindings::chek::source::types::{
-    Capability, Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection,
-    Series, SeriesItem, SeriesPage, Status,
+    Capability, Chapter, Contributor, Error as SourceError, Image, ImageData, Manifest,
+    ReadingDirection, Series, SeriesItem, SeriesPage, Status,
 };
 
 /// The contract version this server links, as the package in `source.wit`
 /// names it. Components built against another don't link.
-pub const CONTRACT_VERSION: &str = "0.3.0";
+pub const CONTRACT_VERSION: &str = "0.4.0";
 
 /// Memory one instance may grow to.
 const MAX_MEMORY: usize = 64 << 20;
@@ -108,6 +114,9 @@ pub struct Host {
     store: Arc<store::Store>,
     images: Arc<ImageCache>,
     solver: Option<Arc<dyn Solver>>,
+    browser_executable: Option<PathBuf>,
+    worker_executable: Option<PathBuf>,
+    clock: Arc<std::sync::mpsc::Sender<()>>,
     /// One jar and browser per extension, so every loaded version shares
     /// them.
     scopes: Mutex<HashMap<String, Scope>>,
@@ -126,12 +135,27 @@ pub struct Options {
     /// A FlareSolverr-compatible endpoint, such as
     /// `http://flaresolverr:8191/v1`, for extensions that need a browser.
     pub browser_solver: Option<String>,
+    /// Chromium executable, for interactive browser sessions.
+    pub browser_executable: Option<PathBuf>,
+    /// Server executable, invoked in browser or image worker mode.
+    pub worker_executable: Option<PathBuf>,
 }
 
 impl Host {
     /// Keeps extensions' caches and cookies in `state.db` in `dir`, which
     /// is made if it's missing, and fetched images in `images` there.
     pub fn new(dir: &Path, options: &Options) -> Result<Self, Error> {
+        for path in [&options.browser_executable, &options.worker_executable]
+            .into_iter()
+            .flatten()
+        {
+            if !path.is_absolute() || !path.is_file() {
+                return Err(Error::Storage(format!(
+                    "worker executables must be absolute file paths: {}",
+                    path.display()
+                )));
+            }
+        }
         let store = Arc::new(store::Store::open(&dir.join("state.db")).map_err(Error::Storage)?);
         let images = Arc::new(ImageCache::open(
             dir.join("images"),
@@ -145,7 +169,18 @@ impl Host {
         };
         let mut config = Config::new();
         config.consume_fuel(true);
+        config.epoch_interruption(true);
         let engine = Engine::new(&config).map_err(trap)?;
+        let (clock, stopped) = std::sync::mpsc::channel();
+        let ticking = engine.clone();
+        std::thread::spawn(move || {
+            while matches!(
+                stopped.recv_timeout(std::time::Duration::from_millis(10)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                ticking.increment_epoch();
+            }
+        });
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(trap)?;
         bindings::Source::add_to_linker::<State, HasSelf<State>>(&mut linker, |state| state)
@@ -156,6 +191,9 @@ impl Host {
             store,
             images,
             solver,
+            browser_executable: options.browser_executable.clone(),
+            worker_executable: options.worker_executable.clone(),
+            clock: Arc::new(clock),
             scopes: Mutex::default(),
         })
     }
@@ -181,7 +219,9 @@ impl Host {
             .map_err(link_error)?;
         let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
-        let manifest = run(&pre, None, |bindings, store| bindings.call_manifest(store))?;
+        let manifest = run(&pre, None, false, |bindings, store| {
+            bindings.call_manifest(store)
+        })?;
         let manifest = check_manifest(manifest)?;
         let sites = Sites::parse(&manifest.sites).map_err(Error::Manifest)?;
         // State belongs to the id and sites together, so a component from
@@ -197,29 +237,52 @@ impl Host {
             .entry(scope.clone())
             .or_insert_with(|| {
                 let jar = Arc::new(Jar::load(&scope, Arc::clone(&self.store)));
-                let browser = self.solver.as_ref().map(|solver| {
-                    Arc::new(Browser::new(
-                        Arc::clone(solver),
-                        Arc::clone(&jar),
-                        Arc::clone(&self.store),
-                        scope.clone(),
-                    ))
-                });
+                let browser =
+                    (self.solver.is_some() || self.browser_executable.is_some()).then(|| {
+                        Arc::new(Browser::new(
+                            self.solver.clone(),
+                            Arc::clone(&jar),
+                            Arc::clone(&self.store),
+                            scope.clone(),
+                        ))
+                    });
                 Scope { jar, browser }
             })
             .clone();
-        let browser = browser.filter(|_| manifest.capabilities.contains(&Capability::Browser));
+        let browser = browser.filter(|_| {
+            manifest
+                .capabilities
+                .iter()
+                .any(|c| matches!(c, Capability::Browser | Capability::BrowserSession))
+        });
         let context = Arc::new(Context {
             scope,
-            net: Net::new(sites, Arc::clone(&jar), browser).map_err(Error::Manifest)?,
+            net: Net::new(
+                sites,
+                Arc::clone(&jar),
+                browser,
+                manifest.capabilities.contains(&Capability::Browser),
+            )
+            .map_err(Error::Manifest)?,
             store: Arc::clone(&self.store),
             images: Arc::clone(&self.images),
             jar,
+            browser_executable: self
+                .browser_executable
+                .clone()
+                .filter(|_| manifest.capabilities.contains(&Capability::BrowserSession)),
+            image_worker: self
+                .worker_executable
+                .clone()
+                .filter(|_| manifest.capabilities.contains(&Capability::ImageTransform)),
+            _clock: Arc::clone(&self.clock),
+            worker_executable: self.worker_executable.clone(),
         });
         Ok(Source {
             pre,
             manifest,
             context,
+            digest: repository::sha256_hex(wasm),
         })
     }
 }
@@ -229,6 +292,7 @@ pub struct Source {
     pre: bindings::SourcePre<State>,
     manifest: Manifest,
     context: Arc<Context>,
+    digest: String,
 }
 
 /// What an extension's calls may use beyond their own instance.
@@ -239,9 +303,13 @@ struct Context {
     store: Arc<store::Store>,
     images: Arc<ImageCache>,
     jar: Arc<Jar>,
+    browser_executable: Option<PathBuf>,
+    worker_executable: Option<PathBuf>,
+    image_worker: Option<PathBuf>,
+    _clock: Arc<std::sync::mpsc::Sender<()>>,
 }
 
-/// An image's bytes as the site sent them.
+/// An image's final bytes, after any source transform.
 pub struct Fetched {
     pub content_type: Option<String>,
     pub bytes: Vec<u8>,
@@ -278,10 +346,32 @@ impl Source {
 
     /// Fetches a cover or page the extension returned, held to the same sites.
     pub fn fetch_image(&self, image: &Image) -> Result<Fetched, Error> {
+        if let Some(parameters) = &image.transform {
+            if !self
+                .manifest
+                .capabilities
+                .contains(&Capability::ImageTransform)
+            {
+                return Err(Error::Image(
+                    "the extension doesn't declare image-transform".to_owned(),
+                ));
+            }
+            if parameters.len() > 16 << 10 {
+                return Err(Error::Image(
+                    "image transform parameters exceed 16 KiB".to_owned(),
+                ));
+            }
+        }
         let key = repository::sha256_hex(
-            json!([self.context.scope, request_key(&image.url, &image.headers)])
-                .to_string()
-                .as_bytes(),
+            json!([
+                self.context.scope,
+                self.manifest.version,
+                self.digest,
+                request_key(&image.url, &image.headers),
+                image.transform
+            ])
+            .to_string()
+            .as_bytes(),
         );
         if let Some((content_type, bytes)) = self.context.images.get(&key) {
             return Ok(Fetched {
@@ -289,14 +379,19 @@ impl Source {
                 bytes,
             });
         }
+        let max_bytes = if image.transform.is_some() {
+            transform::MAX_BYTES as u64
+        } else {
+            MAX_IMAGE
+        };
         let (status, headers, bytes) = self
             .context
             .net
-            .send(Method::GET, &image.url, &image.headers, None, MAX_IMAGE)
+            .send(Method::GET, &image.url, &image.headers, None, max_bytes)
             .map_err(|error| {
                 Error::Image(match error {
                     FetchError::NotAllowed(reason) => reason,
-                    FetchError::TooLarge => format!("larger than {MAX_IMAGE} bytes"),
+                    FetchError::TooLarge => format!("larger than {max_bytes} bytes"),
                     FetchError::Timeout => "timed out".to_owned(),
                     FetchError::Failed(reason) => reason,
                 })
@@ -304,7 +399,41 @@ impl Source {
         if !(200..300).contains(&status) {
             return Err(Error::Image(format!("the site answered {status}")));
         }
-        let content_type = http::content_type(&headers);
+        let mut content_type = http::content_type(&headers);
+        let mut bytes = bytes;
+        if image.transform.is_some() {
+            let response = bindings::chek::source::http::Response {
+                status,
+                headers: headers
+                    .iter()
+                    .filter_map(|(n, v)| Some((n.to_string(), v.to_str().ok()?.to_owned())))
+                    .collect(),
+                body: bytes.clone(),
+                cached: false,
+            };
+            if let Some(transformed) = run(
+                &self.pre,
+                Some(Arc::clone(&self.context)),
+                true,
+                |bindings, store| bindings.call_transform_image(store, image, &response),
+            )?
+            .map_err(Error::Source)?
+            {
+                if transformed.body.len() > transform::MAX_BYTES
+                    || !matches!(
+                        transformed.content_type.as_str(),
+                        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+                    )
+                {
+                    return Err(Error::Image(
+                        "transformed image exceeds 8 MiB or has an unsupported content type"
+                            .to_owned(),
+                    ));
+                }
+                content_type = Some(transformed.content_type);
+                bytes = transformed.body;
+            }
+        }
         self.context
             .images
             .put(&key, content_type.as_deref(), &bytes);
@@ -318,7 +447,7 @@ impl Source {
         &self,
         export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> Result<R, Error> {
-        run(&self.pre, Some(Arc::clone(&self.context)), export)
+        run(&self.pre, Some(Arc::clone(&self.context)), false, export)
     }
 }
 
@@ -326,6 +455,7 @@ impl Source {
 fn run<R>(
     pre: &bindings::SourcePre<State>,
     context: Option<Arc<Context>>,
+    transforming: bool,
     export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
 ) -> Result<R, Error> {
     let state = State {
@@ -338,10 +468,14 @@ fn run<R>(
         limits: StoreLimitsBuilder::new().memory_size(MAX_MEMORY).build(),
         context,
         requests: 0,
+        transforming,
+        session: None,
+        image_operations: 0,
     };
     let mut store = Store::new(pre.engine(), state);
     store.limiter(|state| &mut state.limits);
     store.set_fuel(MAX_FUEL).map_err(trap)?;
+    store.set_epoch_deadline(if transforming { 1_000 } else { 12_000 });
     let bindings = pre.instantiate(&mut store).map_err(trap)?;
     export(&bindings, &mut store).map_err(trap)
 }
@@ -353,6 +487,9 @@ struct State {
     /// None while the manifest is read.
     context: Option<Arc<Context>>,
     requests: u32,
+    transforming: bool,
+    session: Option<session::Session>,
+    image_operations: u32,
 }
 
 impl WasiView for State {
@@ -373,6 +510,11 @@ impl bindings::chek::source::http::Host for State {
     ) -> Result<bindings::chek::source::http::Response, bindings::chek::source::http::HttpError>
     {
         use bindings::chek::source::http::{HttpError, Method, Response};
+        if self.transforming {
+            return Err(HttpError::NotAllowed(
+                "image transforms have no network or state access".to_owned(),
+            ));
+        }
         let Some(context) = &self.context else {
             return Err(HttpError::NotAllowed(
                 "the manifest is read without network".to_owned(),
@@ -432,9 +574,90 @@ fn request_key(url: &str, headers: &[(String, String)]) -> String {
 
 impl State {
     fn context(&self) -> Result<&Context, String> {
+        if self.transforming {
+            return Err("image transforms have no network or state access".to_owned());
+        }
         self.context
             .as_deref()
             .ok_or_else(|| "not available while the manifest is read".to_owned())
+    }
+}
+
+impl bindings::chek::source::browser_session::Host for State {
+    fn open(&mut self, url: String) -> Result<(), String> {
+        self.session = None;
+        let context = self.context()?;
+        context.net.allowed_url(&url)?;
+        let executable = context
+            .browser_executable
+            .as_ref()
+            .ok_or("browser-session requires its capability and CHEK_BROWSER_EXECUTABLE")?;
+        let worker = context
+            .worker_executable
+            .as_ref()
+            .ok_or("no native worker executable is configured")?;
+        self.session = Some(session::Session::start(worker, executable, context)?);
+        self.browser_operation(json!({"type": "open", "url": url}))
+            .map(|_| ())
+    }
+
+    fn evaluate(&mut self, script: String) -> Result<String, String> {
+        self.browser_operation(json!({"type": "evaluate", "script": script}))
+    }
+
+    fn click(&mut self, x: u32, y: u32) -> Result<(), String> {
+        self.browser_operation(json!({"type": "click", "x": x, "y": y}))
+            .map(|_| ())
+    }
+
+    fn scroll(&mut self, x: u32, y: u32, delta_x: i32, delta_y: i32) -> Result<(), String> {
+        self.browser_operation(
+            json!({"type": "scroll", "x": x, "y": y, "deltaX": delta_x, "deltaY": delta_y}),
+        )
+        .map(|_| ())
+    }
+
+    fn close(&mut self) {
+        self.session = None;
+    }
+}
+
+impl State {
+    fn browser_operation(&mut self, command: serde_json::Value) -> Result<String, String> {
+        let mut session = self.session.take().ok_or("no browser session is open")?;
+        let context = self
+            .context
+            .as_ref()
+            .ok_or("browser isn't available while reading the manifest")?;
+        let result = session.operation(context, command, &mut self.requests);
+        if result.is_ok() {
+            self.session = Some(session);
+        }
+        result
+    }
+}
+
+impl bindings::chek::source::images::Host for State {
+    fn rearrange(
+        &mut self,
+        body: Vec<u8>,
+        columns: u32,
+        rows: u32,
+        order: Vec<u32>,
+    ) -> Result<Vec<u8>, String> {
+        if !self.transforming {
+            return Err("image operations are only available in transform-image".to_owned());
+        }
+        if self.image_operations >= 1 {
+            return Err("one native image operation is allowed per transform".to_owned());
+        }
+        self.image_operations += 1;
+        let path = self
+            .context
+            .as_ref()
+            .and_then(|c| c.image_worker.as_ref())
+            .ok_or("image-transform requires its capability and an image worker")?;
+        transform::rearrange(path, &body, columns, rows, &order)
     }
 }
 
@@ -476,7 +699,7 @@ impl bindings::chek::source::browser::Host for State {
         }
         self.requests += 1;
         let context = self.context().map_err(HttpError::NotAllowed)?;
-        let Some(browser) = context.net.browser() else {
+        let Some(browser) = context.net.solver() else {
             return Err(HttpError::NotAllowed(
                 "the browser needs the `browser` capability and a solver the admin set up"
                     .to_owned(),

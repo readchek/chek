@@ -44,6 +44,8 @@ pub struct Config {
     /// `http://flaresolverr:8191/v1`, which extensions with the `browser`
     /// capability use to get past challenges. Default none.
     pub browser_solver: Option<String>,
+    /// `CHEK_BROWSER_EXECUTABLE`, absolute path to a Chromium executable.
+    pub browser_executable: Option<PathBuf>,
     /// `CHEK_PUBLIC_URL`, the address people reach the server at, such as
     /// `https://chek.example.com`. Needed for sign-in providers, which send
     /// people back to it.
@@ -140,6 +142,9 @@ impl Config {
                 }
                 _ => None,
             },
+            browser_executable: env::var_os("CHEK_BROWSER_EXECUTABLE")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
             oidc_providers: list("CHEK_OIDC_PROVIDERS", "")
                 .iter()
                 .map(|id| provider(id))

@@ -2888,7 +2888,10 @@ components:
           description: >-
             What the extension needs beyond plain requests. `browser` means it
             uses the server's browser solver, set with `CHEK_BROWSER_SOLVER_URL`,
-            to get past challenges such as Cloudflare's.
+            to get past challenges such as Cloudflare's. `browser-session`
+            uses an interactive Chromium session, configured with
+            `CHEK_BROWSER_EXECUTABLE`. `image-transform` lets the extension
+            transform fetched images before they are cached and served.
           items:
             type: string
     RemoteImageUrl:

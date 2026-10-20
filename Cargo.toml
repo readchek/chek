@@ -25,6 +25,7 @@ encoding_rs = "0.8.35"
 # Links the system libarchive, which reads RAR and 7-Zip comics.
 compress-tools = { version = "0.16.1", default-features = false }
 cookie_store = { version = "0.22.1", features = ["serde_json"] }
+command-group = { version = "5.0.1", default-features = false }
 flate2 = "1.1.10"
 getrandom = "0.4.3"
 http-body-util = "0.1.5"
@@ -41,6 +42,8 @@ serde_json = "1.0.154"
 sha2 = "0.10.9"
 serde_urlencoded = "0.7.1"
 thiserror = "2.0.21"
+tempfile = "3.27.0"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["fs"] }
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "fs"] }

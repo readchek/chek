@@ -9,12 +9,16 @@ repository.workspace = true
 [dependencies]
 base64.workspace = true
 cookie_store.workspace = true
+command-group.workspace = true
+libvips.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+tempfile.workspace = true
+tungstenite.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true

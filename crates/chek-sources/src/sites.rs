@@ -42,6 +42,17 @@ impl Sites {
                 .is_some_and(|rest| rest.len() > 1 && rest.ends_with('.')),
         })
     }
+
+    /// A permitted host may set a cookie for a parent domain. The jar is
+    /// scoped to this extension; this does not permit requests to that parent.
+    pub(crate) fn allows_cookie_domain(&self, domain: &str) -> bool {
+        let suffix = format!(".{}", domain.to_ascii_lowercase());
+        self.allows(domain)
+            || self.0.iter().any(|site| {
+                let (Site::Exact(host) | Site::Subdomains(host)) = site;
+                host.eq_ignore_ascii_case(domain) || host.ends_with(&suffix)
+            })
+    }
 }
 
 fn parse_site(entry: &str) -> Result<Site, String> {
