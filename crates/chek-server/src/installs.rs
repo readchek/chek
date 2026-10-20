@@ -202,10 +202,25 @@ fn dto(
 }
 
 fn invalid_extension(error: chek_sources::Error) -> ApiError {
-    ApiError {
-        status: StatusCode::UNPROCESSABLE_ENTITY,
-        code: "extension_invalid",
-        message: error.to_string(),
+    match error {
+        chek_sources::Error::Incompatible(_) => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_incompatible",
+            message: format!(
+                "this extension was built for another version of Chek's source contract; this server links {}",
+                chek_sources::CONTRACT_VERSION
+            ),
+        },
+        error @ chek_sources::Error::Mismatch(_) => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_mismatch",
+            message: error.to_string(),
+        },
+        error => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_invalid",
+            message: error.to_string(),
+        },
     }
 }
 
