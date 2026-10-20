@@ -2886,7 +2886,7 @@ components:
             - type: "null"
     RemoteSeries:
       type: object
-      required: [id, title, summary, coverUrl, contributors, readingDirection]
+      required: [id, title, summary, coverUrl, contributors, readingDirection, status, year, tags]
       properties:
         id:
           type: string
@@ -2911,6 +2911,18 @@ components:
         readingDirection:
           type: [string, "null"]
           enum: [ltr, rtl, ttb, null]
+        status:
+          type: [string, "null"]
+          enum: [ongoing, completed, hiatus, cancelled, null]
+          description: Whether the series is still going, as the source says.
+        year:
+          type: [integer, "null"]
+          description: The year the series started, when the source knows.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Genres and themes as the source names them, most important first.
     RemoteChapter:
       type: object
       required: [id, title, number, version, published]

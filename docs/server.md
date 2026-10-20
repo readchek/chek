@@ -324,7 +324,12 @@ the `index.json` for any folder of components.
   in [`wit/source.wit`](../crates/chek-sources/wit/source.wit). It exports a
   manifest and four calls: search, series, chapters and pages. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
-  come back as URLs with headers, which the server fetches itself.
+  come back as URLs with headers, which the server fetches itself. A series
+  also says whether it's still going, the year it started and its genres,
+  where the source knows, which the API passes on as it is.
+- The contract's version is in the package name, `chek:source@0.3.0`. A
+  component built against another version doesn't link, so every change to
+  a record or call bumps it, and every source is rebuilt and republished.
 - Each call runs in a fresh instance, so nothing in memory carries over
   between calls. WASI is linked with nothing in it: no files, environment,
   sockets or name lookups. The only ways out are the host's imports: `http`,

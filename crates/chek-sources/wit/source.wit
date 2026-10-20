@@ -12,7 +12,7 @@
 // `cookies` holds a jar the server sends and fills on every request, as a
 // browser would. All three are kept per extension id and sites, across
 // versions and restarts, and none is available while the manifest is read.
-package chek:source@0.2.0;
+package chek:source@0.3.0;
 
 interface types {
     type header = tuple<string, string>;
@@ -75,6 +75,15 @@ interface types {
         role: string,
     }
 
+    // Whether a series is still going, as the source says.
+    enum status {
+        ongoing,
+        completed,
+        // Paused by its author or publisher, expected to resume.
+        hiatus,
+        cancelled,
+    }
+
     record series {
         id: string,
         title: string,
@@ -82,6 +91,12 @@ interface types {
         cover: option<image>,
         contributors: list<contributor>,
         reading-direction: option<reading-direction>,
+        status: option<status>,
+        // The year it started, when the source knows.
+        year: option<u16>,
+        // Genres and themes as the source names them, in reading order of
+        // importance, such as `Action` or `Slice of Life`. Empty if none.
+        tags: list<string>,
     }
 
     record chapter {

@@ -45,7 +45,7 @@ mod bindings {
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error as SourceError, Image, Manifest, ReadingDirection,
-    Series, SeriesItem, SeriesPage,
+    Series, SeriesItem, SeriesPage, Status,
 };
 
 /// Memory one instance may grow to.

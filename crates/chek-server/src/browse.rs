@@ -15,7 +15,7 @@ use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chek_catalog::ExtensionInstall;
-use chek_sources::{Image, ReadingDirection, Source, SourceError};
+use chek_sources::{Image, ReadingDirection, Source, SourceError, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -55,6 +55,9 @@ pub struct RemoteSeriesDto {
     cover_url: Option<String>,
     contributors: Vec<ContributorDto>,
     reading_direction: Option<&'static str>,
+    status: Option<&'static str>,
+    year: Option<u16>,
+    tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -161,6 +164,9 @@ pub async fn series(
             })
             .collect(),
         reading_direction: series.reading_direction.map(direction),
+        status: series.status.map(status),
+        year: series.year,
+        tags: series.tags,
     }))
 }
 
@@ -324,6 +330,15 @@ pub(crate) fn image_from_json(json: &[u8]) -> Option<Image> {
         url: reference.url,
         headers: reference.headers,
     })
+}
+
+fn status(status: Status) -> &'static str {
+    match status {
+        Status::Ongoing => "ongoing",
+        Status::Completed => "completed",
+        Status::Hiatus => "hiatus",
+        Status::Cancelled => "cancelled",
+    }
 }
 
 fn direction(direction: ReadingDirection) -> &'static str {
