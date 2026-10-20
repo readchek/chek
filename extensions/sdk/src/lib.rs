@@ -37,7 +37,7 @@ pub mod bindings {
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error, Image, ImageData, Manifest, ReadingDirection, Series,
-    SeriesItem, SeriesPage,
+    SeriesItem, SeriesPage, Status,
 };
 pub use bindings::chek::source::{browser, browser_session, cache, cookies, http, images};
 pub use bindings::{Guest, export_source};
@@ -49,7 +49,8 @@ use bindings::chek::source::http::{HttpError, Method, Request, Response};
 pub mod prelude {
     pub use crate::{
         Capability, Chapter, Contributor, Error, Get, Guest, Image, ImageData, Manifest,
-        ReadingDirection, Series, SeriesItem, SeriesPage, Value, encode, export_source, image,
+        ReadingDirection, Series, SeriesItem, SeriesPage, Status, Value, encode, export_source,
+        image,
     };
 }
 

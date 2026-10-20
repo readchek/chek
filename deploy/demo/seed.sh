@@ -158,11 +158,13 @@ wait_for_server
 sign_in
 comics=$(library Comics "$LIBRARY/comics")
 books=$(library Books "$LIBRARY/books")
-corpus=$(library "Test corpus" "$LIBRARY/corpus")
+library "Test corpus" "$LIBRARY/corpus" > /dev/null
 
-# The demo reader sees every library. An existing reader keeps its password,
-# since changing it would sign testers out on every deploy.
-grants=$(jq -n --argjson a "$comics" --argjson b "$books" --argjson c "$corpus" '[$a, $b, $c]')
+# The demo reader sees the curated libraries only: the Test corpus holds
+# files made to fail, which a visitor would take for bugs. An existing reader
+# keeps its password, since changing it would sign testers out on every
+# deploy; CHEK_DEMO_USERS stops anyone else from changing it.
+grants=$(jq -n --argjson a "$comics" --argjson b "$books" '[$a, $b]')
 reader=$(api GET /api/v1/users | jq -r --arg name "$READER_NAME" '.items[] | select(.name == $name) | .id')
 if [ -z "$reader" ]; then
     log "creating reader $READER_NAME"
@@ -173,5 +175,13 @@ else
     api PATCH "/api/v1/users/$reader" "$(jq -n --argjson grants "$grants" \
         '{libraryIds: $grants}')" > /dev/null
 fi
+
+# The demo offers no sources: the publications are all ours to show, and
+# third-party sites aren't. Removing a repository removes every install from
+# it.
+api GET /api/v1/extension-repositories | jq -r '.items[].id' | while read -r repository; do
+    log "removing extension repository $repository"
+    api DELETE "/api/v1/extension-repositories/$repository" > /dev/null
+done
 api POST /api/v1/auth/sign-out > /dev/null
 log "done"

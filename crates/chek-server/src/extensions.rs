@@ -125,6 +125,7 @@ pub async fn add_repository(
     current: CurrentUser,
     body: Result<Json<NewRepository>, JsonRejection>,
 ) -> Result<(StatusCode, Json<RepositoryDto>), ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let url = repository::repository_url(&body.url).map_err(repository_error)?;
     let owner_id = (current.user.role != Role::Admin).then_some(current.user.id);
@@ -162,6 +163,7 @@ pub async fn delete_repository(
     current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     let repository = visible_repository(&state, &current, id).await?;
     if repository.owner_id.is_none() {
         current.require_admin()?;
@@ -187,6 +189,7 @@ pub async fn update_repository(
     Path(id): Path<i64>,
     body: Result<Json<RepositoryChanges>, JsonRejection>,
 ) -> Result<Json<RepositoryDto>, ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let repository = visible_repository(&state, &current, id).await?;
     if repository.owner_id.is_none() {

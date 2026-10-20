@@ -248,6 +248,7 @@ pub async fn authorize_link(
     Path(id): Path<String>,
     body: Result<Json<AuthorizeRequest>, JsonRejection>,
 ) -> Result<Json<AuthorizeDto>, ApiError> {
+    current.refuse_demo()?;
     start(&state, &id, body, Some(current.user.id)).await
 }
 
@@ -764,6 +765,7 @@ pub async fn unlink(
     current: CurrentUser,
     Path(provider): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     let user_id = current.user.id;
     let id = provider.clone();
     match blocking(&state, move |c| c.unlink_identity(user_id, &id)).await? {

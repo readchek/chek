@@ -54,6 +54,8 @@ struct MangaAttributes {
     original_language: String,
     #[serde(default)]
     tags: Vec<Tag>,
+    status: Option<String>,
+    year: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +67,8 @@ struct Tag {
 struct TagAttributes {
     #[serde(default)]
     name: HashMap<String, String>,
+    #[serde(default)]
+    group: String,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +148,36 @@ impl Manga {
         } else {
             ReadingDirection::Ltr
         }
+    }
+
+    fn status(&self) -> Option<Status> {
+        match self.attributes.status.as_deref()? {
+            "ongoing" => Some(Status::Ongoing),
+            "completed" => Some(Status::Completed),
+            "hiatus" => Some(Status::Hiatus),
+            "cancelled" => Some(Status::Cancelled),
+            _ => None,
+        }
+    }
+
+    /// Genres first, then themes; formats such as "Long Strip" describe
+    /// the pages rather than the story, and go to the reading direction.
+    fn tags(&self) -> Vec<String> {
+        let mut tags: Vec<(usize, String)> = self
+            .attributes
+            .tags
+            .iter()
+            .filter_map(|t| {
+                let rank = match t.attributes.group.as_str() {
+                    "genre" => 0,
+                    "theme" => 1,
+                    _ => return None,
+                };
+                Some((rank, t.attributes.name.get("en")?.clone()))
+            })
+            .collect();
+        tags.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        tags.into_iter().map(|t| t.1).collect()
     }
 
     fn contributors(&self) -> Vec<Contributor> {
@@ -230,6 +264,9 @@ impl Guest for MangaDex {
             cover: manga.cover(),
             contributors: manga.contributors(),
             reading_direction: Some(manga.reading_direction()),
+            status: manga.status(),
+            year: manga.attributes.year,
+            tags: manga.tags(),
             id,
         })
     }

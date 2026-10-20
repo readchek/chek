@@ -57,6 +57,12 @@ pub struct Config {
     /// may be sent back to after signing in with a provider, besides the
     /// public URL. Default `chek://`.
     pub oidc_redirects: Vec<String>,
+    /// `CHEK_DEMO_USERS`, comma-separated names of shared demo accounts,
+    /// whose password is public. Their account, extensions and annotations
+    /// can't be changed, and their reading places aren't kept, so one
+    /// visitor can't lock the others out or see where they are. Default
+    /// none.
+    pub demo_users: Vec<String>,
 }
 
 /// Long enough that a chosen token can't be guessed like a password.
@@ -144,6 +150,7 @@ impl Config {
                 .map(|id| provider(id))
                 .collect::<Result<_, _>>()?,
             oidc_redirects: list("CHEK_OIDC_REDIRECTS", "chek://"),
+            demo_users: list("CHEK_DEMO_USERS", ""),
         })
         .and_then(|config| {
             if !config.oidc_providers.is_empty() && config.public_url.is_none() {

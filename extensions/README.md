@@ -101,7 +101,7 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
-The current contract is `chek:source@0.3.0`. Components built against 0.2
+The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly
 constructed images and implement `transform_image`, returning `Ok(None)`
 when unused. Bump the source version and regenerate the repository index.

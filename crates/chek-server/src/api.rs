@@ -47,6 +47,8 @@ pub struct AppState {
     pub progress_writes: crate::remote::ProgressWrites,
     /// Sign-in providers and the sign-ins in progress with them.
     pub oidc: Arc<crate::oidc::Oidc>,
+    /// Names of shared demo accounts; see [`crate::auth::CurrentUser::demo`].
+    pub demo_users: Arc<Vec<String>>,
 }
 
 /// Starts a background scan of every library.
@@ -591,6 +593,13 @@ async fn continue_reading(
         .limit
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
+    if current.demo {
+        // Demo places aren't kept; see `progress::save_progress`.
+        return Ok(Json(Page {
+            items: Vec::new(),
+            next_cursor: None,
+        }));
+    }
     let user = current.user.clone();
     let items = blocking(&state, move |c| c.continue_reading(&user, after, limit)).await?;
     let next_cursor = (items.len() == limit as usize)

@@ -51,8 +51,12 @@ mod bindings {
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error as SourceError, Image, ImageData, Manifest,
-    ReadingDirection, Series, SeriesItem, SeriesPage,
+    ReadingDirection, Series, SeriesItem, SeriesPage, Status,
 };
+
+/// The contract version this server links, as the package in `source.wit`
+/// names it. Components built against another don't link.
+pub const CONTRACT_VERSION: &str = "0.4.0";
 
 /// Memory one instance may grow to.
 const MAX_MEMORY: usize = 64 << 20;
@@ -74,6 +78,10 @@ pub(crate) const MAX_FIELD: usize = 200;
 pub enum Error {
     #[error("not a source extension: {0}")]
     Invalid(String),
+    /// A source extension, but built against another version of the
+    /// contract, so it doesn't link with this server.
+    #[error("the extension was built for another version of Chek's source contract: {0}")]
+    Incompatible(String),
     #[error("invalid extension manifest: {0}")]
     Manifest(String),
     /// The extension crashed or went over a limit.
@@ -195,13 +203,21 @@ impl Host {
     pub fn load(&self, wasm: &[u8]) -> Result<Source, Error> {
         let component = Component::new(&self.engine, wasm)
             .map_err(|error| Error::Invalid(format!("{error:#}")))?;
-        let instance = self.linker.instantiate_pre(&component).map_err(|error| {
-            Error::Invalid(format!(
-                "requires chek:source@0.3.0; rebuild the extension with the current SDK: {error:#}"
-            ))
-        })?;
-        let pre = bindings::SourcePre::new(instance)
-            .map_err(|error| Error::Invalid(format!("requires chek:source@0.3.0 and transform-image; rebuild the extension with the current SDK: {error:#}")))?;
+        // A component that names the contract but not this version was
+        // built for another Chek, which is worth saying apart from junk.
+        let link_error = |error: wasmtime::Error| {
+            let message = format!("{error:#}");
+            if message.contains("chek:source/") && !message.contains(CONTRACT_VERSION) {
+                Error::Incompatible(message)
+            } else {
+                Error::Invalid(message)
+            }
+        };
+        let instance = self
+            .linker
+            .instantiate_pre(&component)
+            .map_err(link_error)?;
+        let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
         let manifest = run(&pre, None, false, |bindings, store| {
             bindings.call_manifest(store)
