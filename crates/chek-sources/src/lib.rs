@@ -109,6 +109,7 @@ pub struct Host {
     images: Arc<ImageCache>,
     solver: Option<Arc<dyn Solver>>,
     browser_executable: Option<PathBuf>,
+    browser_args: Vec<String>,
     browser_native: bool,
     worker_executable: Option<PathBuf>,
     clock: Arc<std::sync::mpsc::Sender<()>>,
@@ -132,6 +133,8 @@ pub struct Options {
     pub browser_solver: Option<String>,
     /// Chromium executable, for interactive browser sessions.
     pub browser_executable: Option<PathBuf>,
+    /// Chromium launch arguments, such as `--headless=new`.
+    pub browser_args: Vec<String>,
     /// Use Chromium's native transport through the restricted site proxy.
     pub browser_native: bool,
     /// Server executable, invoked in browser or image worker mode.
@@ -189,6 +192,7 @@ impl Host {
             images,
             solver,
             browser_executable: options.browser_executable.clone(),
+            browser_args: options.browser_args.clone(),
             browser_native: options.browser_native,
             worker_executable: options.worker_executable.clone(),
             clock: Arc::new(clock),
@@ -253,6 +257,7 @@ impl Host {
                 .any(|c| matches!(c, Capability::Browser | Capability::BrowserSession))
         });
         let context = Arc::new(Context {
+            browser_args: self.browser_args.clone(),
             native_sites: self.browser_native.then(|| manifest.sites.clone()),
             scope,
             net: Net::new(
@@ -300,6 +305,7 @@ pub struct Source {
 /// What an extension's calls may use beyond their own instance.
 struct Context {
     native_sites: Option<Vec<String>>,
+    browser_args: Vec<String>,
     verification_pending: AtomicBool,
     handoff: Mutex<Option<session::Session>>,
     calls: Mutex<()>,

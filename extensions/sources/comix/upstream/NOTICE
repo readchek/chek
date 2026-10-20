@@ -5,5 +5,6 @@ https://github.com/keiyoushi/extensions-source/tree/24bd7e69e54020079298d19bf808
 
 site_api.js and chapter_pages.js are unchanged assets from that release's JAR.
 ../src/client.js adapts its chapter-list API discovery and initial-data extraction.
+../src/site_api.js adds discovery for API objects hidden behind proxies.
 ../src/descrambler.rs ports Descrambler.kt using Chek's native image operations.
 The upstream code is licensed under Apache-2.0; see LICENSE.

@@ -83,6 +83,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 image_cache_bytes: config.extension_image_cache_mb.saturating_mul(1 << 20),
                 browser_solver: config.browser_solver,
                 browser_executable: config.browser_executable,
+                browser_args: config.browser_args,
                 browser_native: config.browser_native,
                 worker_executable: Some(std::env::current_exe()?),
             },

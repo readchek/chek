@@ -1,15 +1,15 @@
 //! Comix 1.6.54's WebView flow, ported to Chek browser sessions.
 mod descrambler;
 
-use chek_extension::browser_session;
 use chek_extension::prelude::*;
+use chek_extension::{browser, browser_session, http::HttpError};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
 use std::collections::HashSet;
 
 const SITE: &str = "https://comix.to";
 const CLIENT: &str = include_str!("client.js");
-const SITE_API: &str = include_str!("../upstream/site_api.js");
+const SITE_API: &str = include_str!("site_api.js");
 const CHAPTER_PAGES: &str = include_str!("../upstream/chapter_pages.js");
 const MAX_CHAPTER_PAGES: u32 = 20;
 
@@ -123,7 +123,23 @@ struct Session;
 
 impl Session {
     fn open(path: &str) -> Result<Self, Error> {
-        browser_session::open(&format!("{SITE}{path}")).map_err(Error::Network)?;
+        let url = format!("{SITE}{path}");
+        match browser::load(&url) {
+            Ok(response) if (200..300).contains(&response.status) => {}
+            Ok(response) => {
+                return Err(Error::Network(format!(
+                    "Comix verification returned HTTP {}",
+                    response.status
+                )));
+            }
+            Err(HttpError::Failed(message)) if message == "no browser solver is configured" => {}
+            Err(error) => {
+                return Err(Error::Network(format!(
+                    "Comix verification failed: {error:?}"
+                )));
+            }
+        }
+        browser_session::open(&url).map_err(Error::Network)?;
         Ok(Self)
     }
 
@@ -141,23 +157,43 @@ impl Session {
         }
     }
 
-    fn tap_chapters(&self) -> Result<(), Error> {
+    fn tap_chapters(&self, page: u32) -> Result<(), Error> {
         for _ in 0..8 {
-            let target: Target = self.evaluate("chapterTarget()")?;
+            let target: Target = self.evaluate(&format!("chapterTarget({page})"))?;
             if target.scroll == 0 {
-                return browser_session::click(target.x, target.y).map_err(Error::Network);
+                browser_session::click(target.x, target.y).map_err(Error::Network)?;
+                if self.evaluate::<bool>("chapterInputReceived()")? {
+                    return Ok(());
+                }
+            } else {
+                browser_session::scroll(target.x, target.y, 0, target.scroll)
+                    .map_err(Error::Network)?;
             }
-            browser_session::scroll(target.x, target.y, 0, target.scroll)
-                .map_err(Error::Network)?;
         }
         Err(Error::Other(
-            "Could not scroll to Comix's chapter controls".into(),
+            "Could not activate Comix's chapter controls".into(),
         ))
     }
 
     fn initial<T: DeserializeOwned>(&self, detail: bool) -> Result<T, Error> {
+        self.read(&format!("initialData({detail})"))
+    }
+
+    fn chapter_page(&self, id: &str, page: u32) -> Result<Listing<ChapterData>, Error> {
+        let result = self
+            .tap_chapters(page)
+            .and_then(|()| self.evaluate(&format!("chapterPage({}, {page})", json!(id))));
+        result.map_err(|error| match error {
+            Error::Network(message) => {
+                Error::Network(format!("Comix chapter page {page}: {message}"))
+            }
+            other => other,
+        })
+    }
+
+    fn read<T: DeserializeOwned>(&self, expression: &str) -> Result<T, Error> {
         for attempt in 0..3 {
-            match self.evaluate(&format!("initialData({detail})")) {
+            match self.evaluate(expression) {
                 Err(Error::Network(message))
                     if attempt < 2 && message == "browser page navigated during evaluation" => {}
                 result => return result,
@@ -193,22 +229,58 @@ impl Guest for Comix {
                 "*.digitalsoulstudio.site",
                 "*.blogofjason.site",
                 "*.warmhomemarket.site",
+                "*.alyssablog.site",
+                "*.blogofanna.site",
+                "*.blogofdaniel.site",
+                "*.blogofjustin.site",
+                "*.blogofnicole.site",
+                "*.brittanyswrites.site",
+                "*.dailyinspirationhub.site",
+                "*.designwithheart.site",
+                "*.ericlog.site",
+                "*.handmadewithlove.site",
+                "*.hannahjournal.site",
+                "*.lifebetweenlines.site",
+                "*.lifeinpixels.site",
+                "*.madisonscorner.site",
+                "*.mattspace.site",
+                "*.meganwrites.site",
+                "*.mindfuldailylife.site",
+                "*.naturallivingstore.site",
+                "*.nickslog.site",
+                "*.pureandsimpleshop.site",
+                "*.puregoodsmarket.site",
+                "*.quietmorningthoughts.site",
+                "*.rebeccathoughts.site",
+                "*.ryancorner.site",
+                "*.softfabricstore.site",
+                "*.softvisualstudio.site",
+                "*.thebrandonblog.site",
+                "*.tylerspace.site",
             ]
             .into_iter()
             .map(str::to_owned)
             .collect(),
             languages: vec!["en".into()],
-            capabilities: vec![Capability::BrowserSession, Capability::ImageTransform],
+            capabilities: vec![
+                Capability::Browser,
+                Capability::BrowserSession,
+                Capability::ImageTransform,
+            ],
         }
     }
 
     fn search(query: String, page: u32) -> Result<SeriesPage, Error> {
         let session = Session::open(&format!(
-            "/browse?keyword={}&page={}&order%5Bscore%5D=desc",
+            "/browse?q={}&page={}&sort=relevance%3Adesc",
             encode(query.trim()),
             page.max(1)
         ))?;
-        let list: Listing<Manga> = session.initial(false)?;
+        let list: Listing<Manga> = session.read(&format!(
+            "searchData(({SITE_API}), {}, {})",
+            json!(query.trim()),
+            page.max(1)
+        ))?;
         let has_more = list
             .meta
             .or(list.pagination)
@@ -269,14 +341,12 @@ impl Guest for Comix {
 
     fn chapters(series_id: String) -> Result<Vec<Chapter>, Error> {
         let session = Session::open(&format!("/title/{}", encode(&series_id)))?;
-        session.evaluate::<Value>(&format!("chapterApi(({SITE_API}))"))?;
+        session.read::<Value>(&format!("chapterApi(({SITE_API}))"))?;
         let mut chapters = Vec::new();
         let mut seen = HashSet::new();
         let mut previous_total = None;
         for page in 1..=MAX_CHAPTER_PAGES {
-            session.tap_chapters()?;
-            let list: Listing<ChapterData> =
-                session.evaluate(&format!("chapterPage({}, {page})", json!(series_id)))?;
+            let list = session.chapter_page(&series_id, page)?;
             let meta = list
                 .meta
                 .ok_or_else(|| Error::Parse("Missing chapter pagination".into()))?;
@@ -335,8 +405,9 @@ impl Guest for Comix {
             .and_then(|value| value.parse::<u64>().ok())
             .ok_or_else(|| Error::Parse("Invalid Comix chapter number".into()))?;
         let session = Session::open(&format!("/title/{}/{}", encode(slug), encode(chapter)))?;
-        let list: PageList = session.evaluate(&format!(
-            "new Promise((resolve, reject) => ({CHAPTER_PAGES})(({SITE_API}), {id}, value => resolve(JSON.parse(value)), error => reject(new Error(error))))"
+        let list: PageList = session.read(&format!(
+            "new Promise((resolve, reject) => ({CHAPTER_PAGES})(({SITE_API}), {id}, value => resolve(normalizePages(JSON.parse(value), {})), error => reject(new Error(error))))",
+            json!(Self::manifest().sites),
         ))?;
         Ok(list
             .items

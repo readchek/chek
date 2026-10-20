@@ -43,9 +43,13 @@ pub fn transform(response: Response) -> Result<Option<ImageData>, Error> {
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
     };
-    let seed = header("x-enc-seed").and_then(|v| v.parse::<u32>().ok());
+    let seed = header("x-enc-seed")
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v as u32);
     let length = header("x-enc-len").and_then(|v| v.parse::<usize>().ok());
-    let grid_seed = header("x-scramble-seed").and_then(|v| v.parse::<u32>().ok());
+    let grid_seed = header("x-scramble-seed")
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v as u32);
     let grid_algo = header("x-scramble-algo");
     let grid = header("x-scramble-grid") == Some("5x5")
         && matches!(grid_algo, None | Some("1" | "2" | "3"))

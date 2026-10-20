@@ -122,7 +122,12 @@ impl Worker {
     pub(crate) fn receive(&self, deadline: Instant) -> Result<Value, String> {
         self.output
             .recv_timeout(remaining(deadline.min(self.deadline))?)
-            .map_err(|_| "worker timed out or stopped".to_owned())?
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => "worker timed out".to_owned(),
+                mpsc::RecvTimeoutError::Disconnected => {
+                    "worker stopped before responding".to_owned()
+                }
+            })?
     }
 }
 

@@ -96,6 +96,7 @@ impl Session {
         let worker = Worker::start(command, lifetime)?;
         let deadline = Instant::now() + OPERATION;
         let mut start = json!({"type": "start", "userAgent": context.net.browser().and_then(|b| b.user_agent())});
+        start["args"] = json!(context.browser_args);
         if let Some(sites) = sites {
             start["sites"] = json!(sites);
         }

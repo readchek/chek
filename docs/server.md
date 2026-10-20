@@ -378,6 +378,12 @@ the `index.json` for any folder of components.
 - `CHEK_BROWSER_NATIVE=true` opts browser-session calls into Chromium's native
   HTTP transport through the restricted CONNECT proxy described below. It defaults
   to false. Native sessions retain the 120-second call limit.
+- `CHEK_BROWSER_ARGS` is an admin-supplied JSON array of Chromium launch arguments.
+  It defaults to `["--headless=new"]`; use `[]` for a visible browser on a host
+  with a display. These arguments also apply to verification browsers.
+  Extensions cannot supply launch arguments. The host still adds its proxy,
+  profile and network restriction arguments, and disables background timer and
+  renderer throttling so a covered window can finish within the worker deadline.
 - The `/verify` prototype lets a signed-in user open a verification browser
   for an installed source. Frames and clicks require that user's authentication;
   clients cannot send scripts or raw CDP commands. Subsequent extension calls
@@ -387,10 +393,11 @@ the `index.json` for any folder of components.
   a loopback CONNECT proxy limited to declared hosts on port 443. The proxy
   resolves and pins public addresses, rejects private/local targets, limits
   active tunnels to 32 and traffic to 128 MiB per session. The browser still
-  blocks direct DNS, QUIC and non-proxied WebRTC. Each browser operation accepts
-  at most 100 intercepted requests. This mode differs from the default HTTP
-  relay: response sizes are bounded by the session traffic budget, and the
-  proxy cannot inspect encrypted traffic. The four-worker cap still applies.
+  blocks direct DNS, QUIC and non-proxied WebRTC. Native requests run without
+  CDP interception or paused child frames. This mode differs from the default HTTP
+  relay: request counts are not inspected, response sizes are bounded by the
+  session traffic budget, and the proxy cannot inspect encrypted traffic.
+  The four-worker cap still applies.
   The worker continues processing native browser events between user inputs;
   loading does not depend on preview polling. Live preview is opt-in and requests
   one frame at a time, targeting a 250 ms interval. Each image is decoded before
@@ -408,7 +415,7 @@ the `index.json` for any folder of components.
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
   rebuild from contract 0.2 to 0.3.
-- The manifest names the hosts the extension may reach, exactly or as
+- The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
   `localhost` are refused as sites. The manifest itself is read with no

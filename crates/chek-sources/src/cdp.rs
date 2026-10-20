@@ -76,13 +76,18 @@ fn serve(
     if let Some(sites) = &native_sites {
         proxy = format!("--proxy-server={}", crate::tunnel::start(sites.clone())?);
     }
+    let args: Vec<String> = serde_json::from_value(start["args"].clone())
+        .map_err(|e| format!("invalid browser launch arguments: {e}"))?;
     let child = Command::new(executable)
+        .args(args)
         .args([
-            "--headless=new",
             "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
             "--disable-component-update",
             "--disable-extensions",
             "--disable-sync",
@@ -174,21 +179,23 @@ fn serve(
     let session = cdp.session.clone();
     cdp.call("Page.enable", json!({}), Some(&session))?;
     cdp.call("Network.enable", json!({}), Some(&session))?;
-    cdp.call(
-        "Network.setBypassServiceWorker",
-        json!({"bypass":true}),
-        Some(&session),
-    )?;
-    cdp.call(
-        "Fetch.enable",
-        json!({"patterns":[{"urlPattern":"*","requestStage":"Request"}]}),
-        Some(&session),
-    )?;
-    cdp.call(
-        "Target.setAutoAttach",
-        json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}),
-        Some(&session),
-    )?;
+    if cdp.native_sites.is_none() {
+        cdp.call(
+            "Network.setBypassServiceWorker",
+            json!({"bypass":true}),
+            Some(&session),
+        )?;
+        cdp.call(
+            "Fetch.enable",
+            json!({"patterns":[{"urlPattern":"*","requestStage":"Request"}]}),
+            Some(&session),
+        )?;
+        cdp.call(
+            "Target.setAutoAttach",
+            json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}),
+            Some(&session),
+        )?;
+    }
     cdp.call("Target.setDiscoverTargets", json!({"discover":true}), None)?;
     cdp.call(
         "Browser.setDownloadBehavior",
@@ -201,18 +208,19 @@ fn serve(
         Some(&session),
     )?;
     let version = cdp.call("Browser.getVersion", json!({}), None)?;
-    let agent = if cdp.native_sites.is_some() {
-        version["userAgent"].as_str()
-    } else {
-        start
-            .get("userAgent")
-            .and_then(Value::as_str)
-            .filter(|a| !a.is_empty())
-            .or_else(|| version["userAgent"].as_str())
-    }
-    .ok_or("Chromium returned no user agent")?
-    .to_owned();
-    if cdp.native_sites.is_none() {
+    let saved_agent = start
+        .get("userAgent")
+        .and_then(Value::as_str)
+        .filter(|a| !a.is_empty());
+    let agent = saved_agent
+        .or_else(|| version["userAgent"].as_str())
+        .ok_or("Chromium returned no user agent")?
+        .to_owned();
+    // Solver clearance cookies must travel with the user agent that earned them,
+    // including when Chromium makes the network requests itself.
+    if cdp.native_sites.is_none()
+        || (saved_agent.is_some() && version["userAgent"].as_str() != Some(agent.as_str()))
+    {
         cdp.call(
             "Network.setUserAgentOverride",
             json!({"userAgent":agent}),
@@ -237,9 +245,6 @@ fn serve(
             }
         };
         cdp.deadline = Instant::now() + OPERATION;
-        if cdp.native_sites.is_some() {
-            cdp.request_id = 0;
-        }
         if let Some(cookies) = command.get("cookies") {
             cdp.call(
                 "Storage.clearCookies",
@@ -484,19 +489,8 @@ impl Cdp<'_> {
             Some("Target.detachedFromTarget") if params["sessionId"] == self.session => {
                 return Err("browser page disconnected before the operation completed".into());
             }
-            Some("Target.attachedToTarget") => {
+            Some("Target.attachedToTarget") if self.native_sites.is_none() => {
                 let child = string(params, "sessionId")?;
-                // Worker targets do not implement Fetch. In native mode the
-                // CONNECT proxy still bounds their network destinations.
-                if self.native_sites.is_some()
-                    && !matches!(
-                        params["targetInfo"]["type"].as_str(),
-                        Some("page" | "iframe")
-                    )
-                {
-                    self.configure("Runtime.runIfWaitingForDebugger", json!({}), Some(child))?;
-                    return Ok(message);
-                }
                 self.configure(
                     "Fetch.enable",
                     json!({"patterns":[{"urlPattern":"*","requestStage":"Request"}]}),
@@ -509,38 +503,11 @@ impl Cdp<'_> {
                 )?;
                 self.configure("Runtime.runIfWaitingForDebugger", json!({}), Some(child))?;
             }
-            Some("Fetch.requestPaused") => {
+            Some("Fetch.requestPaused") if self.native_sites.is_none() => {
                 let request = &params["request"];
                 self.request_id += 1;
                 if self.request_id > crate::MAX_REQUESTS {
                     return Err("browser reached its request limit".to_owned());
-                }
-                if let Some(sites) = &self.native_sites {
-                    let allowed = request["url"]
-                        .as_str()
-                        .and_then(|url| reqwest::Url::parse(url).ok())
-                        .is_some_and(|url| {
-                            url.scheme() == "https"
-                                && url.port_or_known_default() == Some(443)
-                                && url.username().is_empty()
-                                && url.password().is_none()
-                                && url.host_str().is_some_and(|host| sites.allows(host))
-                        })
-                        && matches!(
-                            request["method"].as_str(),
-                            Some("GET" | "POST" | "HEAD" | "OPTIONS")
-                        )
-                        && params["resourceType"] != "WebSocket";
-                    if allowed {
-                        self.configure(
-                            "Fetch.continueRequest",
-                            json!({"requestId":params["requestId"]}),
-                            session,
-                        )?;
-                    } else {
-                        self.configure("Fetch.failRequest", json!({"requestId":params["requestId"],"errorReason":"BlockedByClient"}), session)?;
-                    }
-                    return Ok(message);
                 }
                 let headers: Vec<_> = request["headers"]
                     .as_object()
