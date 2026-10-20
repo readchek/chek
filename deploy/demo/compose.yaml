@@ -27,6 +27,13 @@ services:
     volumes:
       - chek-data:/data
       - library:/library:ro
+    # Request logs carry visitors' addresses, so the container keeps only
+    # the latest few megabytes; the demo's privacy policy promises they go.
+    logging:
+      driver: local
+      options:
+        max-size: 5m
+        max-file: "2"
 
   seed:
     build:
