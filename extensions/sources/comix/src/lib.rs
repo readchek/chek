@@ -1,16 +1,16 @@
 //! Comix 1.6.54's WebView flow, ported to Chek browser sessions.
 mod descrambler;
+mod protocol;
 
 use chek_extension::prelude::*;
 use chek_extension::{browser, browser_session, http::HttpError};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 const SITE: &str = "https://comix.to";
 const CLIENT: &str = include_str!("client.js");
 const SITE_API: &str = include_str!("site_api.js");
-const CHAPTER_PAGES: &str = include_str!("../upstream/chapter_pages.js");
 const MAX_CHAPTER_PAGES: u32 = 20;
 
 struct Comix;
@@ -119,9 +119,93 @@ struct Evaluation<T> {
     error: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct PreparedRequest {
+    kid: String,
+    material: Vec<u8>,
+    query: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct ApiResponse {
+    status: u16,
+    encoding: Option<String>,
+    body: String,
+}
+
 struct Session;
 
 impl Session {
+    fn api<T: DeserializeOwned>(&self, path: &str, params: Value) -> Result<T, Error> {
+        let prepared: PreparedRequest =
+            self.read(&format!("prepareApi({}, {params})", json!(path)))?;
+        let query: Vec<_> = prepared
+            .query
+            .iter()
+            .filter(|(key, _)| key.as_str() != "_")
+            .collect();
+        let canonical = if query.is_empty() {
+            path.to_owned()
+        } else {
+            format!(
+                "{path}?{}",
+                query
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("&")
+            )
+        };
+        let signature = format!(
+            "{}.{}",
+            prepared.kid,
+            protocol::sign(&prepared.material, &canonical).map_err(Error::Parse)?
+        );
+        if prepared.query.get("_") != Some(&signature) {
+            return Err(Error::Parse(
+                "Comix request signing changed; this build is unsupported".into(),
+            ));
+        }
+        let url = format!(
+            "/api/v1{path}?{}",
+            query
+                .iter()
+                .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+                .chain(std::iter::once(format!("_={}", encode(&signature))))
+                .collect::<Vec<_>>()
+                .join("&")
+        );
+        let response: ApiResponse = self.read(&format!("fetchApi({})", json!(url)))?;
+        if !(200..300).contains(&response.status) {
+            return Err(Error::Network(format!(
+                "Comix API returned HTTP {}",
+                response.status
+            )));
+        }
+        let value = match response.encoding.as_deref() {
+            Some("2") => {
+                protocol::decode(&prepared.material, &response.body).map_err(Error::Parse)?
+            }
+            None => {
+                serde_json::from_str(&response.body).map_err(|e| Error::Parse(e.to_string()))?
+            }
+            Some(_) => {
+                return Err(Error::Parse(
+                    "Comix uses an unsupported response encoding".into(),
+                ));
+            }
+        };
+        let value = if value.get("status").and_then(Value::as_str) == Some("ok") {
+            value
+                .get("result")
+                .cloned()
+                .ok_or_else(|| Error::Parse("Comix API returned no result".into()))?
+        } else {
+            value
+        };
+        serde_json::from_value(value).map_err(|e| Error::Parse(e.to_string()))
+    }
+
     fn open(path: &str) -> Result<Self, Error> {
         let url = format!("{SITE}{path}");
         match browser::load(&url) {
@@ -276,11 +360,14 @@ impl Guest for Comix {
             encode(query.trim()),
             page.max(1)
         ))?;
-        let list: Listing<Manga> = session.read(&format!(
-            "searchData(({SITE_API}), {}, {})",
-            json!(query.trim()),
-            page.max(1)
-        ))?;
+        let order = if query.trim().is_empty() {
+            "order[score]"
+        } else {
+            "order[relevance]"
+        };
+        let list: Listing<Manga> = session.api("/manga", json!({
+            "keyword": query.trim(), "page": page.max(1).to_string(), "limit": "28", order: "desc"
+        }))?;
         let has_more = list
             .meta
             .or(list.pagination)
@@ -412,8 +499,33 @@ impl Guest for Comix {
             .and_then(|value| value.parse::<u64>().ok())
             .ok_or_else(|| Error::Parse("Invalid Comix chapter number".into()))?;
         let session = Session::open(&format!("/title/{}/{}", encode(slug), encode(chapter)))?;
+        let chapter: Value = session.api(&format!("/chapters/{id}"), json!({}))?;
+        let pages = std::iter::once(&chapter)
+            .chain(
+                chapter
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|object| object.values()),
+            )
+            .find_map(|value| {
+                let items = value
+                    .as_array()
+                    .or_else(|| value.get("items")?.as_array())?;
+                (!items.is_empty()
+                    && items
+                        .iter()
+                        .all(|item| item.get("url").is_some_and(Value::is_string)))
+                .then(|| {
+                    if value.is_array() {
+                        json!({ "items": value })
+                    } else {
+                        value.clone()
+                    }
+                })
+            })
+            .ok_or_else(|| Error::Parse("Comix returned no chapter pages".into()))?;
         let list: PageList = session.read(&format!(
-            "new Promise((resolve, reject) => ({CHAPTER_PAGES})(({SITE_API}), {id}, value => resolve(normalizePages(JSON.parse(value), {})), error => reject(new Error(error))))",
+            "normalizePages({pages}, {})",
             json!(Self::manifest().sites),
         ))?;
         Ok(list

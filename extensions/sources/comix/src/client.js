@@ -18,20 +18,57 @@ async function initialData(detail) {
     throw new Error(`Comix did not provide catalog data (page: ${document.title.slice(0, 120)}); verification may be required`);
 }
 
-async function searchData(siteApi, keyword, page) {
-    // Initial queries can contain unrelated rails. Request the exact filter
-    // through the page's own decoded GET helper.
-    const get = await siteApi((members, isGet) => {
-        const target = members.find(member => isGet(member.value));
-        return target ? target.value.bind(target.owner) : null;
-    })();
-    if (!get) throw new Error(`Could not find Comix's search API (page: ${document.title.slice(0, 120)})`);
-    const response = await get("/manga", {
-        params: { keyword, page, limit: 28, order: keyword ? { relevance: "desc" } : { score: "desc" } }
-    });
-    const result = response?.result || response;
-    if (!Array.isArray(result?.items)) throw new Error("Comix search returned an unexpected response");
-    return result;
+async function prepareApi(path, params) {
+    const deadline = Date.now() + 15000;
+    let stage = "secure module";
+    while (Date.now() < deadline) {
+        const url = performance.getEntriesByType("resource").map(entry => entry.name)
+            .find(url => /\/secure-[^/]+\.js$/.test(url));
+        if (url) {
+            stage = "codec registry";
+            const module = await import(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+            if (!response.ok) throw new Error(`Could not read Comix's codec module: HTTP ${response.status}`);
+            const source = await response.text();
+            if (source.length > 1024 * 1024) throw new Error("Comix's codec module is too large");
+            const registries = [...source.matchAll(/\b([\w$]+)=[\w$]+\.\1\|\|/g)].map(match => match[1]);
+            let key;
+            for (const name of registries) {
+                const registry = window[name];
+                if (!registry || typeof registry !== "object") continue;
+                key = Object.values(registry).find(value => value &&
+                    typeof value.kid === "string" && typeof value.material === "function");
+                if (key) break;
+            }
+            if (key) stage = "request installer";
+            if (key && typeof module.r === "function") {
+                const hooks = [];
+                await module.r({ interceptors: {
+                    request: { use(handler) { hooks.push(handler); } },
+                    response: { use() {} }
+                } }, () => {});
+                if (hooks.length !== 1) throw new Error("Comix's request preparation changed");
+                const request = await hooks[0]({ url: path, method: "get", params, headers: {} });
+                const material = key.material();
+                if (!ArrayBuffer.isView(material) || material.BYTES_PER_ELEMENT !== 1 || material.length !== 1088) {
+                    throw new Error("Comix's codec material changed");
+                }
+                return { kid: key.kid, material: Array.from(material),
+                    query: Object.fromEntries(Object.entries(request.params).map(([key, value]) => [key, String(value)])) };
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    throw new Error(`Comix's protocol bootstrap did not expose its ${stage}`);
+}
+
+async function fetchApi(url) {
+    const response = await fetch(url, { credentials: "same-origin",
+        headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+        signal: AbortSignal.timeout(15000) });
+    const body = await response.text();
+    if (body.length > 1024 * 1024) throw new Error("Comix API response is too large");
+    return { status: response.status, encoding: response.headers.get("x-enc"), body };
 }
 
 async function chapterApi(siteApi) {
