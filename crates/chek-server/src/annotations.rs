@@ -114,6 +114,7 @@ pub async fn add_annotation(
     Path(id): Path<i64>,
     body: Result<Json<NewAnnotationRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<AnnotationDto>), ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let kind = match body.kind {
         KindDto::Bookmark => AnnotationKind::Bookmark,
@@ -163,6 +164,7 @@ pub async fn update_annotation(
     Path(id): Path<i64>,
     body: Result<Json<AnnotationUpdateRequest>, JsonRejection>,
 ) -> Result<Json<AnnotationDto>, ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let changes = AnnotationChanges {
         color: body.color.map(checked_color).transpose()?,
@@ -184,6 +186,7 @@ pub async fn delete_annotation(
     current: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     readable_annotation(&state, &current, id).await?;
     let user_id = current.user.id;
     if blocking(&state, move |c| c.delete_annotation(user_id, id)).await? {

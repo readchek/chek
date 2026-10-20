@@ -105,6 +105,9 @@ Google, set up with `CHEK_PUBLIC_URL`, `CHEK_OIDC_PROVIDERS` and
 OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.
 
+`CHEK_DEMO_USERS` names shared accounts whose password is public, which
+can't be changed and keep no reading places.
+
 To run a demo instance with the reader test corpus loaded, on Dokploy or with
 Docker Compose, see [deploying a demo instance](docs/deploy.md).
 

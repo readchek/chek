@@ -153,6 +153,13 @@ the `index.json` for any folder of components.
 - The server keeps at least one admin; demoting or deleting the last one fails.
 - People can list their signed-in devices and sign any one out. Sessions have
   a plain id for this, so the token hash never leaves the server.
+- `CHEK_DEMO_USERS` names shared demo accounts, whose password is public,
+  such as the `demo` reader on demo.chek.page. Changing their password,
+  sessions, sign-in providers, extensions, repositories or annotations
+  answers `403 demo_account`, so a visitor can't lock the others out or
+  change what they see. Their reading positions are answered as saved but
+  not kept, and they see only their own session, so visitors never see each
+  other's places or devices.
 - After 10 wrong passwords from one address within 15 minutes, password
   checks from it answer `429 too_many_attempts` until the oldest failure is
   15 minutes old. Limits are per address, not per account, so a stranger

@@ -10,6 +10,9 @@ services:
       - "8080"
     environment:
       CHEK_SETUP_TOKEN: ${CHEK_SETUP_TOKEN:?set CHEK_SETUP_TOKEN}
+      # The demo reader's password is public, so the account can't be
+      # changed and keeps no reading places; see docs/server.md.
+      CHEK_DEMO_USERS: demo
       # The server isn't published on the host, so only containers on its
       # networks reach it. Traefik's address on them isn't fixed, so trust
       # the private ranges Docker assigns from.

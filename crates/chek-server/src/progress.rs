@@ -58,6 +58,15 @@ pub async fn get_progress(
     Path(id): Path<i64>,
 ) -> Result<Json<ProgressDto>, ApiError> {
     check_publication(&state, &current, id).await?;
+    if current.demo {
+        // Demo places aren't kept; see `save_progress`.
+        return Ok(Json(ProgressDto {
+            revision: 0,
+            locator: None,
+            device: None,
+            updated_at: None,
+        }));
+    }
     let user_id = current.user.id;
     let progress = blocking(&state, move |c| c.progress(user_id, id)).await?;
     Ok(Json(progress.try_into()?))
@@ -83,6 +92,18 @@ pub async fn save_progress(
         )));
     }
     check_publication(&state, &current, id).await?;
+    if current.demo {
+        // Everyone trying the demo shares its account, so a kept place would
+        // be a stranger's. The save is answered as if it were kept, and
+        // readers keep the place on the device.
+        return Ok(Json(ProgressDto {
+            revision: body.expected_revision + 1,
+            locator: Some(body.locator),
+            device: current.device,
+            updated_at: None,
+        })
+        .into_response());
+    }
     let user_id = current.user.id;
     let device = current.device;
     let expected = body.expected_revision;

@@ -89,6 +89,7 @@ pub async fn install(
     Path(id): Path<String>,
     body: Result<Json<InstallRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<InstalledDto>), ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let repository = visible_repository(&state, &current, body.repository_id).await?;
     let allow_any = blocking(&state, |c| c.allow_any_repository()).await?;
@@ -160,6 +161,7 @@ pub async fn uninstall(
     current: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     let user_id = current.user.id;
     let lookup = id.clone();
     let removed = blocking(&state, move |c| {
