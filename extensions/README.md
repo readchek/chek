@@ -70,13 +70,23 @@ blocked. Downloads and extra pages are refused. GET, POST, HEAD and OPTIONS
 are supported; file uploads are not. This path does not use the challenge
 solver or reproduce Chromium's TLS fingerprint.
 
-A session lasts at most 120 seconds and allows 32 operations, each up to
+A session lasts at most 120 seconds and allows 128 operations, each up to
 30 seconds. Scripts are capped at 64 KiB and JSON results at 1 MiB. Failure,
 trap, close or return stops the worker and its browser processes. At most
 four browser/image workers run at once; a busy host returns an error.
 Chromium still has a substantial memory cost; the WASM memory cap does not
 cover it. This worker is process-separated, not an OS security sandbox for
 the extension host. Keep Chromium patched and preserve its own sandbox.
+
+The server's `/verify` page is a prototype for manual challenge handoff. Sign in,
+enter an installed source's id and an allowed HTTPS URL, complete verification
+in its live browser view, then retry search. Its browser retains native TLS
+through a public-host-only CONNECT proxy and is reused by that user's extension
+calls for up to ten minutes. Closing the browser ends that live session; cookies
+remain in the user's source namespace. The page currently supports pointer
+clicks and search retries, not keyboard or audio CAPTCHA flows. This does not
+guarantee that a site's challenge will accept the browser. FlareSolverr remains
+a separate optional path for ordinary HTTP requests.
 
 ## Image transforms
 

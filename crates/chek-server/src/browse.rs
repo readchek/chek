@@ -263,7 +263,7 @@ pub(crate) async fn usable_source(
     }
     let extensions = Arc::clone(&state.extensions);
     let digest = install.sha256.clone();
-    let source = tokio::task::spawn_blocking(move || extensions.source(&digest))
+    let source = tokio::task::spawn_blocking(move || extensions.source(&digest, user_id))
         .await
         .map_err(ApiError::internal)?
         .map_err(ApiError::internal)?;

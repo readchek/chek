@@ -207,7 +207,7 @@ interface browser {
 
 // One session per export call. Opening another replaces it. Closing, a
 // failure, a trap or the end of the call releases it. Sessions last at most
-// 120 seconds, with 32 operations, 30 seconds per operation and 1 MiB results.
+// 120 seconds, with 128 operations, 30 seconds per operation and 1 MiB results.
 // JavaScript runs in the page, never in the worker or server.
 interface browser-session {
     open: func(url: string) -> result<_, string>;

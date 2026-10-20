@@ -77,28 +77,32 @@ impl Extensions {
             std::fs::rename(&partial, &path).map_err(storage)?;
         }
         let source = Arc::new(source);
-        self.cache().insert(digest, Arc::clone(&source));
         Ok(source)
     }
 
     /// The installed component with this digest, compiled the first time
     /// it's asked for.
-    pub fn source(&self, digest: &str) -> Result<Arc<Source>, Error> {
-        if let Some(source) = self.cache().get(digest) {
+    pub fn source(&self, digest: &str, user_id: i64) -> Result<Arc<Source>, Error> {
+        let key = format!("{digest}:{user_id}");
+        // Keep lookup and insertion together: two simultaneous requests
+        // must not create separate browser sessions for the same owner.
+        let mut cache = self.cache();
+        if let Some(source) = cache.get(&key) {
             return Ok(Arc::clone(source));
         }
         if !is_digest(digest) {
             return Err(Error::Storage(format!("`{digest}` isn't a digest")));
         }
         let bytes = std::fs::read(self.path(digest)).map_err(storage)?;
-        let source = Arc::new(self.host.load(&bytes)?);
-        self.cache().insert(digest.to_owned(), Arc::clone(&source));
+        let source = Arc::new(self.host.load_for_user(&bytes, Some(user_id))?);
+        cache.insert(key, Arc::clone(&source));
         Ok(source)
     }
 
     /// Deletes a component no install uses any more.
     pub fn remove(&self, digest: &str) -> Result<(), Error> {
-        self.cache().remove(digest);
+        self.cache()
+            .retain(|key, _| !key.starts_with(&format!("{digest}:")));
         if !is_digest(digest) {
             return Ok(());
         }

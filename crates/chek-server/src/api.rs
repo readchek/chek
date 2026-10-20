@@ -85,6 +85,23 @@ pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/verify", get(crate::verification::page))
+        .route(
+            "/api/v1/me/extensions/{id}/browser/resume",
+            post(crate::verification::resume),
+        )
+        .route(
+            "/api/v1/me/extensions/{id}/browser",
+            post(crate::verification::start).delete(crate::verification::close),
+        )
+        .route(
+            "/api/v1/me/extensions/{id}/browser/frame",
+            get(crate::verification::frame),
+        )
+        .route(
+            "/api/v1/me/extensions/{id}/browser/click",
+            post(crate::verification::click),
+        )
         .route("/api/v1/libraries", get(list_libraries).post(add_library))
         .route("/api/v1/libraries/{id}", get(get_library))
         .route("/api/v1/libraries/{id}/scan", post(scan_library))

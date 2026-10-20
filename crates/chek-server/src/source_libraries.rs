@@ -361,7 +361,7 @@ async fn library_source(state: &AppState, library_id: i64) -> Result<Arc<Source>
         return Err(not_usable());
     }
     let extensions = Arc::clone(&state.extensions);
-    tokio::task::spawn_blocking(move || extensions.source(&install.sha256))
+    tokio::task::spawn_blocking(move || extensions.source(&install.sha256, install.user_id))
         .await
         .map_err(ApiError::internal)?
         .map_err(ApiError::internal)

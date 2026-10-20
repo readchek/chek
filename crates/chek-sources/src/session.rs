@@ -1,5 +1,4 @@
-//! Interactive browser sessions. Every HTTP request is relayed through the
-//! host, including scripts, frames and redirects; the worker never fetches it.
+//! Browser sessions with either host-relayed HTTP or restricted native transport.
 
 use std::path::Path;
 use std::process::Command;
@@ -18,12 +17,13 @@ const LIFETIME: Duration = Duration::from_secs(120);
 const OPERATION: Duration = Duration::from_secs(30);
 const MAX_RESULT: usize = 1 << 20;
 const MAX_SCRIPT: usize = 64 << 10;
-const MAX_OPERATIONS: u32 = 32;
+const MAX_OPERATIONS: u32 = 128;
 
 pub(crate) struct Session {
     worker: Worker,
     operations: u32,
     jar_snapshot: Option<Vec<BrowserCookie>>,
+    pub(crate) recoverable: bool,
 }
 
 #[derive(Deserialize)]
@@ -45,16 +45,61 @@ enum Event {
     },
     Error {
         message: String,
+        #[serde(default)]
+        recoverable: bool,
     },
 }
 
 impl Session {
     pub(crate) fn start(path: &Path, executable: &Path, context: &Context) -> Result<Self, String> {
+        Self::launch(
+            path,
+            executable,
+            context,
+            context.native_sites.as_deref(),
+            LIFETIME,
+        )
+    }
+
+    pub(crate) fn handoff(
+        path: &Path,
+        executable: &Path,
+        context: &Context,
+        sites: &[String],
+    ) -> Result<Self, String> {
+        Self::launch(
+            path,
+            executable,
+            context,
+            Some(sites),
+            Duration::from_secs(600),
+        )
+    }
+
+    pub(crate) fn expired(&self) -> bool {
+        Instant::now() >= self.worker.deadline
+    }
+
+    pub(crate) fn reset_operations(&mut self) {
+        self.operations = 0;
+    }
+
+    fn launch(
+        path: &Path,
+        executable: &Path,
+        context: &Context,
+        sites: Option<&[String]>,
+        lifetime: Duration,
+    ) -> Result<Self, String> {
         let mut command = Command::new(path);
         command.arg("--extension-browser-worker").arg(executable);
-        let worker = Worker::start(command, LIFETIME)?;
+        let worker = Worker::start(command, lifetime)?;
         let deadline = Instant::now() + OPERATION;
-        worker.send(&json!({"type": "start", "userAgent": context.net.browser().and_then(|b| b.user_agent())}), deadline)?;
+        let mut start = json!({"type": "start", "userAgent": context.net.browser().and_then(|b| b.user_agent())});
+        if let Some(sites) = sites {
+            start["sites"] = json!(sites);
+        }
+        worker.send(&start, deadline)?;
         match serde_json::from_value(worker.receive(deadline)?)
             .map_err(|e| format!("invalid browser greeting: {e}"))?
         {
@@ -63,13 +108,14 @@ impl Session {
                     browser.remember_agent(&user_agent);
                 }
             }
-            Event::Error { message } => return Err(message),
+            Event::Error { message, .. } => return Err(message),
             _ => return Err("browser worker didn't start".to_owned()),
         }
         Ok(Self {
             worker,
             operations: 0,
             jar_snapshot: None,
+            recoverable: false,
         })
     }
 
@@ -79,6 +125,7 @@ impl Session {
         mut command: Value,
         requests: &mut u32,
     ) -> Result<String, String> {
+        self.recoverable = false;
         if self.operations >= MAX_OPERATIONS {
             return Err("browser session reached its operation limit".to_owned());
         }
@@ -159,7 +206,13 @@ impl Session {
                     self.jar_snapshot = Some(context.jar.browser_cookies());
                     return Ok(json);
                 }
-                Event::Error { message } => return Err(message),
+                Event::Error {
+                    message,
+                    recoverable,
+                } => {
+                    self.recoverable = recoverable;
+                    return Err(message);
+                }
                 Event::Ready { .. } => return Err("unexpected browser greeting".to_owned()),
             }
         }
