@@ -350,6 +350,13 @@ impl Guest for Comix {
             let meta = list
                 .meta
                 .ok_or_else(|| Error::Parse("Missing chapter pagination".into()))?;
+            if meta.last() > MAX_CHAPTER_PAGES {
+                return Err(Error::Other(format!(
+                    "Comix lists {} chapter uploads across {} pages; this call supports at most {MAX_CHAPTER_PAGES} pages",
+                    meta.total,
+                    meta.last()
+                )));
+            }
             if previous_total.is_some_and(|total| total != meta.total) {
                 return Err(Error::Other(
                     "Comix's chapter list changed during this request; retry".into(),

@@ -31,6 +31,8 @@ This port is experimental. Live search, details, complete chapter lists, page
 lists and unencoded images have passed through Chek's installed WASM component
 with native browser transport and FlareSolverr. Encoded images remain unverified
 against a live response.
-Chapter listing currently allows 20 pages per call and rejects incomplete lists.
+Chapter listing currently allows 20 pages per call and rejects oversized lists
+as soon as their pagination metadata is available. Larger catalogs are not
+supported. Solver browser failures can also interrupt a call.
 Upstream preferences, incremental chapter refresh, alternate image-host retries,
 and the optional automatic CAPTCHA solver are not implemented.
