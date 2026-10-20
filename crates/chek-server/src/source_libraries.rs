@@ -364,5 +364,5 @@ async fn library_source(state: &AppState, library_id: i64) -> Result<Arc<Source>
     tokio::task::spawn_blocking(move || extensions.source(&install.sha256, install.user_id))
         .await
         .map_err(ApiError::internal)?
-        .map_err(ApiError::internal)
+        .map_err(crate::browse::load_error)
 }

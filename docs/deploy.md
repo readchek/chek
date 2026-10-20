@@ -20,8 +20,12 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
 
   Comics and Books are hard links into the corpus, so they take no extra
   space. Later runs skip what's already done, so redeploying is quick.
-- A reader account named `demo` that can open all three libraries, for
-  handing to testers.
+- A reader account named `demo` that can open Comics and Books, for handing
+  to testers and App Review. It's listed in `CHEK_DEMO_USERS`, so nobody
+  signed in as `demo` can change its password, sessions or extensions, and
+  its reading places aren't kept. The Test corpus is for the admin.
+- No extension repositories. The seed removes the official one the server
+  starts with, and every install from it, so the demo shows only the corpus.
 
 The corpus is public-domain and Creative Commons material; its sources and
 licenses are in the `provenance` folder of the Test corpus library.
@@ -48,7 +52,9 @@ Sign in as `admin` or `demo`. OPDS apps use
 `https://<domain>/opds/v2/catalog` with the same names and passwords.
 
 `DEMO_READER_PASSWORD` is only used when the `demo` account is created, so
-changing it later doesn't sign testers out. Change it through the API instead.
+changing it later doesn't sign testers out. The demo account can't change it
+through the API either; to change it, have the admin set it with
+`PATCH /api/v1/users/{id}`.
 
 ## Behind Cloudflare
 

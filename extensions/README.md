@@ -111,7 +111,7 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
-Chapter pagination is an optional export alongside the existing 0.3 source
+Chapter pagination is an optional export alongside the existing 0.4 source
 world. Implement `chek_extension::ChapterPagination` and invoke
 `chek_extension::export_chapter_pagination!(YourSource)` as well as
 `export_source!`. Return `ChapterBatch { items, next, total }`; `next` is an
@@ -134,7 +134,7 @@ retrying only the failed batch. `nextCursor: null` ends the traversal.
 Sources without this export retain their existing behavior and return their
 complete list as one batch when called through the new endpoint.
 
-The current contract is `chek:source@0.3.0`. Components built against 0.2
+The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly
 constructed images and implement `transform_image`, returning `Ok(None)`
 when unused. Bump the source version and regenerate the repository index.

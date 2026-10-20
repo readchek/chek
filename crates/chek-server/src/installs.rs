@@ -89,6 +89,7 @@ pub async fn install(
     Path(id): Path<String>,
     body: Result<Json<InstallRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<InstalledDto>), ApiError> {
+    current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let repository = visible_repository(&state, &current, body.repository_id).await?;
     let allow_any = blocking(&state, |c| c.allow_any_repository()).await?;
@@ -160,6 +161,7 @@ pub async fn uninstall(
     current: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    current.refuse_demo()?;
     let user_id = current.user.id;
     let lookup = id.clone();
     let removed = blocking(&state, move |c| {
@@ -202,10 +204,25 @@ fn dto(
 }
 
 fn invalid_extension(error: chek_sources::Error) -> ApiError {
-    ApiError {
-        status: StatusCode::UNPROCESSABLE_ENTITY,
-        code: "extension_invalid",
-        message: error.to_string(),
+    match error {
+        chek_sources::Error::Incompatible(_) => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_incompatible",
+            message: format!(
+                "this extension was built for another version of Chek's source contract; this server links {}",
+                chek_sources::CONTRACT_VERSION
+            ),
+        },
+        error @ chek_sources::Error::Mismatch(_) => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_mismatch",
+            message: error.to_string(),
+        },
+        error => ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "extension_invalid",
+            message: error.to_string(),
+        },
     }
 }
 

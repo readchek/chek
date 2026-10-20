@@ -153,6 +153,13 @@ the `index.json` for any folder of components.
 - The server keeps at least one admin; demoting or deleting the last one fails.
 - People can list their signed-in devices and sign any one out. Sessions have
   a plain id for this, so the token hash never leaves the server.
+- `CHEK_DEMO_USERS` names shared demo accounts, whose password is public,
+  such as the `demo` reader on demo.chek.page. Changing their password,
+  sessions, sign-in providers, extensions, repositories or annotations
+  answers `403 demo_account`, so a visitor can't lock the others out or
+  change what they see. Their reading positions are answered as saved but
+  not kept, and they see only their own session, so visitors never see each
+  other's places or devices.
 - After 10 wrong passwords from one address within 15 minutes, password
   checks from it answer `429 too_many_attempts` until the oldest failure is
   15 minutes old. Limits are per address, not per account, so a stranger
@@ -324,7 +331,12 @@ the `index.json` for any folder of components.
   in [`wit/source.wit`](../crates/chek-sources/wit/source.wit). It exports a
   manifest, search, series, chapters, pages and an image transform hook. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
-  come back as URLs with headers, which the server fetches itself.
+  come back as URLs with headers, which the server fetches itself. A series
+  also says whether it's still going, the year it started and its genres,
+  where the source knows, which the API passes on as it is.
+- The contract's version is in the package name, `chek:source@0.4.0`. A
+  component built against another version doesn't link, so every change to
+  a record or call bumps it, and every source is rebuilt and republished.
 - Each call runs in a fresh instance, so nothing in memory carries over
   between calls. WASI is linked with nothing in it: no files, environment,
   sockets or name lookups. The only ways out are the host's imports: `http`,
@@ -414,7 +426,7 @@ the `index.json` for any folder of components.
   a supervised ten-second worker: at most 256 tiles, 8 million pixels, four
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
-  rebuild from contract 0.2 to 0.3.
+  rebuild from contract 0.3 to 0.4.
 - The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
@@ -510,7 +522,7 @@ the `index.json` for any folder of components.
   version changed has its page list dropped. Edits survive syncs, as for
   Komga's books.
 - Sources may additionally export chapter pagination without changing the
-  required 0.3 contract. Each batch gets a fresh bounded instance; the host
+  required 0.4 contract. Each batch gets a fresh bounded instance; the host
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,

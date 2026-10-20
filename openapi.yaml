@@ -525,7 +525,7 @@ paths:
       tags: [Accounts]
       operationId: listSessions
       summary: List your signed-in devices
-      description: Sessions that haven't expired, most recently used first.
+      description: Sessions that haven't expired, most recently used first. A demo account sees only the current session, since the others are other visitors'.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -551,10 +551,12 @@ paths:
       tags: [Accounts]
       operationId: deleteSession
       summary: Sign a device out
-      description: Ends one of your sessions, such as a lost device's. Ending the current one signs you out.
+      description: Ends one of your sessions, such as a lost device's. Ending the current one signs you out. Refused for a demo account (`demo_account`), whose visitors would sign each other out; they sign out with [signOut](#operation/signOut).
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "204":
           description: The session was ended.
         "404":
@@ -1077,6 +1079,8 @@ paths:
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "204":
           description: The provider was unlinked.
         "404":
@@ -1117,6 +1121,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "502":
@@ -1133,6 +1139,7 @@ paths:
         recently read first. A position whose `totalProgression` is 1 counts
         as finished; one without it counts as started. Unavailable
         publications and libraries the user can no longer read are left out.
+        Empty for a demo account, whose positions aren't kept.
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -1609,7 +1616,7 @@ paths:
       tags: [Progress]
       operationId: getProgress
       summary: Get your reading position
-      description: Revision 0 with a null locator means nothing has been saved yet.
+      description: Revision 0 with a null locator means nothing has been saved yet. A demo account always gets that, since its positions aren't kept.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1633,6 +1640,9 @@ paths:
         position; the client asks the reader which one to keep and saves
         again with the revision from the conflict. The server never resolves a
         conflict by keeping the position furthest along.
+
+        A demo account's save is answered as saved but not kept, since
+        everyone trying the demo shares the account.
       requestBody:
         required: true
         content:
@@ -1726,6 +1736,8 @@ paths:
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "201":
           description: The new annotation.
           content:
@@ -1772,6 +1784,8 @@ paths:
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "200":
           description: The changed annotation.
           content:
@@ -1791,6 +1805,8 @@ paths:
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "204":
           description: The annotation was deleted.
         "404":
@@ -2055,7 +2071,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          description: The component isn't a valid source extension, or doesn't match the index.
+          description: >-
+            The component isn't a valid source extension (`extension_invalid`),
+            doesn't match the index (`extension_mismatch`), or was built for
+            another version of the source contract (`extension_incompatible`).
           content:
             application/json:
               schema:
@@ -2071,6 +2090,8 @@ paths:
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "204":
           description: The extension was uninstalled.
         "404":
@@ -2768,7 +2789,10 @@ components:
           schema:
             $ref: "#/components/schemas/OpdsAuthentication"
     Forbidden:
-      description: The signed-in user may not do this.
+      description: |
+        The signed-in user may not do this. `demo_account` when the user is a
+        shared demo account, named in `CHEK_DEMO_USERS`, which can't change
+        its password, sessions, sign-in providers, extensions or annotations.
       content:
         application/json:
           schema:
@@ -3099,7 +3123,7 @@ components:
             - type: "null"
     RemoteSeries:
       type: object
-      required: [id, title, summary, coverUrl, contributors, readingDirection]
+      required: [id, title, summary, coverUrl, contributors, readingDirection, status, year, tags]
       properties:
         id:
           type: string
@@ -3124,6 +3148,18 @@ components:
         readingDirection:
           type: [string, "null"]
           enum: [ltr, rtl, ttb, null]
+        status:
+          type: [string, "null"]
+          enum: [ongoing, completed, hiatus, cancelled, null]
+          description: Whether the series is still going, as the source says.
+        year:
+          type: [integer, "null"]
+          description: The year the series started, when the source knows.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Genres and themes as the source names them, most important first.
     RemoteChapter:
       type: object
       required: [id, title, number, version, published]

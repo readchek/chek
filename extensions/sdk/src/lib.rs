@@ -37,7 +37,7 @@ pub mod bindings {
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error, Image, ImageData, Manifest, ReadingDirection, Series,
-    SeriesItem, SeriesPage,
+    SeriesItem, SeriesPage, Status,
 };
 pub use bindings::chek::source::{browser, browser_session, cache, cookies, http, images};
 pub use bindings::{Guest, export_source};
@@ -46,7 +46,7 @@ pub mod pagination_bindings {
     wit_bindgen::generate!({
         path: "../../crates/chek-sources/wit",
         world: "paginated-chapters",
-        with: { "chek:source/types@0.3.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
         pub_export_macro: true,
         export_macro_name: "export_chapter_pagination",
         default_bindings_module: "chek_extension::pagination_bindings",
@@ -64,7 +64,8 @@ use bindings::chek::source::http::{HttpError, Method, Request, Response};
 pub mod prelude {
     pub use crate::{
         Capability, Chapter, Contributor, Error, Get, Guest, Image, ImageData, Manifest,
-        ReadingDirection, Series, SeriesItem, SeriesPage, Value, encode, export_source, image,
+        ReadingDirection, Series, SeriesItem, SeriesPage, Status, Value, encode, export_source,
+        image,
     };
 }
 

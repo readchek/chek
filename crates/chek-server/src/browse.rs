@@ -15,7 +15,7 @@ use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chek_catalog::ExtensionInstall;
-use chek_sources::{Chapter, Image, ReadingDirection, Source, SourceError};
+use chek_sources::{Chapter, Image, ReadingDirection, Source, SourceError, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -55,6 +55,9 @@ pub struct RemoteSeriesDto {
     cover_url: Option<String>,
     contributors: Vec<ContributorDto>,
     reading_direction: Option<&'static str>,
+    status: Option<&'static str>,
+    year: Option<u16>,
+    tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -190,6 +193,9 @@ pub async fn series(
             })
             .collect(),
         reading_direction: series.reading_direction.map(direction),
+        status: series.status.map(status),
+        year: series.year,
+        tags: series.tags,
     }))
 }
 
@@ -317,7 +323,7 @@ pub(crate) async fn usable_source(
     let source = tokio::task::spawn_blocking(move || extensions.source(&digest, user_id))
         .await
         .map_err(ApiError::internal)?
-        .map_err(ApiError::internal)?;
+        .map_err(load_error)?;
     Ok((install, source))
 }
 
@@ -331,6 +337,19 @@ where
         .await
         .map_err(ApiError::internal)?
         .map_err(source_error)
+}
+
+/// Why an installed extension couldn't be loaded. One built for another
+/// contract version isn't the server's fault, and updating it fixes it.
+pub(crate) fn load_error(error: chek_sources::Error) -> ApiError {
+    match error {
+        chek_sources::Error::Incompatible(_) => ApiError {
+            status: StatusCode::BAD_GATEWAY,
+            code: "source_unavailable",
+            message: "this extension was built for another version of Chek; update it from its repository, or ask its author for a new build".to_owned(),
+        },
+        error => ApiError::internal(error),
+    }
 }
 
 pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
@@ -379,6 +398,15 @@ pub(crate) fn image_from_json(json: &[u8]) -> Option<Image> {
         headers: reference.headers,
         transform: reference.transform,
     })
+}
+
+fn status(status: Status) -> &'static str {
+    match status {
+        Status::Ongoing => "ongoing",
+        Status::Completed => "completed",
+        Status::Hiatus => "hiatus",
+        Status::Cancelled => "cancelled",
+    }
 }
 
 fn direction(direction: ReadingDirection) -> &'static str {

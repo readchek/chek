@@ -465,6 +465,9 @@ impl Guest for Comix {
             summary: manga.synopsis,
             cover: manga.poster.and_then(Poster::cover),
             contributors,
+            status: None,
+            year: None,
+            tags: Vec::new(),
             reading_direction: manga.original_language.map(|language| {
                 if language == "ja" {
                     ReadingDirection::Rtl
