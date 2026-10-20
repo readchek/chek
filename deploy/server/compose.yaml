@@ -1,0 +1,29 @@
+# Normal instance with browser-backed extensions. In Dokploy, select this
+# file and route your domain to service `chek`, port 8080.
+services:
+  chek:
+    build:
+      context: ../..
+      target: browser
+    restart: unless-stopped
+    shm_size: 1gb
+    expose: ["8080"]
+    environment:
+      CHEK_SETUP_TOKEN: ${CHEK_SETUP_TOKEN:?set CHEK_SETUP_TOKEN}
+      CHEK_TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      CHEK_OUTBOUND_PROXY_URL: ${CHEK_OUTBOUND_PROXY_URL:-}
+      CHEK_OUTBOUND_PROXY_USERNAME: ${CHEK_OUTBOUND_PROXY_USERNAME:-}
+      CHEK_OUTBOUND_PROXY_PASSWORD: ${CHEK_OUTBOUND_PROXY_PASSWORD:-}
+      CHEK_BROWSER_SOLVER_URL: ${CHEK_BROWSER_SOLVER_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-chek}
+    volumes:
+      - chek-data:/data
+    logging:
+      driver: local
+      options:
+        max-size: 5m
+        max-file: "2"
+
+volumes:
+  chek-data:

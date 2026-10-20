@@ -17,6 +17,7 @@ mod cookies;
 mod http;
 mod images;
 mod installed;
+mod proxy;
 pub mod repository;
 mod resolve;
 mod session;
@@ -24,6 +25,7 @@ mod sites;
 mod store;
 mod transform;
 mod tunnel;
+pub use proxy::OutboundProxy;
 mod worker;
 
 use std::collections::{HashMap, HashSet};
@@ -125,6 +127,7 @@ fn describe(error: &SourceError) -> String {
 
 /// Compiles and runs extensions. Make one and share it.
 pub struct Host {
+    outbound_proxy: Option<OutboundProxy>,
     engine: Engine,
     linker: Linker<State>,
     store: Arc<store::Store>,
@@ -148,6 +151,8 @@ struct Scope {
 
 /// How the host is set up.
 pub struct Options {
+    /// Authenticated HTTP proxy for extension traffic; never used for server integrations.
+    pub outbound_proxy: Option<OutboundProxy>,
     /// The most bytes of fetched images to keep on disk; 0 keeps none.
     pub image_cache_bytes: u64,
     /// A FlareSolverr-compatible endpoint, such as
@@ -184,9 +189,10 @@ impl Host {
             options.image_cache_bytes,
         ));
         let solver = match options.browser_solver.as_deref() {
-            Some(endpoint) => Some(
-                Arc::new(FlareSolverr::new(endpoint).map_err(Error::Storage)?) as Arc<dyn Solver>,
-            ),
+            Some(endpoint) => Some(Arc::new(
+                FlareSolverr::new(endpoint, options.outbound_proxy.clone())
+                    .map_err(Error::Storage)?,
+            ) as Arc<dyn Solver>),
             None => None,
         };
         let mut config = Config::new();
@@ -208,6 +214,7 @@ impl Host {
         bindings::Source::add_to_linker::<State, HasSelf<State>>(&mut linker, |state| state)
             .map_err(trap)?;
         Ok(Host {
+            outbound_proxy: options.outbound_proxy.clone(),
             engine,
             linker,
             store,
@@ -296,6 +303,7 @@ impl Host {
             native_sites: self.browser_native.then(|| manifest.sites.clone()),
             scope,
             net: Net::new(
+                self.outbound_proxy.clone(),
                 sites,
                 Arc::clone(&jar),
                 browser,

@@ -71,8 +71,12 @@ jobs:
       - run: bunx @redocly/cli@2.64.1 lint openapi.yaml
 
   docker:
-    name: Docker image
+    name: ${{ matrix.target == 'default' && 'Docker image' || 'Browser image' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [default, browser]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,7 +91,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = push ] \
             || git diff --name-only HEAD^1 HEAD \
-              | grep -qE '^(Dockerfile|\.dockerignore|Cargo\.(toml|lock)|crates/[^/]+/(Cargo\.toml|build\.rs)|\.github/workflows/ci\.yml)$'; then
+              | grep -qE '^(Dockerfile|\.dockerignore|deploy/server/.*|Cargo\.(toml|lock)|crates/[^/]+/(Cargo\.toml|build\.rs)|\.github/workflows/ci\.yml)$'; then
             echo build=true >> "$GITHUB_OUTPUT"
           else
             echo "No Dockerfile, dependency or workflow changes; skipping the image build."
@@ -99,12 +103,15 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          target: ${{ matrix.target }}
           push: false
           # Load the image so the next step can start it.
           load: true
           tags: chek:ci
-          cache-from: type=gha,scope=amd64
-          cache-to: type=gha,scope=amd64,mode=max
+          cache-from: |
+            type=gha,scope=amd64
+            type=gha,scope=amd64-${{ matrix.target }}
+          cache-to: type=gha,scope=amd64-${{ matrix.target }},mode=max
       - name: Start the image
         if: steps.changes.outputs.build == 'true'
         run: |
@@ -119,9 +126,13 @@ jobs:
   # Builds natively on GitHub's arm64 runner, since building under emulation
   # took over half an hour. Only pushes to main build arm64.
   docker-arm64:
-    name: Docker image (arm64)
+    name: ${{ matrix.target == 'default' && 'Docker image (arm64)' || 'Browser image (arm64)' }}
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [default, browser]
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -129,11 +140,14 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
+          target: ${{ matrix.target }}
           push: false
           load: true
           tags: chek:ci
-          cache-from: type=gha,scope=arm64
-          cache-to: type=gha,scope=arm64,mode=max
+          cache-from: |
+            type=gha,scope=arm64
+            type=gha,scope=arm64-${{ matrix.target }}
+          cache-to: type=gha,scope=arm64-${{ matrix.target }},mode=max
       - name: Start the image
         run: |
           docker run -d --name chek -p 8080:8080 chek:ci
