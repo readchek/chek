@@ -6,6 +6,7 @@ use std::io::{BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -20,19 +21,33 @@ const OPERATION: Duration = Duration::from_secs(30);
 /// Internal worker entry point. The host bounds its lifetime and kills the
 /// entire process group on timeout, including Chromium's child processes.
 pub fn browser_worker(executable: &Path) -> Result<(), String> {
-    let mut input = std::io::stdin().lock();
-    let start = read(&mut input)?;
+    let (sender, input) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        loop {
+            let message = read(&mut stdin);
+            let failed = message.is_err();
+            if sender.send(message).is_err() || failed {
+                break;
+            }
+        }
+    });
+    let start = input.recv().map_err(|_| "browser input closed")??;
     if start["type"] != "start" {
         return Err("expected browser start".to_owned());
     }
-    let result = serve(executable, start, &mut input);
+    let result = serve(executable, start, &input);
     if let Err(error) = &result {
         write(&json!({"type": "error", "message": error}))?;
     }
     result
 }
 
-fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<(), String> {
+fn serve(
+    executable: &Path,
+    start: Value,
+    input: &Receiver<Result<Value, String>>,
+) -> Result<(), String> {
     // The supervising host owns this directory and removes it even if this
     // process is killed while Chromium is running.
     let profile = std::env::current_dir()
@@ -41,7 +56,7 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
     // A loopback sink, not a forwarding proxy. Requests not intercepted by
     // CDP (for example a WebSocket) cannot leave through Chromium's network.
     let sink = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let proxy = format!(
+    let mut proxy = format!(
         "--proxy-server=http://{}",
         sink.local_addr().map_err(|e| e.to_string())?
     );
@@ -50,23 +65,43 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
             drop(connection);
         }
     });
+    let native_sites = start
+        .get("sites")
+        .map(|value| {
+            let entries: Vec<String> =
+                serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+            crate::sites::Sites::parse(&entries)
+        })
+        .transpose()?;
+    if let Some(sites) = &native_sites {
+        proxy = format!("--proxy-server={}", crate::tunnel::start(sites.clone())?);
+    }
+    let args: Vec<String> = serde_json::from_value(start["args"].clone())
+        .map_err(|e| format!("invalid browser launch arguments: {e}"))?;
     let child = Command::new(executable)
+        .args(args)
         .args([
-            "--headless=new",
             "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
             "--disable-component-update",
             "--disable-extensions",
             "--disable-sync",
             "--disable-quic",
             "--proxy-bypass-list=<-loopback>",
-            "--host-resolver-rules=MAP * ~NOTFOUND",
+            "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
             "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            "--js-flags=--max-old-space-size=64",
             "--no-startup-window",
         ])
+        .arg(if native_sites.is_some() {
+            "--js-flags=--max-old-space-size=256"
+        } else {
+            "--js-flags=--max-old-space-size=64"
+        })
         .arg(proxy)
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
@@ -123,8 +158,9 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
         setup: HashSet::new(),
         deadline,
         loaded: false,
-        targets: 0,
+        targets: HashSet::new(),
         input,
+        native_sites,
     };
     let context = cdp.call("Target.createBrowserContext", json!({}), None)?;
     let context_id = string(&context, "browserContextId")?.to_owned();
@@ -143,21 +179,23 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
     let session = cdp.session.clone();
     cdp.call("Page.enable", json!({}), Some(&session))?;
     cdp.call("Network.enable", json!({}), Some(&session))?;
-    cdp.call(
-        "Network.setBypassServiceWorker",
-        json!({"bypass":true}),
-        Some(&session),
-    )?;
-    cdp.call(
-        "Fetch.enable",
-        json!({"patterns":[{"urlPattern":"*","requestStage":"Request"}]}),
-        Some(&session),
-    )?;
-    cdp.call(
-        "Target.setAutoAttach",
-        json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}),
-        Some(&session),
-    )?;
+    if cdp.native_sites.is_none() {
+        cdp.call(
+            "Network.setBypassServiceWorker",
+            json!({"bypass":true}),
+            Some(&session),
+        )?;
+        cdp.call(
+            "Fetch.enable",
+            json!({"patterns":[{"urlPattern":"*","requestStage":"Request"}]}),
+            Some(&session),
+        )?;
+        cdp.call(
+            "Target.setAutoAttach",
+            json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}),
+            Some(&session),
+        )?;
+    }
     cdp.call("Target.setDiscoverTargets", json!({"discover":true}), None)?;
     cdp.call(
         "Browser.setDownloadBehavior",
@@ -170,21 +208,42 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
         Some(&session),
     )?;
     let version = cdp.call("Browser.getVersion", json!({}), None)?;
-    let agent = start
+    let saved_agent = start
         .get("userAgent")
         .and_then(Value::as_str)
-        .filter(|a| !a.is_empty())
+        .filter(|a| !a.is_empty());
+    let agent = saved_agent
         .or_else(|| version["userAgent"].as_str())
         .ok_or("Chromium returned no user agent")?
         .to_owned();
-    cdp.call(
-        "Network.setUserAgentOverride",
-        json!({"userAgent":agent}),
-        Some(&session),
-    )?;
+    // Solver clearance cookies must travel with the user agent that earned them,
+    // including when Chromium makes the network requests itself.
+    if cdp.native_sites.is_none()
+        || (saved_agent.is_some() && version["userAgent"].as_str() != Some(agent.as_str()))
+    {
+        cdp.call(
+            "Network.setUserAgentOverride",
+            json!({"userAgent":agent}),
+            Some(&session),
+        )?;
+    }
     write(&json!({"type":"ready","user_agent":agent}))?;
     loop {
-        let command = read(cdp.input)?;
+        let command = loop {
+            if cdp.native_sites.is_none() {
+                break cdp.input.recv().map_err(|_| "browser input closed")??;
+            }
+            // Native requests must keep moving while the user is between
+            // inputs, even when no client is requesting preview frames.
+            match cdp.input.try_recv() {
+                Ok(command) => break command?,
+                Err(TryRecvError::Disconnected) => return Err("browser input closed".into()),
+                Err(TryRecvError::Empty) => {
+                    cdp.deadline = Instant::now() + OPERATION;
+                    cdp.receive()?;
+                }
+            }
+        };
         cdp.deadline = Instant::now() + OPERATION;
         if let Some(cookies) = command.get("cookies") {
             cdp.call(
@@ -223,11 +282,27 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
                 let expression = format!(
                     "(async()=>{{const v=await (0,eval)({literal});const s=JSON.stringify(v);if(s===undefined)throw Error('script returned no JSON value');if(new TextEncoder().encode(s).length>{MAX_RESULT})throw Error('result exceeds 1 MiB');return s;}})()"
                 );
-                let result = cdp.call(
+                let result = match cdp.call(
                     "Runtime.evaluate",
                     json!({"expression":expression,"awaitPromise":true,"returnByValue":true}),
                     Some(&session),
-                )?;
+                ) {
+                    Ok(result) => result,
+                    Err(error)
+                        if error.contains("\"code\":-32000")
+                            && (error.contains("Inspected target navigated or closed")
+                                || error.contains("Execution context was destroyed")
+                                || error.contains("Cannot find context with specified id")) =>
+                    {
+                        // A navigation invalidates this evaluation, not the browser.
+                        // Let the caller decide whether its script is safe to retry.
+                        write(
+                            &json!({"type":"error","message":"browser page navigated during evaluation","recoverable":true}),
+                        )?;
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 if result.get("exceptionDetails").is_some() {
                     return Err(
                         "browser script threw an exception or exceeded its result limit".to_owned(),
@@ -238,6 +313,14 @@ fn serve(executable: &Path, start: Value, input: &mut impl BufRead) -> Result<()
                     return Err("result exceeds 1 MiB".to_owned());
                 }
                 text.to_owned()
+            }
+            Some("screenshot") => {
+                let shot = cdp.call(
+                    "Page.captureScreenshot",
+                    json!({"format":"jpeg","quality":70,"captureBeyondViewport":false}),
+                    Some(&session),
+                )?;
+                serde_json::to_string(&shot["data"]).map_err(|e| e.to_string())?
             }
             Some("click" | "scroll") => {
                 let (x, y) = (
@@ -284,7 +367,7 @@ impl Drop for BrowserProcess {
     }
 }
 
-struct Cdp<'a, R> {
+struct Cdp<'a> {
     socket: WebSocket<TcpStream>,
     next_id: u64,
     request_id: u32,
@@ -293,11 +376,12 @@ struct Cdp<'a, R> {
     setup: HashSet<u64>,
     deadline: Instant,
     loaded: bool,
-    targets: usize,
-    input: &'a mut R,
+    targets: HashSet<String>,
+    input: &'a Receiver<Result<Value, String>>,
+    native_sites: Option<crate::sites::Sites>,
 }
 
-impl<R: BufRead> Cdp<'_, R> {
+impl Cdp<'_> {
     fn send(&mut self, method: &str, params: Value, session: Option<&str>) -> Result<u64, String> {
         self.next_id += 1;
         let mut command = json!({"id":self.next_id,"method":method,"params":params});
@@ -342,9 +426,22 @@ impl<R: BufRead> Cdp<'_, R> {
     fn receive(&mut self) -> Result<Value, String> {
         self.socket
             .get_mut()
-            .set_read_timeout(Some(crate::worker::remaining(self.deadline)?))
+            .set_read_timeout(Some(
+                crate::worker::remaining(self.deadline)?.min(Duration::from_millis(50)),
+            ))
             .map_err(|e| e.to_string())?;
-        let message = self.socket.read().map_err(|e| e.to_string())?;
+        let message = match self.socket.read() {
+            Ok(message) => message,
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Ok(Value::Null);
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         let Message::Text(text) = message else {
             return Ok(Value::Null);
         };
@@ -367,11 +464,11 @@ impl<R: BufRead> Cdp<'_, R> {
                 session,
             )?,
             Some("Target.targetCreated") => {
-                self.targets += 1;
-                if self.targets > 24 {
-                    return Err("browser created too many targets".to_owned());
-                }
                 let info = &params["targetInfo"];
+                self.targets.insert(string(info, "targetId")?.to_owned());
+                if self.targets.len() > 24 {
+                    return Err("browser has too many active targets".to_owned());
+                }
                 if info["type"] == "page" && info["targetId"] != self.target {
                     self.configure(
                         "Target.closeTarget",
@@ -380,7 +477,19 @@ impl<R: BufRead> Cdp<'_, R> {
                     )?;
                 }
             }
-            Some("Target.attachedToTarget") => {
+            Some("Target.targetDestroyed") => {
+                self.targets.remove(string(params, "targetId")?);
+            }
+            Some("Target.targetCrashed") if params["targetId"] == self.target => {
+                return Err(format!(
+                    "browser page crashed (status {}, code {})",
+                    params["status"], params["errorCode"]
+                ));
+            }
+            Some("Target.detachedFromTarget") if params["sessionId"] == self.session => {
+                return Err("browser page disconnected before the operation completed".into());
+            }
+            Some("Target.attachedToTarget") if self.native_sites.is_none() => {
                 let child = string(params, "sessionId")?;
                 self.configure(
                     "Fetch.enable",
@@ -394,7 +503,7 @@ impl<R: BufRead> Cdp<'_, R> {
                 )?;
                 self.configure("Runtime.runIfWaitingForDebugger", json!({}), Some(child))?;
             }
-            Some("Fetch.requestPaused") => {
+            Some("Fetch.requestPaused") if self.native_sites.is_none() => {
                 let request = &params["request"];
                 self.request_id += 1;
                 if self.request_id > crate::MAX_REQUESTS {
@@ -418,7 +527,10 @@ impl<R: BufRead> Cdp<'_, R> {
                 write(
                     &json!({"type":"request","id":self.request_id,"url":request["url"],"method":request["method"],"headers":headers,"body":STANDARD.encode(body)}),
                 )?;
-                let response = read(self.input)?;
+                let response = self
+                    .input
+                    .recv_timeout(crate::worker::remaining(self.deadline)?)
+                    .map_err(|_| "browser input closed or timed out")??;
                 if response["type"] != "response"
                     || response["id"].as_u64() != Some(u64::from(self.request_id))
                 {

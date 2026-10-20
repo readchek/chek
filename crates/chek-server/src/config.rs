@@ -46,6 +46,11 @@ pub struct Config {
     pub browser_solver: Option<String>,
     /// `CHEK_BROWSER_EXECUTABLE`, absolute path to a Chromium executable.
     pub browser_executable: Option<PathBuf>,
+    /// `CHEK_BROWSER_ARGS`, a JSON array of Chromium launch arguments.
+    /// Defaults to `["--headless=new"]`; an empty array runs headed.
+    pub browser_args: Vec<String>,
+    /// Keep Chromium's native HTTP transport, bounded by the site proxy.
+    pub browser_native: bool,
     /// `CHEK_PUBLIC_URL`, the address people reach the server at, such as
     /// `https://chek.example.com`. Needed for sign-in providers, which send
     /// people back to it.
@@ -145,6 +150,14 @@ impl Config {
             browser_executable: env::var_os("CHEK_BROWSER_EXECUTABLE")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
+            browser_native: parse("CHEK_BROWSER_NATIVE", "false")?,
+            browser_args: serde_json::from_str(
+                &env::var("CHEK_BROWSER_ARGS").unwrap_or_else(|_| r#"["--headless=new"]"#.into()),
+            )
+            .map_err(|error| ConfigError {
+                name: "CHEK_BROWSER_ARGS",
+                reason: error.to_string(),
+            })?,
             oidc_providers: list("CHEK_OIDC_PROVIDERS", "")
                 .iter()
                 .map(|id| provider(id))

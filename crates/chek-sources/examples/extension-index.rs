@@ -25,6 +25,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             image_cache_bytes: 0,
             browser_solver: None,
             browser_executable: None,
+            browser_args: vec![],
+            browser_native: false,
             worker_executable: None,
         },
     )?;

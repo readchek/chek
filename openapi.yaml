@@ -45,6 +45,165 @@ tags:
       apps. Unauthenticated requests get a Basic challenge and an
       Authentication for OPDS document.
 paths:
+  /verify:
+    get:
+      tags: [Extensions]
+      operationId: verificationPage
+      summary: Open the source verification prototype
+      description: Public shell; browser access requires signing in. Credentials stay in page memory.
+      security: []
+      responses:
+        "200":
+          description: Verification page.
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/v1/me/extensions/{extensionId}/browser:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    post:
+      tags: [Extensions]
+      operationId: startSourceBrowser
+      summary: Start a private verification browser
+      description: >-
+        Requires an installed browser-session extension and a configured Chromium
+        executable. The browser uses its own HTTPS transport through a proxy
+        limited to declared public hosts on port 443. It belongs to this user,
+        lasts ten minutes, and is reused by subsequent extension browser calls.
+        Starting another browser requires closing the existing one first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+      responses:
+        "204":
+          description: Browser opened.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Browser busy, unavailable, or URL not allowed.
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Extensions]
+      operationId: closeSourceBrowser
+      summary: Close the current user's verification browser
+      responses:
+        "204":
+          description: Browser closed; saved source cookies remain.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Browser busy.
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/browser/frame:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: sourceBrowserFrame
+      summary: Capture the current user's verification browser
+      responses:
+        "200":
+          description: A private uncached 1280 by 960 browser frame.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Browser busy, expired, or not open.
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/browser/resume:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    post:
+      tags: [Extensions]
+      operationId: resumeSourceBrowser
+      summary: Release the verification browser for extension retries
+      description: >-
+        Browser calls are paused while the user verifies. This acknowledgement
+        allows them to resume; it does not assert that the challenge passed.
+        Retry the original source operation to establish success.
+      responses:
+        "204":
+          description: Browser released for source calls.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Browser busy, expired, or not open.
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/browser/click:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    post:
+      tags: [Extensions]
+      operationId: clickSourceBrowser
+      summary: Send a click to the current user's verification browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [x, y]
+              properties:
+                x:
+                  type: integer
+                  minimum: 0
+                  maximum: 1279
+                y:
+                  type: integer
+                  minimum: 0
+                  maximum: 959
+      responses:
+        "204":
+          description: Click dispatched; this does not confirm successful verification.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Browser busy, expired, not open, or coordinates outside the viewport.
+        "500":
+          $ref: "#/components/responses/Internal"
   /health:
     get:
       tags: [Health]
@@ -2039,6 +2198,57 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/RemoteChapter"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/chapter-batches:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemoteChapterBatch
+      summary: Read a resumable batch of chapters
+      description: >-
+        Omit cursor for the first batch. Pass nextCursor unchanged with the same
+        seriesId until it is null. Keep partial results separate until traversal
+        finishes; a failed batch can be retried with the same cursor. If the
+        source reports a changed catalog, restart from the first batch.
+        Extensions without pagination return their complete list in one batch.
+      parameters:
+        - $ref: "#/components/parameters/RemoteSeriesId"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        "200":
+          description: One batch and its continuation, or null when complete.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteChapter"
+                  nextCursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":

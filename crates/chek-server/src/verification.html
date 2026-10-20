@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Source verification · Chek</title>
+<style>
+  :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+  body { max-width: 1280px; margin: 32px auto; padding: 0 20px; }
+  h1 { font-size: 24px; } p { line-height: 1.5; }
+  form, .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 20px 0; }
+  label { display: grid; gap: 6px; } input, button { font: inherit; padding: 10px 14px; }
+  button { cursor: pointer; } button:disabled { cursor: wait; }
+  #screen { display: block; width: 100%; border: 1px solid #888; }
+  #screen[hidden], [hidden] { display: none; }
+  #status { min-height: 24px; } pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+<h1>Source verification</h1>
+<p>Open a private browser on your Chek server, complete the site's verification, then retry your search. The browser expires after ten minutes. Closing it ends the live session.</p>
+<form id="login">
+  <label>Chek username <input id="name" autocomplete="username" required></label>
+  <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+  <button>Sign in</button>
+</form>
+<section id="workspace" hidden>
+  <form id="start">
+    <label>Source ID <input id="source" required placeholder="page.chek.example"></label>
+    <label>Source website <input id="url" type="url" required placeholder="https://example.org"></label>
+    <button>Open verification</button>
+  </form>
+  <div class="controls">
+    <label>Search <input id="query" type="search"></label>
+    <button id="retry" disabled>Retry search</button>
+    <button id="close" disabled>Close browser</button>
+    <label><input id="live" type="checkbox">Live preview</label>
+    <button id="refresh" disabled>Refresh preview</button>
+  </div>
+  <p>The view below controls the remote website. Click its verification controls directly.</p>
+  <canvas id="screen" width="1280" height="960" role="img" aria-label="Live source browser" hidden></canvas>
+  <pre id="results"></pre>
+</section>
+<p id="status" role="status" aria-live="polite">Sign in to your Chek account.</p>
+<script>
+  const element = (id) => document.getElementById(id);
+  let token = "", active = "", running = false, busy = false, timer, painting;
+  const status = (text) => { element("status").textContent = text; };
+  function stopped(message) {
+    running = false;
+    clearTimeout(timer);
+    element("screen").hidden = true;
+    element("retry").disabled = true;
+    element("refresh").disabled = true;
+    status(message);
+  }
+  async function request(path, method = "GET", body) {
+    const response = await fetch(path, {
+      method, cache: "no-store",
+      headers: { "Authorization": `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || `Request failed (${response.status})`);
+    }
+    return response;
+  }
+  async function frame() {
+    clearTimeout(timer);
+    if (!running || busy) {
+      if (running && element("live").checked) timer = setTimeout(frame, 250);
+      return;
+    }
+    const started = performance.now();
+    busy = true;
+    painting = (async () => {
+      try {
+        const blob = await (await request(`${active}/browser/frame`)).blob();
+        const bitmap = await createImageBitmap(blob);
+        try {
+          const screen = element("screen");
+          screen.getContext("2d").drawImage(bitmap, 0, 0, screen.width, screen.height);
+          screen.hidden = false;
+        } finally { bitmap.close(); }
+      } catch (error) {
+        if (!error.message.includes("busy")) {
+          stopped(`Live view stopped: ${error.message}. Close the browser, then open verification again.`);
+        }
+      } finally {
+        busy = false;
+        if (running && element("live").checked) {
+          timer = setTimeout(frame, Math.max(50, 250 - (performance.now() - started)));
+        }
+      }
+    })();
+    await painting;
+  }
+  element("login").onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      const data = await (await request("/api/v1/auth/sign-in", "POST", {
+        name: element("name").value, password: element("password").value, device: "Source verification",
+      })).json();
+      token = data.token;
+      element("password").value = "";
+      element("login").hidden = true;
+      element("workspace").hidden = false;
+      status("Choose an installed source and its website.");
+    } catch (error) { status(error.message); }
+  };
+  element("live").onchange = () => {
+    clearTimeout(timer);
+    if (element("live").checked) frame();
+  };
+  element("refresh").onclick = () => frame();
+  element("start").onsubmit = async (event) => {
+    event.preventDefault();
+    if (active || busy) return;
+    busy = true;
+    const path = `/api/v1/me/extensions/${encodeURIComponent(element("source").value.trim())}`;
+    status("Opening the source browser…");
+    try {
+      await request(`${path}/browser`, "POST", { url: element("url").value });
+      active = path; running = true;
+      element("retry").disabled = element("close").disabled = element("refresh").disabled = false;
+      status("Complete any verification shown below, then retry your search.");
+    } catch (error) { status(error.message); }
+    finally { busy = false; if (running) frame(); }
+  };
+  element("screen").onclick = async (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(1279, Math.max(0, Math.floor((event.clientX - bounds.left) * 1280 / bounds.width)));
+    const y = Math.min(959, Math.max(0, Math.floor((event.clientY - bounds.top) * 960 / bounds.height)));
+    await painting;
+    if (busy || !running) return;
+    busy = true;
+    try {
+      await request(`${active}/browser/click`, "POST", {
+        x, y,
+      });
+    } catch (error) { stopped(`Browser input failed: ${error.message}. Close the browser before trying again.`); }
+    finally { busy = false; frame(); }
+  };
+  element("retry").onclick = async () => {
+    await painting;
+    if (busy || !active) return;
+    busy = true;
+    status("Retrying search in your browser session…");
+    try {
+      await request(`${active}/browser/resume`, "POST");
+      const data = await (await request(`${active}/search?q=${encodeURIComponent(element("query").value)}`)).json();
+      element("results").textContent = JSON.stringify(data, null, 2);
+      status(`Search returned ${data.items.length} titles.`);
+    } catch (error) { stopped(`Search failed: ${error.message}. Close the browser before starting another verification.`); }
+    finally { busy = false; }
+  };
+  element("close").onclick = async () => {
+    await painting;
+    if (busy || !active) return;
+    busy = true;
+    try {
+      await request(`${active}/browser`, "DELETE");
+      running = false; active = ""; clearTimeout(timer);
+      element("screen").hidden = true;
+      element("retry").disabled = element("close").disabled = element("refresh").disabled = true;
+      status("Browser closed.");
+    } catch (error) { status(error.message); }
+    finally { busy = false; }
+  };
+</script>
+</html>

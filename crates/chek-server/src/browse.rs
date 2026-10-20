@@ -15,7 +15,7 @@ use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chek_catalog::ExtensionInstall;
-use chek_sources::{Image, ReadingDirection, Source, SourceError, Status};
+use chek_sources::{Chapter, Image, ReadingDirection, Source, SourceError, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -68,6 +68,33 @@ pub struct RemoteChapterDto {
     number: Option<String>,
     version: Option<String>,
     published: Option<String>,
+}
+
+impl From<Chapter> for RemoteChapterDto {
+    fn from(chapter: Chapter) -> Self {
+        Self {
+            id: chapter.id,
+            title: chapter.title,
+            number: chapter.number,
+            version: chapter.version,
+            published: chapter.published,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteChapterBatchDto {
+    items: Vec<RemoteChapterDto>,
+    next_cursor: Option<String>,
+    total: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterBatchQuery {
+    series_id: String,
+    cursor: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -181,16 +208,40 @@ pub async fn chapters(
     let (_, source) = usable_source(&state, &current, &id).await?;
     let chapters = run(source, move |s| s.chapters(&query.series_id)).await?;
     Ok(Json(List {
-        items: chapters
+        items: chapters.into_iter().map(RemoteChapterDto::from).collect(),
+    }))
+}
+
+pub async fn chapter_batch(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<String>,
+    Query(query): Query<ChapterBatchQuery>,
+) -> Result<Json<RemoteChapterBatchDto>, ApiError> {
+    if query
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096)
+    {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_cursor",
+            message: "chapter cursor must contain 1–4096 bytes".into(),
+        });
+    }
+    let (_, source) = usable_source(&state, &current, &id).await?;
+    let batch = run(source, move |source| {
+        source.chapter_batch(&query.series_id, query.cursor.as_deref())
+    })
+    .await?;
+    Ok(Json(RemoteChapterBatchDto {
+        items: batch
+            .items
             .into_iter()
-            .map(|c| RemoteChapterDto {
-                id: c.id,
-                title: c.title,
-                number: c.number,
-                version: c.version,
-                published: c.published,
-            })
+            .map(RemoteChapterDto::from)
             .collect(),
+        next_cursor: batch.next,
+        total: batch.total,
     }))
 }
 
@@ -269,7 +320,7 @@ pub(crate) async fn usable_source(
     }
     let extensions = Arc::clone(&state.extensions);
     let digest = install.sha256.clone();
-    let source = tokio::task::spawn_blocking(move || extensions.source(&digest))
+    let source = tokio::task::spawn_blocking(move || extensions.source(&digest, user_id))
         .await
         .map_err(ApiError::internal)?
         .map_err(load_error)?;
@@ -307,7 +358,7 @@ pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
         Error::Source(SourceError::NotFound) => {
             ApiError::not_found("the source has no such item".to_owned())
         }
-        Error::Source(_) | Error::Trap(_) | Error::Image(_) => ApiError {
+        Error::Source(_) | Error::Trap(_) | Error::Image(_) | Error::Pagination(_) => ApiError {
             status: StatusCode::BAD_GATEWAY,
             code: "source_failed",
             message: error.to_string(),

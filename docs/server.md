@@ -351,9 +351,9 @@ the `index.json` for any folder of components.
   between calls. `cookies` reads and sets it directly, held to the
   extension's sites. A jar keeps up to 1,000 cookies, session cookies
   included.
-- Caches and cookie jars are kept per extension id and sites in
+- Caches and cookie jars are kept per user, extension id and sites in
   `extensions/state.db` in the data folder, so they survive restarts and
-  updates, and everyone who installs the same extension shares them. A
+  updates. Existing shared state is not imported into a user's namespace. A
   component that reuses another's id with different sites starts empty, and
   an update that changes the sites does too. None is available while the
   manifest is read.
@@ -379,11 +379,44 @@ the `index.json` for any folder of components.
   host's HTTPS/site checks, including frames and redirects; a non-forwarding
   proxy blocks direct networking. Cookies merge into the extension's shared
   jar after successful operations. This path does not invoke the solver.
-  Sessions allow 32 operations, 30 seconds each and 120 seconds total; script
+  Sessions allow 128 operations, 30 seconds each and 120 seconds total; script
   input is capped at 64 KiB and JSON results at 1 MiB. Four browser/image
   workers may run together. A supervisor kills the process group and removes
   its temporary directory on close, failure or expiry. Chromium's memory is
   outside the WASM cap; process separation is not an OS security sandbox.
+  Navigation during script evaluation returns an error without discarding the
+  session. Extensions decide whether their script is safe to retry; the host
+  never replays it automatically.
+- `CHEK_BROWSER_NATIVE=true` opts browser-session calls into Chromium's native
+  HTTP transport through the restricted CONNECT proxy described below. It defaults
+  to false. Native sessions retain the 120-second call limit.
+- `CHEK_BROWSER_ARGS` is an admin-supplied JSON array of Chromium launch arguments.
+  It defaults to `["--headless=new"]`; use `[]` for a visible browser on a host
+  with a display. These arguments also apply to verification browsers.
+  Extensions cannot supply launch arguments. The host still adds its proxy,
+  profile and network restriction arguments, and disables background timer and
+  renderer throttling so a covered window can finish within the worker deadline.
+- The `/verify` prototype lets a signed-in user open a verification browser
+  for an installed source. Frames and clicks require that user's authentication;
+  clients cannot send scripts or raw CDP commands. Subsequent extension calls
+  reuse the browser until it closes or its ten-minute lifetime expires. Cookies
+  persist, but browser processes and DOM state do not survive a server restart.
+  Opening this mode is explicit: Chromium makes its own TLS connections through
+  a loopback CONNECT proxy limited to declared hosts on port 443. The proxy
+  resolves and pins public addresses, rejects private/local targets, limits
+  active tunnels to 32 and traffic to 128 MiB per session. The browser still
+  blocks direct DNS, QUIC and non-proxied WebRTC. Native requests run without
+  CDP interception or paused child frames. This mode differs from the default HTTP
+  relay: request counts are not inspected, response sizes are bounded by the
+  session traffic budget, and the proxy cannot inspect encrypted traffic.
+  The four-worker cap still applies.
+  The worker continues processing native browser events between user inputs;
+  loading does not depend on preview polling. Live preview is opt-in and requests
+  one frame at a time, targeting a 250 ms interval. Each image is decoded before
+  it replaces the canvas contents. Browser targets are capped at 24
+  concurrently; closed frames and workers leave that count.
+  Extension calls and user input are serialized. Verification is confirmed by
+  retrying the source operation, never by a click or cookie alone.
 - An image may carry source-defined transform parameters. With the
   `image-transform` capability, the host invokes `transform-image` after
   fetching and caches the result by extension scope, version, component
@@ -394,7 +427,7 @@ the `index.json` for any folder of components.
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
   rebuild from contract 0.3 to 0.4.
-- The manifest names the hosts the extension may reach, exactly or as
+- The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
   `localhost` are refused as sites. The manifest itself is read with no
@@ -488,6 +521,14 @@ the `index.json` for any folder of components.
   marked unavailable, not deleted, so progress survives; a chapter whose
   version changed has its page list dropped. Edits survive syncs, as for
   Komga's books.
+- Sources may additionally export chapter pagination without changing the
+  required 0.4 contract. Each batch gets a fresh bounded instance; the host
+  collects the complete list before updating the catalog. It rejects duplicate
+  IDs, cursor cycles, changing totals and incomplete traversals. Complete
+  traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
+  with a 30-minute budget checked between calls. Browsing clients can use
+  `/api/v1/me/extensions/{id}/chapter-batches` to retain a cursor and retry a
+  failed batch. Existing components need no rebuild to keep working.
 - A chapter's page list is asked of the source the first time it's read
   and stored as the image requests the extension returned. Pages are
   fetched through the source on every read, with no cache on the server

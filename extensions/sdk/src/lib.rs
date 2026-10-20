@@ -41,6 +41,21 @@ pub use bindings::chek::source::types::{
 };
 pub use bindings::chek::source::{browser, browser_session, cache, cookies, http, images};
 pub use bindings::{Guest, export_source};
+#[doc(hidden)]
+pub mod pagination_bindings {
+    wit_bindgen::generate!({
+        path: "../../crates/chek-sources/wit",
+        world: "paginated-chapters",
+        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        pub_export_macro: true,
+        export_macro_name: "export_chapter_pagination",
+        default_bindings_module: "chek_extension::pagination_bindings",
+    });
+}
+pub use pagination_bindings::export_chapter_pagination;
+pub use pagination_bindings::exports::chek::source::chapter_pagination::{
+    Batch as ChapterBatch, Guest as ChapterPagination,
+};
 pub use serde_json::{self, Value};
 
 use bindings::chek::source::http::{HttpError, Method, Request, Response};

@@ -70,13 +70,23 @@ blocked. Downloads and extra pages are refused. GET, POST, HEAD and OPTIONS
 are supported; file uploads are not. This path does not use the challenge
 solver or reproduce Chromium's TLS fingerprint.
 
-A session lasts at most 120 seconds and allows 32 operations, each up to
+A session lasts at most 120 seconds and allows 128 operations, each up to
 30 seconds. Scripts are capped at 64 KiB and JSON results at 1 MiB. Failure,
 trap, close or return stops the worker and its browser processes. At most
 four browser/image workers run at once; a busy host returns an error.
 Chromium still has a substantial memory cost; the WASM memory cap does not
 cover it. This worker is process-separated, not an OS security sandbox for
 the extension host. Keep Chromium patched and preserve its own sandbox.
+
+The server's `/verify` page is a prototype for manual challenge handoff. Sign in,
+enter an installed source's id and an allowed HTTPS URL, complete verification
+in its live browser view, then retry search. Its browser retains native TLS
+through a public-host-only CONNECT proxy and is reused by that user's extension
+calls for up to ten minutes. Closing the browser ends that live session; cookies
+remain in the user's source namespace. The page currently supports pointer
+clicks and search retries, not keyboard or audio CAPTCHA flows. This does not
+guarantee that a site's challenge will accept the browser. FlareSolverr remains
+a separate optional path for ordinary HTTP requests.
 
 ## Image transforms
 
@@ -100,6 +110,29 @@ hook; it runs in a separate libvips worker with a ten-second deadline. Hook
 inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
+
+Chapter pagination is an optional export alongside the existing 0.4 source
+world. Implement `chek_extension::ChapterPagination` and invoke
+`chek_extension::export_chapter_pagination!(YourSource)` as well as
+`export_source!`. Return `ChapterBatch { items, next, total }`; `next` is an
+opaque cursor for the same series, or `None` when complete. A cursor must
+work in a fresh instance and may be retried. Detect catalog changes and fail
+rather than mixing incompatible batches. Keep the ordinary `chapters` export
+for older hosts.
+
+Each batch has the normal WASM and browser limits. Paginated batches allow
+at most 500 chapters and 4 MiB of chapter text, with cursors up to 4 KiB.
+The host assembles complete lists for library sync and the existing chapters
+endpoint, allowing up to 20,000 chapters, 32 MiB of text, 256 batches and a
+30-minute traversal budget checked between calls. It rejects duplicate IDs,
+cursor cycles, changing totals and incomplete results before applying a sync.
+An ordinary network failure retries the current batch once in a fresh instance;
+traps and invalid data are not retried.
+Clients can instead call `/api/v1/me/extensions/{id}/chapter-batches` with
+`seriesId` and an optional `cursor`, preserving partial results locally and
+retrying only the failed batch. `nextCursor: null` ends the traversal.
+Sources without this export retain their existing behavior and return their
+complete list as one batch when called through the new endpoint.
 
 The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly

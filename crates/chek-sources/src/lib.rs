@@ -22,11 +22,14 @@ mod session;
 mod sites;
 mod store;
 mod transform;
+mod tunnel;
 mod worker;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use reqwest::Method;
 use serde_json::json;
@@ -48,6 +51,16 @@ use crate::store::Namespace;
 mod bindings {
     wasmtime::component::bindgen!({ path: "wit", world: "source" });
 }
+
+mod pagination_bindings {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "paginated-chapters",
+        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+    });
+}
+
+pub use pagination_bindings::exports::chek::source::chapter_pagination::Batch as ChapterBatch;
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error as SourceError, Image, ImageData, Manifest,
@@ -90,6 +103,8 @@ pub enum Error {
     /// The extension ran and reported an error.
     #[error("{}", describe(.0))]
     Source(SourceError),
+    #[error("the source returned invalid chapter pagination: {0}")]
+    Pagination(String),
     #[error("couldn't fetch the image: {0}")]
     Image(String),
     #[error("the extension doesn't match its index entry: {0}")]
@@ -115,6 +130,8 @@ pub struct Host {
     images: Arc<ImageCache>,
     solver: Option<Arc<dyn Solver>>,
     browser_executable: Option<PathBuf>,
+    browser_args: Vec<String>,
+    browser_native: bool,
     worker_executable: Option<PathBuf>,
     clock: Arc<std::sync::mpsc::Sender<()>>,
     /// One jar and browser per extension, so every loaded version shares
@@ -137,6 +154,10 @@ pub struct Options {
     pub browser_solver: Option<String>,
     /// Chromium executable, for interactive browser sessions.
     pub browser_executable: Option<PathBuf>,
+    /// Chromium launch arguments, such as `--headless=new`.
+    pub browser_args: Vec<String>,
+    /// Use Chromium's native transport through the restricted site proxy.
+    pub browser_native: bool,
     /// Server executable, invoked in browser or image worker mode.
     pub worker_executable: Option<PathBuf>,
 }
@@ -192,6 +213,8 @@ impl Host {
             images,
             solver,
             browser_executable: options.browser_executable.clone(),
+            browser_args: options.browser_args.clone(),
+            browser_native: options.browser_native,
             worker_executable: options.worker_executable.clone(),
             clock: Arc::new(clock),
             scopes: Mutex::default(),
@@ -201,6 +224,10 @@ impl Host {
     /// Compiles an extension and reads its manifest. Compiling takes a
     /// moment, so keep the returned source rather than loading it per call.
     pub fn load(&self, wasm: &[u8]) -> Result<Source, Error> {
+        self.load_for_user(wasm, None)
+    }
+
+    pub(crate) fn load_for_user(&self, wasm: &[u8], user: Option<i64>) -> Result<Source, Error> {
         let component = Component::new(&self.engine, wasm)
             .map_err(|error| Error::Invalid(format!("{error:#}")))?;
         // A component that names the contract but not this version was
@@ -217,6 +244,11 @@ impl Host {
             .linker
             .instantiate_pre(&component)
             .map_err(link_error)?;
+        let pagination = component
+            .get_export_index(None, "chek:source/chapter-pagination@0.4.0")
+            .map(|_| pagination_bindings::PaginatedChaptersPre::new(instance.clone()))
+            .transpose()
+            .map_err(|error| Error::Invalid(format!("invalid chapter pagination: {error:#}")))?;
         let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
         let manifest = run(&pre, None, false, |bindings, store| {
@@ -229,7 +261,10 @@ impl Host {
         // kept unless it could reach the same sites anyway.
         let mut declared = manifest.sites.clone();
         declared.sort();
-        let scope = format!("{} {}", manifest.id, declared.join(" "));
+        let scope = match user {
+            Some(user) => format!("user:{user} {} {}", manifest.id, declared.join(" ")),
+            None => format!("{} {}", manifest.id, declared.join(" ")),
+        };
         let Scope { jar, browser } = self
             .scopes
             .lock()
@@ -256,6 +291,8 @@ impl Host {
                 .any(|c| matches!(c, Capability::Browser | Capability::BrowserSession))
         });
         let context = Arc::new(Context {
+            browser_args: self.browser_args.clone(),
+            native_sites: self.browser_native.then(|| manifest.sites.clone()),
             scope,
             net: Net::new(
                 sites,
@@ -275,11 +312,16 @@ impl Host {
                 .worker_executable
                 .clone()
                 .filter(|_| manifest.capabilities.contains(&Capability::ImageTransform)),
+            handoff: Mutex::new(None),
+            verification_pending: AtomicBool::new(false),
+            calls: Mutex::new(()),
+            user,
             _clock: Arc::clone(&self.clock),
             worker_executable: self.worker_executable.clone(),
         });
         Ok(Source {
             pre,
+            pagination,
             manifest,
             context,
             digest: repository::sha256_hex(wasm),
@@ -290,6 +332,7 @@ impl Host {
 /// A loaded extension.
 pub struct Source {
     pre: bindings::SourcePre<State>,
+    pagination: Option<pagination_bindings::PaginatedChaptersPre<State>>,
     manifest: Manifest,
     context: Arc<Context>,
     digest: String,
@@ -297,6 +340,12 @@ pub struct Source {
 
 /// What an extension's calls may use beyond their own instance.
 struct Context {
+    native_sites: Option<Vec<String>>,
+    browser_args: Vec<String>,
+    verification_pending: AtomicBool,
+    handoff: Mutex<Option<session::Session>>,
+    calls: Mutex<()>,
+    user: Option<i64>,
     /// Names the extension's state: its id and sites.
     scope: String,
     net: Net,
@@ -316,6 +365,109 @@ pub struct Fetched {
 }
 
 impl Source {
+    /// Starts a private browser that remains available for this user's retries.
+    pub fn start_handoff(&self, url: &str) -> Result<(), String> {
+        let context = &self.context;
+        let _call = context.calls.try_lock().map_err(|_| "extension is busy")?;
+        if context.user.is_none() {
+            return Err("handoff requires a user-owned source".into());
+        }
+        context.net.allowed_url(url)?;
+        let mut slot = context.handoff.try_lock().map_err(|_| "browser is busy")?;
+        if slot.as_ref().is_some_and(|session| !session.expired()) {
+            return Err("a browser is already open; close it before starting another".into());
+        }
+        *slot = None;
+        let mut session = session::Session::handoff(
+            context
+                .worker_executable
+                .as_deref()
+                .ok_or("no browser worker configured")?,
+            context
+                .browser_executable
+                .as_deref()
+                .ok_or("browser-session requires CHEK_BROWSER_EXECUTABLE")?,
+            context,
+            &self.manifest.sites,
+        )?;
+        session.operation(context, json!({"type":"open","url":url}), &mut 0)?;
+        *slot = Some(session);
+        context.verification_pending.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// The user releases the browser for extension retries. Success is only
+    /// established by the retried operation, not by this acknowledgement.
+    pub fn resume_handoff(&self) -> Result<(), String> {
+        let _call = self
+            .context
+            .calls
+            .try_lock()
+            .map_err(|_| "extension is busy")?;
+        let slot = self
+            .context
+            .handoff
+            .try_lock()
+            .map_err(|_| "browser is busy")?;
+        if !slot.as_ref().is_some_and(|session| !session.expired()) {
+            return Err("no verification browser is open".into());
+        }
+        self.context
+            .verification_pending
+            .store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub fn handoff_frame(&self) -> Result<String, String> {
+        let value = self.handoff_operation(json!({"type":"screenshot"}))?;
+        serde_json::from_str(&value).map_err(|e| e.to_string())
+    }
+
+    pub fn handoff_click(&self, x: u32, y: u32) -> Result<(), String> {
+        if x >= 1280 || y >= 960 {
+            return Err("coordinates are outside the browser".into());
+        }
+        self.handoff_operation(json!({"type":"click","x":x,"y":y}))
+            .map(|_| ())
+    }
+
+    pub fn close_handoff(&self) -> Result<(), String> {
+        let _call = self
+            .context
+            .calls
+            .try_lock()
+            .map_err(|_| "extension is busy")?;
+        *self
+            .context
+            .handoff
+            .try_lock()
+            .map_err(|_| "browser is busy")? = None;
+        self.context
+            .verification_pending
+            .store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn handoff_operation(&self, command: serde_json::Value) -> Result<String, String> {
+        let _call = self
+            .context
+            .calls
+            .try_lock()
+            .map_err(|_| "extension is busy")?;
+        let mut slot = self
+            .context
+            .handoff
+            .try_lock()
+            .map_err(|_| "browser is busy")?;
+        let session = slot.as_mut().ok_or("no verification browser is open")?;
+        session.reset_operations();
+        let result = session.operation(&self.context, command, &mut 0);
+        if let Err(error) = &result {
+            tracing::warn!(%error, "verification browser operation failed");
+            *slot = None;
+        }
+        result
+    }
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -334,8 +486,131 @@ impl Source {
 
     /// The series' chapters in reading order.
     pub fn chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
-        self.call(|bindings, store| bindings.call_chapters(store, series_id))?
-            .map_err(Error::Source)
+        if self.pagination.is_none() {
+            return self
+                .call(|bindings, store| bindings.call_chapters(store, series_id))?
+                .map_err(Error::Source);
+        }
+        let deadline = Instant::now() + Duration::from_secs(1800);
+        let mut cursor = None;
+        let mut cursors = HashSet::new();
+        let mut ids = HashSet::new();
+        let mut chapters = Vec::new();
+        let mut bytes = 0usize;
+        let mut total = None;
+        for _ in 0..256 {
+            if Instant::now() >= deadline {
+                return Err(Error::Trap("chapter traversal exceeded 30 minutes".into()));
+            }
+            let batch = match self.chapter_batch(series_id, cursor.as_deref()) {
+                Err(Error::Source(SourceError::Network(error))) => {
+                    tracing::debug!(%error, "retrying chapter batch in a fresh instance");
+                    std::thread::sleep(Duration::from_secs(1));
+                    if Instant::now() >= deadline {
+                        return Err(Error::Trap("chapter traversal exceeded 30 minutes".into()));
+                    }
+                    self.chapter_batch(series_id, cursor.as_deref())?
+                }
+                result => result?,
+            };
+            if total.is_some_and(|total| total != batch.total) {
+                return Err(Error::Pagination(
+                    "chapter total changed during traversal".into(),
+                ));
+            }
+            total = Some(batch.total);
+            for chapter in batch.items {
+                bytes = bytes.saturating_add(chapter_bytes(&chapter));
+                if bytes > 32 << 20 {
+                    return Err(Error::Pagination("chapter traversal exceeds 32 MiB".into()));
+                }
+                if !ids.insert(chapter.id.clone()) {
+                    return Err(Error::Pagination(
+                        "chapter pagination repeated an id".into(),
+                    ));
+                }
+                chapters.push(chapter);
+            }
+            if chapters.len() > batch.total as usize {
+                return Err(Error::Pagination(
+                    "chapter count exceeds its declared total".into(),
+                ));
+            }
+            tracing::debug!(
+                chapters = chapters.len(),
+                total = batch.total,
+                "read chapter batch"
+            );
+            match batch.next {
+                None if chapters.len() == batch.total as usize => return Ok(chapters),
+                None => {
+                    return Err(Error::Pagination(
+                        "chapter pagination ended before its total".into(),
+                    ));
+                }
+                Some(next) if cursors.insert(next.clone()) => cursor = Some(next),
+                Some(_) => {
+                    return Err(Error::Pagination(
+                        "chapter pagination repeated a cursor".into(),
+                    ));
+                }
+            }
+        }
+        Err(Error::Trap("chapter traversal exceeded 256 batches".into()))
+    }
+
+    /// One bounded batch; old components return their complete list on the first call.
+    pub fn chapter_batch(
+        &self,
+        series_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ChapterBatch, Error> {
+        if cursor.is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096) {
+            return Err(Error::Pagination("invalid chapter cursor".into()));
+        }
+        let Some(pre) = &self.pagination else {
+            if cursor.is_some() {
+                return Err(Error::Pagination(
+                    "this source has no chapter pagination".into(),
+                ));
+            }
+            let items = self.chapters(series_id)?;
+            let total = u32::try_from(items.len())
+                .map_err(|_| Error::Pagination("too many chapters".into()))?;
+            return Ok(ChapterBatch {
+                items,
+                next: None,
+                total,
+            });
+        };
+        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
+        let bindings = pre.instantiate(&mut store).map_err(trap)?;
+        let batch = bindings
+            .chek_source_chapter_pagination()
+            .call_fetch(&mut store, series_id, cursor)
+            .map_err(trap)?
+            .map_err(Error::Source)?;
+        if batch.total > 20_000
+            || batch.items.len() > 500
+            || batch.items.len() > batch.total as usize
+            || batch
+                .next
+                .as_ref()
+                .is_some_and(|next| next.is_empty() || next.len() > 4096 || batch.items.is_empty())
+        {
+            return Err(Error::Pagination("invalid chapter batch bounds".into()));
+        }
+        let mut ids = HashSet::new();
+        if batch
+            .items
+            .iter()
+            .any(|chapter| chapter.id.is_empty() || !ids.insert(&chapter.id))
+            || batch.items.iter().map(chapter_bytes).sum::<usize>() > 4 << 20
+        {
+            return Err(Error::Pagination("invalid chapter batch contents".into()));
+        }
+        Ok(batch)
     }
 
     /// The chapter's pages in reading order.
@@ -447,8 +722,17 @@ impl Source {
         &self,
         export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> Result<R, Error> {
+        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
         run(&self.pre, Some(Arc::clone(&self.context)), false, export)
     }
+}
+
+fn chapter_bytes(chapter: &Chapter) -> usize {
+    chapter.id.len()
+        + chapter.title.len()
+        + chapter.number.as_ref().map_or(0, String::len)
+        + chapter.version.as_ref().map_or(0, String::len)
+        + chapter.published.as_ref().map_or(0, String::len)
 }
 
 /// Runs one export in a fresh instance.
@@ -458,6 +742,16 @@ fn run<R>(
     transforming: bool,
     export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
 ) -> Result<R, Error> {
+    let mut store = new_store(pre.engine(), context, transforming)?;
+    let bindings = pre.instantiate(&mut store).map_err(trap)?;
+    export(&bindings, &mut store).map_err(trap)
+}
+
+fn new_store(
+    engine: &Engine,
+    context: Option<Arc<Context>>,
+    transforming: bool,
+) -> Result<Store<State>, Error> {
     let state = State {
         wasi: WasiCtx::builder()
             .allow_tcp(false)
@@ -470,14 +764,14 @@ fn run<R>(
         requests: 0,
         transforming,
         session: None,
+        persistent_session: false,
         image_operations: 0,
     };
-    let mut store = Store::new(pre.engine(), state);
+    let mut store = Store::new(engine, state);
     store.limiter(|state| &mut state.limits);
     store.set_fuel(MAX_FUEL).map_err(trap)?;
     store.set_epoch_deadline(if transforming { 1_000 } else { 12_000 });
-    let bindings = pre.instantiate(&mut store).map_err(trap)?;
-    export(&bindings, &mut store).map_err(trap)
+    Ok(store)
 }
 
 struct State {
@@ -489,6 +783,7 @@ struct State {
     requests: u32,
     transforming: bool,
     session: Option<session::Session>,
+    persistent_session: bool,
     image_operations: u32,
 }
 
@@ -585,9 +880,25 @@ impl State {
 
 impl bindings::chek::source::browser_session::Host for State {
     fn open(&mut self, url: String) -> Result<(), String> {
-        self.session = None;
+        self.release_browser();
         let context = self.context()?;
         context.net.allowed_url(&url)?;
+        if context.verification_pending.load(Ordering::SeqCst) {
+            return Err("complete the open verification browser and resume before retrying".into());
+        }
+        let saved = context
+            .handoff
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(mut session) = saved.filter(|session| !session.expired()) {
+            session.reset_operations();
+            self.session = Some(session);
+            self.persistent_session = true;
+            return self
+                .browser_operation(json!({"type":"open","url":url}))
+                .map(|_| ());
+        }
         let executable = context
             .browser_executable
             .as_ref()
@@ -618,11 +929,21 @@ impl bindings::chek::source::browser_session::Host for State {
     }
 
     fn close(&mut self) {
-        self.session = None;
+        self.release_browser();
     }
 }
 
 impl State {
+    fn release_browser(&mut self) {
+        let session = self.session.take();
+        if self.persistent_session
+            && let Some(context) = &self.context
+        {
+            *context.handoff.lock().unwrap_or_else(|e| e.into_inner()) = session;
+        }
+        self.persistent_session = false;
+    }
+
     fn browser_operation(&mut self, command: serde_json::Value) -> Result<String, String> {
         let mut session = self.session.take().ok_or("no browser session is open")?;
         let context = self
@@ -630,10 +951,16 @@ impl State {
             .as_ref()
             .ok_or("browser isn't available while reading the manifest")?;
         let result = session.operation(context, command, &mut self.requests);
-        if result.is_ok() {
+        if result.is_ok() || session.recoverable {
             self.session = Some(session);
         }
         result
+    }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.release_browser();
     }
 }
 

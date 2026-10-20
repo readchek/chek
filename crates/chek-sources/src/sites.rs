@@ -16,7 +16,7 @@ enum Site {
 }
 
 /// Manifests can't name more sites than this.
-const MAX_SITES: usize = 32;
+const MAX_SITES: usize = 64;
 
 impl Sites {
     pub(crate) fn parse(entries: &[String]) -> Result<Self, String> {
