@@ -509,6 +509,14 @@ the `index.json` for any folder of components.
   marked unavailable, not deleted, so progress survives; a chapter whose
   version changed has its page list dropped. Edits survive syncs, as for
   Komga's books.
+- Sources may additionally export chapter pagination without changing the
+  required 0.3 contract. Each batch gets a fresh bounded instance; the host
+  collects the complete list before updating the catalog. It rejects duplicate
+  IDs, cursor cycles, changing totals and incomplete traversals. Complete
+  traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
+  with a 30-minute budget checked between calls. Browsing clients can use
+  `/api/v1/me/extensions/{id}/chapter-batches` to retain a cursor and retry a
+  failed batch. Existing components need no rebuild to keep working.
 - A chapter's page list is asked of the source the first time it's read
   and stored as the image requests the extension returned. Pages are
   fetched through the source on every read, with no cache on the server

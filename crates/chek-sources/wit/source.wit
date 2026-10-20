@@ -254,3 +254,21 @@ world source {
     // additional parameters belong in image.transform, not mutable state.
     export transform-image: func(image: image, response: response) -> result<option<image-data>, error>;
 }
+
+// Optional export alongside `source`. Older components need not implement it.
+// Every batch runs in a fresh instance with the normal per-call limits.
+interface chapter-pagination {
+    use types.{chapter, error};
+    record batch {
+        items: list<chapter>,
+        // Opaque continuation for the same series. None means complete.
+        next: option<string>,
+        // Must remain unchanged throughout one traversal.
+        total: u32,
+    }
+    fetch: func(series-id: string, cursor: option<string>) -> result<batch, error>;
+}
+
+world paginated-chapters {
+    export chapter-pagination;
+}

@@ -1,5 +1,18 @@
 // oxlint-disable no-unused-vars
 // Adapted from Keiyoushi Comix 1.6.54 (Apache-2.0); see ../upstream/NOTICE.
+async function catalogReady() {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+        const raw = document.querySelector("script#initial-data")?.textContent;
+        if (raw) {
+            const initial = JSON.parse(raw);
+            if (initial && typeof initial.queries === "object" && initial.queries !== null) return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return false;
+}
+
 async function initialData(detail) {
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
@@ -102,7 +115,7 @@ async function chapterApi(siteApi) {
     return true;
 }
 
-async function chapterTarget(page) {
+async function chapterTarget(page, field = "date") {
     // Upstream spaces chapter requests 2.5–5 seconds apart in its interceptor.
     // Wait before input so the site's native-input acknowledgement stays fresh.
     const delay = window.chekChapterApi.nextRequest - Date.now();
@@ -113,7 +126,7 @@ async function chapterTarget(page) {
     if (!section) throw new Error("Comix's chapter section did not load");
     const pager = section.querySelector(".npager");
     const target = page === 1
-        ? section.querySelector('button[title="Sort by date"]')
+        ? section.querySelector(`button[title^="Sort by ${field}"]`)
         : [...(pager?.querySelectorAll("button") || [])].find(button =>
             !button.disabled && button.textContent.trim() === String(page));
     if (!target) throw new Error("Comix's chapter section has no input target");
@@ -149,14 +162,14 @@ async function chapterInputReceived() {
     return window.chekChapterTapped === true;
 }
 
-async function chapterPage(id, page) {
+async function chapterPage(id, page, field = "created_at") {
     if (!window.chekChapterTapped) throw new Error("The chapter section did not receive native input");
     const api = window.chekChapterApi;
     let record;
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
         record = api.records.find(record => record.params?.page === page &&
-            record.params?.order?.created_at === "desc");
+            record.params?.order?.[field] === "desc");
         if (record) break;
         await new Promise(resolve => setTimeout(resolve, 100));
     }

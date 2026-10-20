@@ -4,7 +4,7 @@ mod protocol;
 
 use chek_extension::prelude::*;
 use chek_extension::{browser, browser_session, http::HttpError};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 
@@ -84,6 +84,38 @@ struct ChapterData {
     group: Option<Group>,
     #[serde(default)]
     is_official: bool,
+}
+
+impl ChapterData {
+    fn chapter(self) -> Result<Chapter, Error> {
+        let path = self
+            .url
+            .split_once("/title/")
+            .map(|(_, path)| path)
+            .ok_or_else(|| Error::Parse("Invalid Comix chapter URL".into()))?;
+        let number = self.number.to_string();
+        let title = match self.name.filter(|name| !name.trim().is_empty()) {
+            Some(name) => format!("Chapter {number}: {name}"),
+            None => format!("Chapter {number}"),
+        };
+        Ok(Chapter {
+            id: path.into(),
+            title,
+            number: Some(number),
+            version: self
+                .group
+                .map(|group| group.name)
+                .or_else(|| self.is_official.then(|| "Official".into())),
+            published: None,
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct ChapterCursor {
+    series: String,
+    page: u32,
+    total: usize,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +240,12 @@ impl Session {
 
     fn open(path: &str) -> Result<Self, Error> {
         let url = format!("{SITE}{path}");
+        let session = Self;
+        browser_session::open(&url).map_err(Error::Network)?;
+        if session.read::<bool>("catalogReady()")? {
+            return Ok(session);
+        }
+        drop(session);
         match browser::load(&url) {
             Ok(response) if (200..300).contains(&response.status) => {}
             Ok(response) => {
@@ -216,7 +254,11 @@ impl Session {
                     response.status
                 )));
             }
-            Err(HttpError::Failed(message)) if message == "no browser solver is configured" => {}
+            Err(HttpError::Failed(message)) if message == "no browser solver is configured" => {
+                return Err(Error::Network(
+                    "Comix verification is required; open verification and retry, or configure a browser solver".into(),
+                ));
+            }
             Err(error) => {
                 return Err(Error::Network(format!(
                     "Comix verification failed: {error:?}"
@@ -224,7 +266,13 @@ impl Session {
             }
         }
         browser_session::open(&url).map_err(Error::Network)?;
-        Ok(Self)
+        let session = Self;
+        if !session.read::<bool>("catalogReady()")? {
+            return Err(Error::Network(
+                "Comix verification did not load the catalog".into(),
+            ));
+        }
+        Ok(session)
     }
 
     fn evaluate<T: DeserializeOwned>(&self, expression: &str) -> Result<T, Error> {
@@ -241,9 +289,10 @@ impl Session {
         }
     }
 
-    fn tap_chapters(&self, page: u32) -> Result<(), Error> {
+    fn tap_chapters(&self, page: u32, field: &str) -> Result<(), Error> {
         for _ in 0..8 {
-            let target: Target = self.evaluate(&format!("chapterTarget({page})"))?;
+            let target: Target =
+                self.evaluate(&format!("chapterTarget({page}, {})", json!(field)))?;
             if target.scroll == 0 {
                 browser_session::click(target.x, target.y).map_err(Error::Network)?;
                 if self.evaluate::<bool>("chapterInputReceived()")? {
@@ -265,7 +314,7 @@ impl Session {
 
     fn chapter_page(&self, id: &str, page: u32) -> Result<Listing<ChapterData>, Error> {
         let result = self
-            .tap_chapters(page)
+            .tap_chapters(page, "date")
             .and_then(|()| self.evaluate(&format!("chapterPage({}, {page})", json!(id))));
         result.map_err(|error| match error {
             Error::Network(message) => {
@@ -454,26 +503,7 @@ impl Guest for Comix {
                 if !seen.insert(chapter.id) {
                     continue;
                 }
-                let path = chapter
-                    .url
-                    .split_once("/title/")
-                    .map(|(_, path)| path)
-                    .ok_or_else(|| Error::Parse("Invalid Comix chapter URL".into()))?;
-                let number = chapter.number.to_string();
-                let title = match chapter.name.filter(|name| !name.trim().is_empty()) {
-                    Some(name) => format!("Chapter {number}: {name}"),
-                    None => format!("Chapter {number}"),
-                };
-                chapters.push(Chapter {
-                    id: path.into(),
-                    title,
-                    number: Some(number),
-                    version: chapter
-                        .group
-                        .map(|group| group.name)
-                        .or_else(|| chapter.is_official.then(|| "Official".into())),
-                    published: None,
-                });
+                chapters.push(chapter.chapter()?);
             }
             if page >= meta.last() {
                 if seen.len() != meta.total {
@@ -569,3 +599,82 @@ impl Guest for Comix {
 }
 
 export_source!(Comix);
+
+impl chek_extension::ChapterPagination for Comix {
+    fn fetch(
+        series_id: String,
+        cursor: Option<String>,
+    ) -> Result<chek_extension::ChapterBatch, Error> {
+        let cursor: Option<ChapterCursor> = cursor
+            .map(|cursor| serde_json::from_str(&cursor))
+            .transpose()
+            .map_err(|_| Error::Parse("Invalid Comix chapter cursor".into()))?;
+        if cursor.as_ref().is_some_and(|cursor| {
+            cursor.series != series_id
+                || cursor.page < 2
+                || cursor.page > 1000
+                || cursor.total > 20_000
+        }) {
+            return Err(Error::Parse("Invalid Comix chapter cursor".into()));
+        }
+        let start = cursor.as_ref().map_or(1, |cursor| cursor.page);
+        let mut total = cursor.as_ref().map(|cursor| cursor.total);
+        let session = Session::open(&format!(
+            "/title/{}?page={}",
+            encode(&series_id),
+            start.saturating_sub(1).max(1)
+        ))?;
+        session.read::<Value>(&format!("chapterApi(({SITE_API}))"))?;
+        let mut items = Vec::new();
+        for page in start..start + 10 {
+            // Toggle the initial number sort twice to obtain a fresh descending
+            // response. Later batches start on the preceding URL page.
+            if page == 1 {
+                session.tap_chapters(page, "chapter")?;
+            }
+            session.tap_chapters(page, "chapter")?;
+            let list: Listing<ChapterData> = session.evaluate(&format!(
+                "chapterPage({}, {page}, 'number')",
+                json!(series_id)
+            ))?;
+            let meta = list
+                .meta
+                .ok_or_else(|| Error::Parse("Missing chapter pagination".into()))?;
+            if meta.page != page
+                || meta.total > 20_000
+                || total.is_some_and(|total| total != meta.total)
+            {
+                return Err(Error::Other(
+                    "Comix's chapter pagination changed; restart the traversal".into(),
+                ));
+            }
+            total = Some(meta.total);
+            items.extend(
+                list.items
+                    .into_iter()
+                    .map(ChapterData::chapter)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+            if page >= meta.last() || page == start + 9 {
+                let next = (page < meta.last())
+                    .then(|| {
+                        serde_json::to_string(&ChapterCursor {
+                            series: series_id.clone(),
+                            page: page + 1,
+                            total: meta.total,
+                        })
+                    })
+                    .transpose()
+                    .map_err(|error| Error::Parse(error.to_string()))?;
+                return Ok(chek_extension::ChapterBatch {
+                    items,
+                    next,
+                    total: meta.total as u32,
+                });
+            }
+        }
+        Err(Error::Other("Comix chapter batch did not complete".into()))
+    }
+}
+
+chek_extension::export_chapter_pagination!(Comix);

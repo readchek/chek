@@ -25,10 +25,11 @@ mod transform;
 mod tunnel;
 mod worker;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use reqwest::Method;
 use serde_json::json;
@@ -50,6 +51,16 @@ use crate::store::Namespace;
 mod bindings {
     wasmtime::component::bindgen!({ path: "wit", world: "source" });
 }
+
+mod pagination_bindings {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "paginated-chapters",
+        with: { "chek:source/types@0.3.0": crate::bindings::chek::source::types },
+    });
+}
+
+pub use pagination_bindings::exports::chek::source::chapter_pagination::Batch as ChapterBatch;
 
 pub use bindings::chek::source::types::{
     Capability, Chapter, Contributor, Error as SourceError, Image, ImageData, Manifest,
@@ -84,6 +95,8 @@ pub enum Error {
     /// The extension ran and reported an error.
     #[error("{}", describe(.0))]
     Source(SourceError),
+    #[error("the source returned invalid chapter pagination: {0}")]
+    Pagination(String),
     #[error("couldn't fetch the image: {0}")]
     Image(String),
     #[error("the extension doesn't match its index entry: {0}")]
@@ -214,6 +227,11 @@ impl Host {
                 "requires chek:source@0.3.0; rebuild the extension with the current SDK: {error:#}"
             ))
         })?;
+        let pagination = component
+            .get_export_index(None, "chek:source/chapter-pagination@0.3.0")
+            .map(|_| pagination_bindings::PaginatedChaptersPre::new(instance.clone()))
+            .transpose()
+            .map_err(|error| Error::Invalid(format!("invalid chapter pagination: {error:#}")))?;
         let pre = bindings::SourcePre::new(instance)
             .map_err(|error| Error::Invalid(format!("requires chek:source@0.3.0 and transform-image; rebuild the extension with the current SDK: {error:#}")))?;
         // The manifest is read without network, before its sites are known.
@@ -287,6 +305,7 @@ impl Host {
         });
         Ok(Source {
             pre,
+            pagination,
             manifest,
             context,
             digest: repository::sha256_hex(wasm),
@@ -297,6 +316,7 @@ impl Host {
 /// A loaded extension.
 pub struct Source {
     pre: bindings::SourcePre<State>,
+    pagination: Option<pagination_bindings::PaginatedChaptersPre<State>>,
     manifest: Manifest,
     context: Arc<Context>,
     digest: String,
@@ -450,8 +470,131 @@ impl Source {
 
     /// The series' chapters in reading order.
     pub fn chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
-        self.call(|bindings, store| bindings.call_chapters(store, series_id))?
-            .map_err(Error::Source)
+        if self.pagination.is_none() {
+            return self
+                .call(|bindings, store| bindings.call_chapters(store, series_id))?
+                .map_err(Error::Source);
+        }
+        let deadline = Instant::now() + Duration::from_secs(1800);
+        let mut cursor = None;
+        let mut cursors = HashSet::new();
+        let mut ids = HashSet::new();
+        let mut chapters = Vec::new();
+        let mut bytes = 0usize;
+        let mut total = None;
+        for _ in 0..256 {
+            if Instant::now() >= deadline {
+                return Err(Error::Trap("chapter traversal exceeded 30 minutes".into()));
+            }
+            let batch = match self.chapter_batch(series_id, cursor.as_deref()) {
+                Err(Error::Source(SourceError::Network(error))) => {
+                    tracing::debug!(%error, "retrying chapter batch in a fresh instance");
+                    std::thread::sleep(Duration::from_secs(1));
+                    if Instant::now() >= deadline {
+                        return Err(Error::Trap("chapter traversal exceeded 30 minutes".into()));
+                    }
+                    self.chapter_batch(series_id, cursor.as_deref())?
+                }
+                result => result?,
+            };
+            if total.is_some_and(|total| total != batch.total) {
+                return Err(Error::Pagination(
+                    "chapter total changed during traversal".into(),
+                ));
+            }
+            total = Some(batch.total);
+            for chapter in batch.items {
+                bytes = bytes.saturating_add(chapter_bytes(&chapter));
+                if bytes > 32 << 20 {
+                    return Err(Error::Pagination("chapter traversal exceeds 32 MiB".into()));
+                }
+                if !ids.insert(chapter.id.clone()) {
+                    return Err(Error::Pagination(
+                        "chapter pagination repeated an id".into(),
+                    ));
+                }
+                chapters.push(chapter);
+            }
+            if chapters.len() > batch.total as usize {
+                return Err(Error::Pagination(
+                    "chapter count exceeds its declared total".into(),
+                ));
+            }
+            tracing::debug!(
+                chapters = chapters.len(),
+                total = batch.total,
+                "read chapter batch"
+            );
+            match batch.next {
+                None if chapters.len() == batch.total as usize => return Ok(chapters),
+                None => {
+                    return Err(Error::Pagination(
+                        "chapter pagination ended before its total".into(),
+                    ));
+                }
+                Some(next) if cursors.insert(next.clone()) => cursor = Some(next),
+                Some(_) => {
+                    return Err(Error::Pagination(
+                        "chapter pagination repeated a cursor".into(),
+                    ));
+                }
+            }
+        }
+        Err(Error::Trap("chapter traversal exceeded 256 batches".into()))
+    }
+
+    /// One bounded batch; old components return their complete list on the first call.
+    pub fn chapter_batch(
+        &self,
+        series_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ChapterBatch, Error> {
+        if cursor.is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096) {
+            return Err(Error::Pagination("invalid chapter cursor".into()));
+        }
+        let Some(pre) = &self.pagination else {
+            if cursor.is_some() {
+                return Err(Error::Pagination(
+                    "this source has no chapter pagination".into(),
+                ));
+            }
+            let items = self.chapters(series_id)?;
+            let total = u32::try_from(items.len())
+                .map_err(|_| Error::Pagination("too many chapters".into()))?;
+            return Ok(ChapterBatch {
+                items,
+                next: None,
+                total,
+            });
+        };
+        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
+        let bindings = pre.instantiate(&mut store).map_err(trap)?;
+        let batch = bindings
+            .chek_source_chapter_pagination()
+            .call_fetch(&mut store, series_id, cursor)
+            .map_err(trap)?
+            .map_err(Error::Source)?;
+        if batch.total > 20_000
+            || batch.items.len() > 500
+            || batch.items.len() > batch.total as usize
+            || batch
+                .next
+                .as_ref()
+                .is_some_and(|next| next.is_empty() || next.len() > 4096 || batch.items.is_empty())
+        {
+            return Err(Error::Pagination("invalid chapter batch bounds".into()));
+        }
+        let mut ids = HashSet::new();
+        if batch
+            .items
+            .iter()
+            .any(|chapter| chapter.id.is_empty() || !ids.insert(&chapter.id))
+            || batch.items.iter().map(chapter_bytes).sum::<usize>() > 4 << 20
+        {
+            return Err(Error::Pagination("invalid chapter batch contents".into()));
+        }
+        Ok(batch)
     }
 
     /// The chapter's pages in reading order.
@@ -568,6 +711,14 @@ impl Source {
     }
 }
 
+fn chapter_bytes(chapter: &Chapter) -> usize {
+    chapter.id.len()
+        + chapter.title.len()
+        + chapter.number.as_ref().map_or(0, String::len)
+        + chapter.version.as_ref().map_or(0, String::len)
+        + chapter.published.as_ref().map_or(0, String::len)
+}
+
 /// Runs one export in a fresh instance.
 fn run<R>(
     pre: &bindings::SourcePre<State>,
@@ -575,6 +726,16 @@ fn run<R>(
     transforming: bool,
     export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
 ) -> Result<R, Error> {
+    let mut store = new_store(pre.engine(), context, transforming)?;
+    let bindings = pre.instantiate(&mut store).map_err(trap)?;
+    export(&bindings, &mut store).map_err(trap)
+}
+
+fn new_store(
+    engine: &Engine,
+    context: Option<Arc<Context>>,
+    transforming: bool,
+) -> Result<Store<State>, Error> {
     let state = State {
         wasi: WasiCtx::builder()
             .allow_tcp(false)
@@ -590,12 +751,11 @@ fn run<R>(
         persistent_session: false,
         image_operations: 0,
     };
-    let mut store = Store::new(pre.engine(), state);
+    let mut store = Store::new(engine, state);
     store.limiter(|state| &mut state.limits);
     store.set_fuel(MAX_FUEL).map_err(trap)?;
     store.set_epoch_deadline(if transforming { 1_000 } else { 12_000 });
-    let bindings = pre.instantiate(&mut store).map_err(trap)?;
-    export(&bindings, &mut store).map_err(trap)
+    Ok(store)
 }
 
 struct State {

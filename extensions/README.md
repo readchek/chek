@@ -111,6 +111,29 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
+Chapter pagination is an optional export alongside the existing 0.3 source
+world. Implement `chek_extension::ChapterPagination` and invoke
+`chek_extension::export_chapter_pagination!(YourSource)` as well as
+`export_source!`. Return `ChapterBatch { items, next, total }`; `next` is an
+opaque cursor for the same series, or `None` when complete. A cursor must
+work in a fresh instance and may be retried. Detect catalog changes and fail
+rather than mixing incompatible batches. Keep the ordinary `chapters` export
+for older hosts.
+
+Each batch has the normal WASM and browser limits. Paginated batches allow
+at most 500 chapters and 4 MiB of chapter text, with cursors up to 4 KiB.
+The host assembles complete lists for library sync and the existing chapters
+endpoint, allowing up to 20,000 chapters, 32 MiB of text, 256 batches and a
+30-minute traversal budget checked between calls. It rejects duplicate IDs,
+cursor cycles, changing totals and incomplete results before applying a sync.
+An ordinary network failure retries the current batch once in a fresh instance;
+traps and invalid data are not retried.
+Clients can instead call `/api/v1/me/extensions/{id}/chapter-batches` with
+`seriesId` and an optional `cursor`, preserving partial results locally and
+retrying only the failed batch. `nextCursor: null` ends the traversal.
+Sources without this export retain their existing behavior and return their
+complete list as one batch when called through the new endpoint.
+
 The current contract is `chek:source@0.3.0`. Components built against 0.2
 must be rebuilt with the current SDK: add `transform: None` to directly
 constructed images and implement `transform_image`, returning `Ok(None)`
