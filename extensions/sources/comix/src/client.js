@@ -1,3 +1,4 @@
+// oxlint-disable no-unused-vars
 // Adapted from Keiyoushi Comix 1.6.54 (Apache-2.0); see ../upstream/NOTICE.
 async function initialData(detail) {
     const deadline = Date.now() + 15000;

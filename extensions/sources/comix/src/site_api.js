@@ -1,3 +1,4 @@
+// oxlint-disable no-unused-expressions
 // Adapted from upstream/site_api.js (Apache-2.0).
 // Current builds hide API object keys behind proxies and bind their methods.
 // Recover the exported object and method names from the same loaded module.
