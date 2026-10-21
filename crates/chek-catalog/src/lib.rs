@@ -49,6 +49,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0015_extension_installs.sql"),
     include_str!("../migrations/0016_identities.sql"),
     include_str!("../migrations/0017_repository_credentials.sql"),
+    include_str!("../migrations/0018_series_edits.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -127,6 +128,8 @@ pub struct SeriesSummary {
     /// The first publication in reading order that has a cover, to show as
     /// the series' cover.
     pub cover_publication_id: Option<i64>,
+    /// Whether an admin set the title by hand.
+    pub title_edited: bool,
 }
 
 /// Where a publication's file is and what the last scan recorded about it.
@@ -220,7 +223,8 @@ const ORDER_KEY: &str =
 const SERIES_SELECT: &str = "SELECT s.id, s.library_id, s.title,
         (SELECT count(*) FROM publication p WHERE p.series_id = s.id),
         (SELECT p.id FROM publication p WHERE p.series_id = s.id AND p.cover IS NOT NULL
-         ORDER BY p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id LIMIT 1)
+         ORDER BY p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id LIMIT 1),
+        EXISTS (SELECT 1 FROM series_edit e WHERE e.series_id = s.id)
      FROM series s";
 
 impl Catalog {
@@ -751,6 +755,7 @@ fn series_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SeriesSummary> {
         title: row.get(2)?,
         publication_count: row.get(3)?,
         cover_publication_id: row.get(4)?,
+        title_edited: row.get(5)?,
     })
 }
 
@@ -810,6 +815,7 @@ fn record_file(tx: &Transaction<'_>, library_id: i64, file: &ScannedFile) -> Res
         params![library_id, file.series_title, file.series_sort_title, file.series_key],
         |row| row.get(0),
     )?;
+    edits::keep_series_edit(tx, series_id)?;
 
     let page_count = (!file.pages.is_empty()).then_some(file.pages.len() as i64);
     let existing: Option<(i64, i64)> = tx

@@ -1,0 +1,27 @@
+# Weekly dependency updates, grouped so a week's minor and patch bumps come
+# as one pull request per ecosystem. Major bumps get their own, since
+# wasmtime, axum and libvips bindings change their APIs on them.
+#
+# The Rust toolchain isn't covered: the Dockerfile's rust image and the
+# toolchain CI installs name the same version and move together by hand.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    # The extensions are a workspace of their own.
+    directory: /extensions
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

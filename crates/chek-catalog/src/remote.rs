@@ -72,6 +72,7 @@ impl Catalog {
             params![library_id, item.series_title, item.series_sort_title, item.series_remote_id],
             |row| row.get(0),
         )?;
+        crate::edits::keep_series_edit(&tx, series_id)?;
         let page_count = (!item.pages.is_empty()).then_some(item.pages.len() as i64);
         let existing: Option<(i64, i64)> = tx
             .query_row(

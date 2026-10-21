@@ -75,7 +75,9 @@ impl Format {
             "cb7" => Some(Format::Cb7),
             "mobi" | "azw" | "prc" => Some(Format::Mobi),
             "azw3" => Some(Format::Azw3),
-            "fb2" => Some(Format::Fb2),
+            // A FictionBook is often zipped, as `.fb2.zip` or `.fbz`; the
+            // archive's entry decides whether a `.zip` is one.
+            "fb2" | "zip" | "fbz" => Some(Format::Fb2),
             "txt" => Some(Format::Txt),
             "md" | "markdown" => Some(Format::Markdown),
             _ => None,
@@ -210,7 +212,13 @@ pub fn detect(path: &Path) -> Result<Option<Format>, FormatError> {
                 Some(Format::Mobi)
             }
         }
-        Format::Fb2 => fb2::is_fb2(magic).then_some(claimed),
+        Format::Fb2 => {
+            if magic.starts_with(b"PK\x03\x04") {
+                fb2::zipped_entry(path)?.is_some().then_some(claimed)
+            } else {
+                fb2::is_fb2(magic).then_some(claimed)
+            }
+        }
         Format::Txt | Format::Markdown => text::is_text(magic).then_some(claimed),
     })
 }

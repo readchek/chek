@@ -91,9 +91,10 @@ Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 for setting up a server without reading its log. Admins can upload files
 into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
 needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
-(default 2 GiB). Admins can also add a Komga server as a library, which
-Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages and
-files from; see [Komga libraries](docs/server.md#komga-libraries). Covers and
+(default 2 GiB). Admins can also add a Komga or Kavita server as a library,
+which Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages
+and files from; see [Komga libraries](docs/server.md#komga-libraries) and
+[Kavita libraries](docs/server.md#kavita-libraries). Covers and
 pages fetched through source extensions are cached on disk up to
 `CHEK_EXTENSION_IMAGE_CACHE_MB` (default 2048; 0 turns it off), and
 `CHEK_BROWSER_SOLVER_URL` points extensions that need a browser, for sites
