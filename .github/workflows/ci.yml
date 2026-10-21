@@ -31,7 +31,7 @@ jobs:
     # between runs, which is faster than restoring a cache from GitHub.
     container: ${{ vars.SELF_HOSTED_LINUX == 'true' && github.event.pull_request.head.repo.fork != true && fromJSON('{"image":"rust:1.97-slim-trixie","volumes":["chek-cargo-registry:/usr/local/cargo/registry","chek-cargo-target:/cargo-target","chek-apt-cache:/var/cache/apt","chek-apt-lists:/var/lib/apt/lists"]}') || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up the server's container
         if: runner.environment == 'self-hosted'
         run: |
@@ -66,7 +66,7 @@ jobs:
     name: OpenAPI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bunx @redocly/cli@2.64.1 lint openapi.yaml
 
@@ -74,7 +74,7 @@ jobs:
     name: Docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The pull request merge commit and its base parent, to list changed files.
           fetch-depth: 2
@@ -123,7 +123,7 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
