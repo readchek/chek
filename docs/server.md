@@ -430,14 +430,15 @@ the `index.json` for any folder of components.
 - The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
-  `localhost` are refused as sites. The manifest itself is read with no
-  network.
+  `localhost` are refused as sites, and the host resolves each name itself
+  and refuses one that resolves to a private, loopback, link-local or
+  otherwise reserved address, so a declared site can't be pointed at the
+  server's own network. The native browser tunnel checks the same way. The
+  manifest itself is read with no network.
 - A call may use 64 MiB of memory, about 5 billion instructions (half a
   second of a tight loop) and 100 requests. Response bodies are capped at
   16 MiB and images at 32 MiB, and each request times out after 30 seconds.
   Going over a limit fails that call, not the server.
-- A site name can still resolve to a private address; the allow list of
-  repositories is the guard until the host checks resolved addresses.
 
 ## Extension repositories
 
