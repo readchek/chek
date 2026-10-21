@@ -6,6 +6,7 @@
 mod accounts;
 mod files;
 mod progress;
+mod series;
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -127,6 +128,10 @@ impl Server {
         self.http.put(format!("{}{path}", self.base))
     }
 
+    pub(crate) fn delete(&self, path: &str) -> RequestBuilder {
+        self.http.delete(format!("{}{path}", self.base))
+    }
+
     pub(crate) fn patch(&self, path: &str) -> RequestBuilder {
         self.http.patch(format!("{}{path}", self.base))
     }
@@ -171,13 +176,15 @@ impl Server {
             .expect("sign-in answers")
     }
 
-    /// Makes a folder under the data folder holding `files`, each a name and
-    /// its bytes, and returns its path.
+    /// Makes a folder under the data folder holding `files`, each a path
+    /// inside it and its bytes, and returns its path.
     pub(crate) fn folder(&self, name: &str, files: &[(&str, &[u8])]) -> std::path::PathBuf {
         let folder = self.data.path().join(name);
         std::fs::create_dir_all(&folder).expect("the library folder");
         for (file, bytes) in files {
-            std::fs::write(folder.join(file), bytes).expect("the library file");
+            let path = folder.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("the file's folder");
+            std::fs::write(path, bytes).expect("the library file");
         }
         folder
     }

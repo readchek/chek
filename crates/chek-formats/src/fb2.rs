@@ -1,10 +1,12 @@
 //! FB2 (FictionBook): one XML document holding the book, its metadata in
 //! `<description>` and its images as base64 `<binary>` elements. Many FB2
 //! books are in Windows-1251 or another legacy encoding, so the document is
-//! decoded to UTF-8 by its declaration before parsing.
+//! decoded to UTF-8 by its declaration before parsing. The document is often
+//! zipped, as `.fb2.zip` or `.fbz`, with the book as the archive's one
+//! `.fb2` entry.
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 use base64::Engine;
@@ -39,16 +41,40 @@ pub(crate) fn cover_image(path: &Path) -> Result<Option<Vec<u8>>, FormatError> {
     Ok(parse(&document(path)?, true).1)
 }
 
-/// The document as UTF-8.
+/// The name of the `.fb2` entry in a zipped book, or `None` when the archive
+/// holds no FictionBook. The first `.fb2` counts; some archives also carry
+/// a cover image or notes.
+pub(crate) fn zipped_entry(path: &Path) -> Result<Option<String>, FormatError> {
+    let archive = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
+    Ok(archive
+        .file_names()
+        .filter_map(Result::ok)
+        .find(|name| name.to_ascii_lowercase().ends_with(".fb2"))
+        .map(|name| name.into_owned()))
+}
+
+/// The document as UTF-8, from the file or from the `.fb2` entry of a ZIP.
 fn document(path: &Path) -> Result<String, FormatError> {
-    let file = File::open(path)?;
-    if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
-        return Err(FormatError::EntryTooLarge {
-            limit: MAX_DOCUMENT_BYTES,
-        });
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_DOCUMENT_BYTES).read_to_end(&mut bytes)?;
+    let mut file = File::open(path)?;
+    let mut magic = [0u8; 4];
+    let read = file.read(&mut magic)?;
+    let bytes = if magic[..read].starts_with(b"PK\x03\x04") {
+        let mut archive = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
+        let Some(name) = zipped_entry(path)? else {
+            return Err(FormatError::Invalid("the ZIP holds no .fb2 entry"));
+        };
+        crate::epub::read_entry(&mut archive, &name, MAX_DOCUMENT_BYTES)?
+            .ok_or(FormatError::Invalid("the ZIP holds no .fb2 entry"))?
+    } else {
+        if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
+            return Err(FormatError::EntryTooLarge {
+                limit: MAX_DOCUMENT_BYTES,
+            });
+        }
+        let mut bytes = magic[..read].to_vec();
+        file.take(MAX_DOCUMENT_BYTES).read_to_end(&mut bytes)?;
+        bytes
+    };
     let label = declared_encoding(&bytes);
     let encoding = label
         .and_then(|l| encoding_rs::Encoding::for_label(l.as_bytes()))

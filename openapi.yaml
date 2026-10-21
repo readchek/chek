@@ -1284,6 +1284,69 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+    patch:
+      tags: [Catalog]
+      operationId: editSeries
+      summary: Rename a series
+      description: >-
+        Admin only. Scans and syncs take a series' title from its folder, the
+        files' metadata or the source, and the edited title is written over
+        that after every pass, until it's cleared with
+        `DELETE /api/v1/series/{seriesId}/edits`. Searching finds the series'
+        publications under the new title.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The series as edited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/series/{seriesId}/edits:
+    parameters:
+      - $ref: "#/components/parameters/SeriesId"
+    delete:
+      tags: [Catalog]
+      operationId: clearSeriesEdits
+      summary: Undo a series' edits
+      description: Admin only. Brings back the title the last scan or sync derived.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The series as scanned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/series/{seriesId}/publications:
     parameters:
       - $ref: "#/components/parameters/SeriesId"
@@ -3299,8 +3362,14 @@ components:
             one Komga account.
     Series:
       type: object
-      required: [id, libraryId, title, publicationCount]
+      required: [id, libraryId, title, publicationCount, editedFields]
       properties:
+        editedFields:
+          type: array
+          description: Fields an admin changed by hand, which rescans keep.
+          items:
+            type: string
+            enum: [title]
         id:
           type: integer
           format: int64
@@ -3361,8 +3430,9 @@ components:
           enum: [epub, pdf, cbz, cbt, cbr, cb7, mobi, azw3, fb2, txt, markdown, remote]
           description: |
             Comic archives get their format from their bytes, so a ZIP named
-            `.cbr` is `cbz`. `remote` is a chapter from an extension: it has
-            pages but no file.
+            `.cbr` is `cbz`. A FictionBook zipped as `.fb2.zip` or `.fbz` is
+            `fb2` too; its file downloads as `application/x-zip-compressed-fb2`.
+            `remote` is a chapter from an extension: it has pages but no file.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.

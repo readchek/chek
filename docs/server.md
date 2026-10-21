@@ -65,7 +65,9 @@ the `index.json` for any folder of components.
   their bytes: the MOBI header's version tells KF8 (AZW3) from older MOBI
   whatever the extension says. Text and Markdown files are accepted when
   their start has no NUL bytes and few control characters. FB2 inside a ZIP
-  (`.fb2.zip`, `.fbz`) isn't read yet. DRM-protected Kindle books are
+  (`.fb2.zip`, `.fbz`) is read from the archive's `.fb2` entry, listed as
+  `fb2` and served as `application/x-zip-compressed-fb2`. DRM-protected
+  Kindle books are
   served as they are; Chek doesn't remove DRM.
 - Before serving a file or a page, the server compares the file's size and
   modification time with what the scan recorded. If they differ, it starts a
@@ -293,7 +295,12 @@ the `index.json` for any folder of components.
   stored apart from what the file says and written over it each time the
   file is read, so rescans keep them, and the API lists which fields were
   edited. Undoing edits drops them all and reads the file again. Files are
-  never rewritten. Series can't be edited yet.
+  never rewritten.
+- Admins can rename a series the same way. Scans and syncs derive a series'
+  title from its folder, the files' metadata or the source on every pass,
+  and the edit is written over it afterwards; undoing it brings the scanned
+  title back at once. The series' publications are reindexed for search
+  under the new title.
 
 ## Reading progress
 

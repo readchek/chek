@@ -119,7 +119,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/libraries/{id}/series",
             get(list_series).post(crate::source_libraries::follow_series),
         )
-        .route("/api/v1/series/{id}", get(get_series))
+        .route(
+            "/api/v1/series/{id}",
+            get(get_series).patch(crate::edits::edit_series),
+        )
+        .route(
+            "/api/v1/series/{id}/edits",
+            axum::routing::delete(crate::edits::clear_series_edits),
+        )
         .route(
             "/api/v1/series/{id}/publications",
             get(list_series_publications),
@@ -688,6 +695,8 @@ pub(crate) struct SeriesDto {
     title: String,
     publication_count: i64,
     cover_publication_id: Option<i64>,
+    /// Fields an admin set by hand, which scans keep.
+    edited_fields: Vec<&'static str>,
 }
 
 impl From<SeriesSummary> for SeriesDto {
@@ -698,6 +707,11 @@ impl From<SeriesSummary> for SeriesDto {
             title: s.title,
             publication_count: s.publication_count,
             cover_publication_id: s.cover_publication_id,
+            edited_fields: if s.title_edited {
+                vec!["title"]
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -913,6 +927,16 @@ pub(crate) async fn publication_detail(
     })
 }
 
+/// The media type of a publication's file. A FictionBook inside a ZIP is
+/// `fb2` too, told apart by its name.
+pub(crate) fn file_media_type_at(format: &str, relative_path: &str) -> &'static str {
+    let name = relative_path.to_ascii_lowercase();
+    if format == "fb2" && (name.ends_with(".zip") || name.ends_with(".fbz")) {
+        return "application/x-zip-compressed-fb2";
+    }
+    file_media_type(format)
+}
+
 /// The media type of a publication's file.
 pub(crate) fn file_media_type(format: &str) -> &'static str {
     match format {
@@ -962,7 +986,7 @@ pub(crate) async fn get_file(
     if guessed.is_some_and(|t| !t.starts_with("multipart/")) {
         headers.insert(
             header::CONTENT_TYPE,
-            HeaderValue::from_static(file_media_type(&file.format)),
+            HeaderValue::from_static(file_media_type_at(&file.format, &file.relative_path)),
         );
     }
     headers.insert(

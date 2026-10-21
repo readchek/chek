@@ -153,3 +153,57 @@ async fn uploads_land_inside_the_library_folder() {
         .unwrap();
     assert_error(response, StatusCode::FORBIDDEN, "forbidden").await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn zipped_fictionbooks_are_books() {
+    let server = Server::start().await;
+    let admin = server.admin().await;
+    let fb2 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description><title-info><book-title>The Zipped Book</book-title></title-info></description>
+  <body><section><p>Hello.</p></section></body>
+</FictionBook>"#;
+    let zipped = cbz(&[("The Zipped Book.fb2", fb2)]);
+    let folder = server.folder(
+        "books",
+        &[
+            ("zipped.fb2.zip", &zipped),
+            ("plain.fb2", fb2),
+            ("other.zip", &cbz(&[("notes.txt", b"x")])),
+        ],
+    );
+    let library = server.folder_library(&admin, "Books", &folder).await;
+
+    let mut publications = server.publications(&admin, library).await;
+    publications.sort_by_key(|p| p["title"].as_str().unwrap_or_default().to_owned());
+    // The plain and zipped books are read alike; a ZIP without a FictionBook isn't a book.
+    assert_eq!(
+        publications
+            .iter()
+            .map(|p| (p["title"].as_str().unwrap(), p["format"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        [("The Zipped Book", "fb2"), ("The Zipped Book", "fb2")],
+        "{publications:?}"
+    );
+    for publication in &publications {
+        let id = publication["id"].as_i64().unwrap();
+        let response = server
+            .get(&format!("/api/v1/publications/{id}/file"))
+            .bearer_auth(&admin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response.headers()[CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let bytes = response.bytes().await.unwrap();
+        if bytes.starts_with(b"PK") {
+            assert_eq!(content_type, "application/x-zip-compressed-fb2");
+            assert_eq!(bytes.as_ref(), zipped);
+        } else {
+            assert_eq!(content_type, "application/x-fictionbook+xml");
+        }
+    }
+}
