@@ -47,7 +47,7 @@ jobs:
             || { apt-get update && apt-get install -y --no-install-recommends $packages; }
           rustup component add rustfmt clippy
           echo CARGO_TARGET_DIR=/cargo-target >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@1.97
+      - uses: dtolnay/rust-toolchain@1.120
         if: runner.environment == 'github-hosted'
         with:
           components: rustfmt, clippy
