@@ -92,7 +92,7 @@ jobs:
           else
             echo "No Dockerfile, dependency or workflow changes; skipping the image build."
           fi
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.changes.outputs.build == 'true'
       - uses: docker/build-push-action@v6
         if: steps.changes.outputs.build == 'true'
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v6
         with:
           context: .
