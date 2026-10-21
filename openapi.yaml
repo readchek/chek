@@ -730,15 +730,21 @@ paths:
       summary: Add a library
       description: |
         Admin only. Adds a folder on the server as a library and starts
-        scanning it, adds a Komga server as a source library and starts
-        syncing it, or makes a source library that runs on an extension.
-        Send one of `path`, `komga` or `extension`.
+        scanning it, adds a Komga or Kavita server as a source library and
+        starts syncing it, or makes a source library that runs on an
+        extension. Send one of `path`, `komga`, `kavita` or `extension`.
 
         A Komga library reads Komga's series and books with one Komga
         account, and serves their pages and files through Komga. The account
         needs the page streaming and file download roles. The address and
         credentials are checked before the library is added, and stored on
         the server; they are never returned.
+
+        A Kavita library reads Kavita's series, volumes and chapters with one
+        Kavita account's API key, one publication per chapter, and serves
+        their pages and files through Kavita. The account needs Kavita's
+        download role for files. The address and key are checked and stored
+        the same way.
 
         An extension library runs on an extension the admin installed, and
         starts empty: follow series into it with
@@ -763,6 +769,8 @@ paths:
                   description: Absolute path of a folder on the server.
                 komga:
                   $ref: "#/components/schemas/NewKomgaSource"
+                kavita:
+                  $ref: "#/components/schemas/NewKavitaSource"
                 extension:
                   type: object
                   additionalProperties: false
@@ -784,8 +792,8 @@ paths:
                 $ref: "#/components/schemas/Library"
         "400":
           description: |
-            The request was malformed, or Komga couldn't be reached with the
-            settings given (`source_check_failed`, with the reason).
+            The request was malformed, or Komga or Kavita couldn't be reached
+            with the settings given (`source_check_failed`, with the reason).
           content:
             application/json:
               schema:
@@ -1458,7 +1466,8 @@ paths:
         Serves the file as it is on disk. Supports `Range` for partial reads and
         `If-Modified-Since` for revalidation. A publication from a source
         library is streamed from its source, which may send the whole file
-        instead of a range, as Komga does.
+        instead of a range, as Komga does. Kavita sends a folder of images as
+        a ZIP it makes.
       parameters:
         - name: Range
           in: header
@@ -3247,22 +3256,22 @@ components:
       properties:
         type:
           type: string
-          enum: [komga, extension]
+          enum: [komga, kavita, extension]
         url:
           type: string
-          description: The Komga server's address. Absent for an extension library.
+          description: The Komga or Kavita server's address. Absent for an extension library.
         extensionId:
           type: string
           description: The extension an extension library runs on.
         libraryIds:
           type: array
-          description: The Komga libraries read; absent when every library the account sees is read.
+          description: The Komga or Kavita libraries read; absent when every library the account sees is read. Kavita's numeric ids are returned as strings.
           items:
             type: string
         progressUserId:
           type: integer
           format: int64
-          description: The Chek user whose reading progress is written back to the Komga account. Absent when none is.
+          description: The Chek user whose reading progress is written back to the Komga or Kavita account. Absent when none is.
     NewKomgaSource:
       type: object
       additionalProperties: false
@@ -3297,6 +3306,38 @@ components:
             account, so Komga's own apps stay in step. Only the admin who
             adds the library is written back, since every reader shares the
             one Komga account.
+    NewKavitaSource:
+      type: object
+      additionalProperties: false
+      description: |
+        A Kavita server to read, with the API key of one Kavita account,
+        from that account's settings page in Kavita. Everyone granted the
+        Chek library reads what that account can see.
+      required: [url, apiKey]
+      properties:
+        url:
+          type: string
+          description: Kavita's address, including any path it is served under.
+          example: http://kavita:5000
+        apiKey:
+          type: string
+          description: The account's API key.
+        libraryIds:
+          type: array
+          description: Kavita library ids to read; leave out to read every library the account sees.
+          items:
+            type: integer
+            format: int64
+        writeProgress:
+          type: boolean
+          default: true
+          description: |
+            Writes your reading progress in this library back to the Kavita
+            account, so Kavita's own readers stay in step. Comics and PDFs
+            are written as a page; a book is written only when finished,
+            since Kavita keeps a book's place in a form a locator can't name.
+            Only the admin who adds the library is written back, since every
+            reader shares the one Kavita account.
     Series:
       type: object
       required: [id, libraryId, title, publicationCount]

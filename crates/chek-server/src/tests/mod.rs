@@ -5,6 +5,7 @@
 
 mod accounts;
 mod files;
+mod kavita;
 mod progress;
 
 use std::io::Write;
@@ -287,6 +288,6 @@ pub(crate) fn locator(position: u64) -> Value {
     json!({
         "href": format!("/pages/{}", position - 1),
         "type": "image/png",
-        "locations": { "position": position, "totalProgression": 0.5 },
+        "locations": { "position": position },
     })
 }

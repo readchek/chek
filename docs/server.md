@@ -32,6 +32,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 | --- | --- |
 | `chek-catalog` | Data model, SQLite migrations and queries |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
+| `chek-kavita` | Client for Kavita's REST API, which Kavita source libraries read |
 | `chek-komga` | Client for Komga's REST API, which Komga source libraries read |
 | `chek-library` | Folder scanning, source syncing, change detection and scan jobs, with workers capped below the core count |
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
@@ -134,6 +135,36 @@ the `index.json` for any folder of components.
   Komga refuses is logged, not retried.
 - Komga's books are matched to publications by Komga's book id, so a book
   moved to another series in Komga keeps its publication.
+
+## Kavita libraries
+
+- An admin can add a Kavita server as a source library the same way, with
+  its address and the API key of one Kavita account, copied from that
+  account's settings page in Kavita. Everyone granted the Chek library reads
+  what that account sees, optionally narrowed to some of its Kavita
+  libraries. The account needs Kavita's download role for files. The key is
+  exchanged for a session token, which the server keeps in memory and
+  exchanges again when Kavita stops accepting it, so the key only goes to
+  the address the admin gave.
+- A sync lists Kavita's series, then each series' volumes and chapters, and
+  records one publication per chapter: a file that is a whole volume is
+  called "Volume 1", a loose chapter "Chapter 12", and a special by its
+  name, unless the file's own metadata gives a title. A chapter carries its
+  summary, release date, language and credits, falling back to the series'
+  metadata, and its series' publisher. Every chapter gets a cover made from
+  Kavita's cover image. A chapter is read again only when it, its files or
+  its series' name change in Kavita, and chapters gone from Kavita are
+  marked unavailable.
+- Kavita doesn't list a comic's page names, so pages are numbered and each
+  page's media type is whatever Kavita sends it with. A folder of images is
+  served page by page like a comic, and its file is the ZIP Kavita makes.
+- Progress written back to Kavita is the page the reader is on, and
+  reaching the last page or a `totalProgression` of 1 marks the chapter
+  read, as Kavita's own reader does. Kavita keeps a book's place as a point
+  in its own layout, which a Readium locator can't name, so a book is
+  written back only when it's finished. Everything else works as for Komga:
+  one Chek user is written back, after the save answers, one write at a
+  time.
 
 ## Accounts
 
