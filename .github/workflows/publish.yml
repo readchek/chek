@@ -13,6 +13,9 @@ on:
   push:
     branches: [main]
     tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  # The Release workflow tags with the Actions token, whose pushes start no
+  # workflow, so it dispatches this one on the tag instead.
+  workflow_dispatch:
 
 permissions:
   contents: read
