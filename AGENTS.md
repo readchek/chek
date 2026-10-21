@@ -52,9 +52,12 @@ Established generators and formatters are allowed. Scripted source rewriting nee
 an explicit user request or an established generator/codemod. Data processing and
 artifact generation are separate from source rewriting.
 
-**Do not write or add tests unless the user explicitly asks.** Relevant existing
-tests, compiler checks, validators, and manual verification may be run. Do not
-disguise new tests as temporary verification scripts.
+**Add a test only when it pins down behaviour clients rely on.** The server's
+tests in `crates/chek-server/src/tests` drive a real server over HTTP and check
+what `openapi.yaml` promises; add to them when a change alters that contract.
+Don't add unit tests for code the compiler, an existing test or a quick manual
+check already covers: a low-signal test costs more to keep than it catches. Do
+not disguise tests as temporary verification scripts.
 
 ## Rust
 
@@ -77,7 +80,7 @@ disguise new tests as temporary verification scripts.
 
 - Use Bun instead of Node.js, npm, pnpm, yarn, ts-node, or npx: `bun <file>`,
   `bun run <script>`, `bun install`, and `bunx <package> <command>`.
-- Use `bun test` for authorized JavaScript/TypeScript tests. Do not write unrequested tests.
+- Use `bun test` for JavaScript/TypeScript tests, to the same bar as above.
 - Prefer Bun builds and HTML imports with Bun.serve for applicable new frontends.
   Do not introduce Vite or webpack; preserve established project tooling.
 - Bun loads `.env`; do not add dotenv.

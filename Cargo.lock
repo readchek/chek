@@ -364,6 +364,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2",
+ "tempfile",
  "thiserror",
  "tokio",
  "tower",
@@ -371,6 +372,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]
