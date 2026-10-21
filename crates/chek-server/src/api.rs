@@ -16,7 +16,7 @@ use chek_catalog::{
     ScanStatus, SeriesSummary,
 };
 use chek_formats::{Compression, PageEntry};
-use chek_library::{KomgaAuth, KomgaConfig, ScanOptions, SourceConfig};
+use chek_library::{KavitaConfig, KomgaAuth, KomgaConfig, ScanOptions, SourceConfig};
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
@@ -119,7 +119,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/libraries/{id}/series",
             get(list_series).post(crate::source_libraries::follow_series),
         )
-        .route("/api/v1/series/{id}", get(get_series))
+        .route(
+            "/api/v1/series/{id}",
+            get(get_series).patch(crate::edits::edit_series),
+        )
+        .route(
+            "/api/v1/series/{id}/edits",
+            axum::routing::delete(crate::edits::clear_series_edits),
+        )
         .route(
             "/api/v1/series/{id}/publications",
             get(list_series_publications),
@@ -252,7 +259,7 @@ struct SourceDto {
     library_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     extension_id: Option<String>,
-    /// The Chek user whose progress is written back to Komga.
+    /// The Chek user whose progress is written back to the source's account.
     #[serde(skip_serializing_if = "Option::is_none")]
     progress_user_id: Option<i64>,
 }
@@ -283,6 +290,13 @@ impl From<Library> for LibraryDto {
                         r#type: "komga",
                         url: Some(c.url),
                         library_ids: c.library_ids,
+                        extension_id: None,
+                        progress_user_id: c.progress_user_id,
+                    },
+                    SourceConfig::Kavita(c) => SourceDto {
+                        r#type: "kavita",
+                        url: Some(c.url),
+                        library_ids: c.library_ids.iter().map(ToString::to_string).collect(),
                         extension_id: None,
                         progress_user_id: c.progress_user_id,
                     },
@@ -394,14 +408,16 @@ async fn list_libraries(
     }))
 }
 
-/// A folder library names a `path`, a Komga library names `komga`, and a
-/// library of followed series names the `extension` it runs on.
+/// A folder library names a `path`, a Komga library names `komga`, a Kavita
+/// library names `kavita`, and a library of followed series names the
+/// `extension` it runs on.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewLibrary {
     name: String,
     path: Option<String>,
     komga: Option<NewKomga>,
+    kavita: Option<NewKavita>,
     extension: Option<crate::source_libraries::NewExtensionSource>,
 }
 
@@ -419,6 +435,18 @@ struct NewKomga {
     write_progress: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NewKavita {
+    url: String,
+    api_key: String,
+    #[serde(default)]
+    library_ids: Vec<i64>,
+    /// Whether the admin adding the library has their reading progress
+    /// written back to this Kavita account. Default true.
+    write_progress: Option<bool>,
+}
+
 async fn add_library(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -430,18 +458,32 @@ async fn add_library(
     if name.is_empty() {
         return Err(ApiError::bad_request("name must not be empty"));
     }
-    let path = match (body.path, body.komga, body.extension) {
-        (Some(path), None, None) => path,
-        (None, Some(komga), None) => {
-            return add_komga_library(state, current.user.id, name, komga).await;
+    let path = match (body.path, body.komga, body.kavita, body.extension) {
+        (Some(path), None, None, None) => path,
+        (None, Some(komga), None, None) => {
+            let config = komga_config(current.user.id, komga)?;
+            return add_source_library(state, name, config).await;
         }
-        (None, None, Some(extension)) => {
+        (None, None, Some(kavita), None) => {
+            let config = SourceConfig::Kavita(KavitaConfig {
+                url: kavita.url,
+                api_key: kavita.api_key,
+                library_ids: kavita.library_ids,
+                progress_user_id: kavita
+                    .write_progress
+                    .unwrap_or(true)
+                    .then_some(current.user.id),
+            });
+            return add_source_library(state, name, config).await;
+        }
+        (None, None, None, Some(extension)) => {
             return crate::source_libraries::add_library(&state, &current, name, extension).await;
         }
         _ => {
             return Err(ApiError::bad_request(
                 "send one of path, for a folder library, komga, for a Komga library, \
-                 or extension, for series followed through an installed extension",
+                 kavita, for a Kavita library, or extension, for series followed \
+                 through an installed extension",
             ));
         }
     };
@@ -469,12 +511,7 @@ async fn add_library(
     Ok((StatusCode::CREATED, Json(library.into())))
 }
 
-async fn add_komga_library(
-    state: AppState,
-    admin_id: i64,
-    name: String,
-    komga: NewKomga,
-) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
+fn komga_config(admin_id: i64, komga: NewKomga) -> Result<SourceConfig, ApiError> {
     let auth = match (komga.api_key, komga.username, komga.password) {
         (Some(api_key), None, None) => KomgaAuth::ApiKey { api_key },
         (None, Some(username), Some(password)) => KomgaAuth::Basic { username, password },
@@ -484,12 +521,20 @@ async fn add_komga_library(
             ));
         }
     };
-    let config = SourceConfig::Komga(KomgaConfig {
+    Ok(SourceConfig::Komga(KomgaConfig {
         url: komga.url,
         auth,
         library_ids: komga.library_ids,
         progress_user_id: komga.write_progress.unwrap_or(true).then_some(admin_id),
-    });
+    }))
+}
+
+/// Adds a Komga or Kavita library and starts its first sync.
+async fn add_source_library(
+    state: AppState,
+    name: String,
+    config: SourceConfig,
+) -> Result<(StatusCode, Json<LibraryDto>), ApiError> {
     // Checked first, so a typo fails here rather than in the first sync.
     config.check(&state.scan.http).await.map_err(|e| ApiError {
         status: StatusCode::BAD_REQUEST,
@@ -688,6 +733,8 @@ pub(crate) struct SeriesDto {
     title: String,
     publication_count: i64,
     cover_publication_id: Option<i64>,
+    /// Fields an admin set by hand, which scans keep.
+    edited_fields: Vec<&'static str>,
 }
 
 impl From<SeriesSummary> for SeriesDto {
@@ -698,6 +745,11 @@ impl From<SeriesSummary> for SeriesDto {
             title: s.title,
             publication_count: s.publication_count,
             cover_publication_id: s.cover_publication_id,
+            edited_fields: if s.title_edited {
+                vec!["title"]
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -913,6 +965,16 @@ pub(crate) async fn publication_detail(
     })
 }
 
+/// The media type of a publication's file. A FictionBook inside a ZIP is
+/// `fb2` too, told apart by its name.
+pub(crate) fn file_media_type_at(format: &str, relative_path: &str) -> &'static str {
+    let name = relative_path.to_ascii_lowercase();
+    if format == "fb2" && (name.ends_with(".zip") || name.ends_with(".fbz")) {
+        return "application/x-zip-compressed-fb2";
+    }
+    file_media_type(format)
+}
+
 /// The media type of a publication's file.
 pub(crate) fn file_media_type(format: &str) -> &'static str {
     match format {
@@ -962,7 +1024,7 @@ pub(crate) async fn get_file(
     if guessed.is_some_and(|t| !t.starts_with("multipart/")) {
         headers.insert(
             header::CONTENT_TYPE,
-            HeaderValue::from_static(file_media_type(&file.format)),
+            HeaderValue::from_static(file_media_type_at(&file.format, &file.relative_path)),
         );
     }
     headers.insert(
@@ -1170,10 +1232,12 @@ fn page_entry(page: PageRecord) -> PageEntry {
     }
 }
 
-pub(crate) fn image_response(bytes: Vec<u8>, media_type: &'static str, etag: &str) -> Response {
+pub(crate) fn image_response(bytes: Vec<u8>, media_type: &str, etag: &str) -> Response {
     let mut response = Response::new(Body::from(bytes));
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(media_type));
+    if let Ok(media_type) = HeaderValue::from_str(media_type) {
+        headers.insert(header::CONTENT_TYPE, media_type);
+    }
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=3600"),

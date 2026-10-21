@@ -1,6 +1,8 @@
 //! Metadata an admin changed by hand. Edits are kept apart from what the
 //! file says and written over it after every scan of the file, so they
 //! survive rescans and clearing them brings the file's own metadata back.
+//! A series' title works the same way against what scans derive from its
+//! folder, metadata or source.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -187,6 +189,91 @@ impl Catalog {
         tx.commit()?;
         Ok(location)
     }
+}
+
+impl Catalog {
+    /// Sets a series' title by hand. `false` when the series doesn't exist.
+    pub fn edit_series(&self, series_id: i64, title: &str, sort_title: &str) -> Result<bool> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        // A first edit keeps the scanned title for clearing; a later one
+        // keeps what the first kept.
+        let inserted = tx.execute(
+            "INSERT INTO series_edit (series_id, title, sort_title, scanned_title, scanned_sort_title)
+             SELECT id, ?2, ?3, title, sort_title FROM series WHERE id = ?1
+             ON CONFLICT (series_id) DO UPDATE SET title = excluded.title, sort_title = excluded.sort_title",
+            params![series_id, title, sort_title],
+        )?;
+        if inserted == 0 {
+            return Ok(false);
+        }
+        apply_series(&tx, series_id)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Drops a series' edit and brings the scanned title back. `false` when
+    /// the series doesn't exist; a series without an edit is left as it is.
+    pub fn clear_series_edit(&self, series_id: i64) -> Result<bool> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM series WHERE id = ?1",
+                [series_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
+        tx.execute(
+            "UPDATE series SET title = e.scanned_title, sort_title = e.scanned_sort_title
+             FROM series_edit e WHERE e.series_id = series.id AND series.id = ?1",
+            [series_id],
+        )?;
+        tx.execute("DELETE FROM series_edit WHERE series_id = ?1", [series_id])?;
+        reindex_series(&tx, series_id)?;
+        tx.commit()?;
+        Ok(true)
+    }
+}
+
+/// Called after a scan or sync wrote a series' title: remembers it as the
+/// scanned title and writes the edit back over it, so the edit survives.
+pub(crate) fn keep_series_edit(conn: &Connection, series_id: i64) -> Result<()> {
+    let kept = conn.execute(
+        "UPDATE series_edit SET scanned_title = s.title, scanned_sort_title = s.sort_title
+         FROM series s WHERE s.id = series_edit.series_id AND series_edit.series_id = ?1",
+        [series_id],
+    )?;
+    if kept > 0 {
+        apply_series(conn, series_id)?;
+    }
+    Ok(())
+}
+
+/// Writes a series' edited title over its stored one, and reindexes its
+/// publications, whose search rows carry the series title.
+fn apply_series(conn: &Connection, series_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE series SET title = e.title, sort_title = e.sort_title
+         FROM series_edit e WHERE e.series_id = series.id AND series.id = ?1",
+        [series_id],
+    )?;
+    reindex_series(conn, series_id)
+}
+
+fn reindex_series(conn: &Connection, series_id: i64) -> Result<()> {
+    let ids: Vec<i64> = conn
+        .prepare("SELECT id FROM publication WHERE series_id = ?1")?
+        .query_map([series_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for id in ids {
+        index_for_search(conn, id)?;
+    }
+    Ok(())
 }
 
 /// Writes a publication's edits over its stored metadata.
