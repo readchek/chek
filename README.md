@@ -91,9 +91,10 @@ Cloudflare, also set `CHEK_CLIENT_IP_HEADER=CF-Connecting-IP`.
 for setting up a server without reading its log. Admins can upload files
 into a folder library with `PUT /api/v1/libraries/{id}/files/{path}`, which
 needs the folder mounted read-write; `CHEK_MAX_UPLOAD_BYTES` caps each file
-(default 2 GiB). Admins can also add a Komga server as a library, which
-Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages and
-files from; see [Komga libraries](docs/server.md#komga-libraries). Covers and
+(default 2 GiB). Admins can also add a Komga or Kavita server as a library,
+which Chek syncs every `CHEK_SOURCE_SYNC_MINUTES` (default 60) and reads pages
+and files from; see [Komga libraries](docs/server.md#komga-libraries) and
+[Kavita libraries](docs/server.md#kavita-libraries). Covers and
 pages fetched through source extensions are cached on disk up to
 `CHEK_EXTENSION_IMAGE_CACHE_MB` (default 2048; 0 turns it off), and
 `CHEK_BROWSER_SOLVER_URL` points extensions that need a browser, for sites
@@ -113,9 +114,16 @@ can't be changed and keep no reading places.
 To run a demo instance with the reader test corpus loaded, on Dokploy or with
 Docker Compose, see [deploying a demo instance](docs/deploy.md).
 
-With Docker, read the setup token from `docker logs chek`:
+With Docker, use the image CI publishes for amd64 and arm64, and read the
+setup token from `docker logs chek`:
 
 ```sh
-docker build -t chek .
-docker run -d --name chek -p 8080:8080 -v chek-data:/data -v /path/to/comics:/library:ro chek
+docker run -d --name chek -p 8080:8080 -v chek-data:/data -v /path/to/comics:/library:ro \
+  ghcr.io/readchek/chek:latest
 ```
+
+`latest` is the newest release, such as `0.1.0`, and `edge` is the newest
+commit on `main`. A release is a tag on `main` named by its version, which
+CI publishes: run the Release workflow in the Actions tab with the version,
+or `git tag 0.1.0 && git push origin 0.1.0`. To build the image yourself,
+`docker build -t chek .`.

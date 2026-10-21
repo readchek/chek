@@ -13,6 +13,7 @@ use crate::bindings::chek::source::http::Method as RequestMethod;
 use crate::bindings::chek::source::http::{HttpError, Request, Response};
 use crate::browser::{Browser, is_challenge};
 use crate::cookies::Jar;
+use crate::resolve::PublicResolver;
 use crate::sites::Sites;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -50,6 +51,7 @@ impl Net {
         let redirect_sites = Arc::clone(&sites);
         let client = Client::builder()
             .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
+            .dns_resolver(Arc::new(PublicResolver))
             .cookie_provider(Arc::clone(&jar))
             .timeout(TIMEOUT)
             .https_only(true)
@@ -69,6 +71,7 @@ impl Net {
             .build()
             .map_err(|error| error.to_string())?;
         let browser_client = Client::builder()
+            .dns_resolver(Arc::new(PublicResolver))
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::none())

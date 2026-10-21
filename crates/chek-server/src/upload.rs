@@ -174,7 +174,7 @@ fn checked_path(path: &str) -> Result<(String, Format), ApiError> {
         .and_then(Format::from_extension)
         .ok_or_else(|| {
             invalid(
-                "must end in .epub, .pdf, .cbz, .cbr, .cb7, .cbt, .mobi, .azw, .azw3, .prc, .fb2, .txt or .md",
+                "must end in .epub, .pdf, .cbz, .cbr, .cb7, .cbt, .mobi, .azw, .azw3, .prc, .fb2, .fb2.zip, .fbz, .txt or .md",
             )
         })?;
     Ok((parts.join("/"), format))

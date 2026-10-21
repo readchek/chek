@@ -21,8 +21,10 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
+mod kavita;
 mod komga;
 
+pub use chek_kavita::{KavitaConfig, KavitaError};
 pub use chek_komga::{Client as HttpClient, KomgaAuth, KomgaConfig, KomgaError, http_client};
 
 /// How a source library reaches its source, stored with the library as JSON.
@@ -30,6 +32,7 @@ pub use chek_komga::{Client as HttpClient, KomgaAuth, KomgaConfig, KomgaError, h
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SourceConfig {
     Komga(KomgaConfig),
+    Kavita(KavitaConfig),
     Extension(ExtensionSource),
 }
 
@@ -47,13 +50,41 @@ pub struct ExtensionSource {
 impl SourceConfig {
     /// Checks that the source answers with these settings. Extensions are
     /// checked by the server, against the install.
-    pub async fn check(&self, http: &HttpClient) -> Result<(), KomgaError> {
+    pub async fn check(&self, http: &HttpClient) -> Result<(), SourceError> {
         match self {
             SourceConfig::Komga(config) => {
-                chek_komga::Komga::new(http.clone(), config)?.check().await
+                chek_komga::Komga::new(http.clone(), config)?
+                    .check()
+                    .await?;
             }
-            SourceConfig::Extension(_) => Ok(()),
+            SourceConfig::Kavita(config) => {
+                chek_kavita::Kavita::new(http.clone(), config)?
+                    .check()
+                    .await?;
+            }
+            SourceConfig::Extension(_) => {}
         }
+        Ok(())
+    }
+}
+
+/// A source server that couldn't be read, with the message its client gives.
+#[derive(Debug, thiserror::Error)]
+pub enum SourceError {
+    #[error("{0}")]
+    Komga(#[from] KomgaError),
+    #[error("{0}")]
+    Kavita(#[from] KavitaError),
+}
+
+impl SourceError {
+    /// Whether the source says the item is gone, rather than unreachable.
+    pub fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            SourceError::Komga(KomgaError::NotFound(_))
+                | SourceError::Kavita(KavitaError::NotFound(_))
+        )
     }
 }
 
@@ -74,11 +105,23 @@ pub enum ScanError {
     #[error("library {0} runs on an extension, which the server syncs")]
     ExtensionSource(i64),
     #[error("{0}")]
-    Source(#[from] KomgaError),
+    Source(#[from] SourceError),
     #[error(transparent)]
     Catalog(#[from] CatalogError),
     #[error("scan task failed: {0}")]
     Task(#[from] tokio::task::JoinError),
+}
+
+impl From<KomgaError> for ScanError {
+    fn from(e: KomgaError) -> Self {
+        ScanError::Source(e.into())
+    }
+}
+
+impl From<KavitaError> for ScanError {
+    fn from(e: KavitaError) -> Self {
+        ScanError::Source(e.into())
+    }
 }
 
 /// What a finished scan did.
@@ -139,6 +182,9 @@ pub async fn scan(
                 SourceConfig::Komga(config) => {
                     Target::Komga(chek_komga::Komga::new(options.http.clone(), &config)?)
                 }
+                SourceConfig::Kavita(config) => {
+                    Target::Kavita(chek_kavita::Kavita::new(options.http.clone(), &config)?)
+                }
                 SourceConfig::Extension(_) => return Err(ScanError::ExtensionSource(library_id)),
             }
         }
@@ -156,7 +202,9 @@ pub async fn scan(
     let guard = library_lock(library_id).lock_owned().await;
     let result = match target {
         Target::Folder(root) => run(catalog.clone(), library_id, root, options).await,
-        Target::Komga(komga) => sync_source(catalog.clone(), library_id, komga, options).await,
+        Target::Komga(_) | Target::Kavita(_) => {
+            sync_source(catalog.clone(), library_id, target, options).await
+        }
     };
     drop(guard);
     let error = result.as_ref().err().map(ToString::to_string);
@@ -174,12 +222,13 @@ pub async fn scan(
 enum Target {
     Folder(PathBuf),
     Komga(chek_komga::Komga),
+    Kavita(chek_kavita::Kavita),
 }
 
 async fn sync_source(
     catalog: Arc<Catalog>,
     library_id: i64,
-    komga: chek_komga::Komga,
+    target: Target,
     options: ScanOptions,
 ) -> Result<ScanReport, ScanError> {
     {
@@ -191,7 +240,11 @@ async fn sync_source(
                 source,
             })?;
     }
-    komga::sync(catalog, library_id, komga, options).await
+    match target {
+        Target::Komga(komga) => komga::sync(catalog, library_id, komga, options).await,
+        Target::Kavita(kavita) => kavita::sync(catalog, library_id, kavita, options).await,
+        Target::Folder(_) => unreachable!("folders are scanned, not synced"),
+    }
 }
 
 /// Serializes scans and added files per library. A scan marks every file it

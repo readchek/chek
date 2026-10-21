@@ -1,0 +1,49 @@
+name: Release
+
+# Cuts a release: tags `main` with the version, pushes the tag and starts
+# the Publish image workflow on it, which pushes ghcr.io/readchek/chek
+# under the version, its minor series and `latest`. Run it from the
+# Actions tab, or tag by hand (`git tag 0.1.0 && git push origin 0.1.0`),
+# which starts the publish on its own.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to tag, such as 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    name: Tag ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Tag main
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a version such as 0.1.0"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::$VERSION is already tagged"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Chek $VERSION"
+          git push origin "refs/tags/$VERSION"
+      - name: Publish the image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        # A tag pushed with the Actions token starts no workflow by itself.
+        run: gh workflow run publish.yml --ref "$VERSION"

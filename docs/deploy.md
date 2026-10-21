@@ -7,8 +7,10 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
 
 ## What it sets up
 
-- **`chek`** is the server, built from this repository's Dockerfile. Its
-  database and covers live in the `chek-data` volume.
+- **`chek`** is the server, from the `ghcr.io/readchek/chek:edge` image
+  that CI publishes on every push to `main`. Set `CHEK_IMAGE` to pin a
+  release, such as `ghcr.io/readchek/chek:0.1.0`. Its database and covers
+  live in the `chek-data` volume.
 - **`seed`** runs once per deploy and exits. On the first run it downloads
   the pinned corpus snapshot (about 600 MB) from `assets.chek.page`, checks
   every part's SHA-256, and unpacks it into the `library` volume. It then
@@ -46,7 +48,8 @@ licenses are in the `provenance` folder of the Test corpus library.
 3. In **Domains**, add your domain for service `chek` on port `8080`, with
    HTTPS on. Point the domain's DNS at the server first.
 4. Deploy. The `seed` container's log shows the download and finishes with
-   `seed: done`. Scans continue in the server after that.
+   `seed: done`. Scans continue in the server after that. Redeploying pulls
+   the newest `edge` image.
 
 Sign in as `admin` or `demo`. OPDS apps use
 `https://<domain>/opds/v2/catalog` with the same names and passwords.

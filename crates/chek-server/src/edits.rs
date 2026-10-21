@@ -1,5 +1,5 @@
-//! Hand edits to a publication's metadata. Admins only, since a library's
-//! metadata is shared by everyone who reads it.
+//! Hand edits to a publication's or a series' metadata. Admins only, since
+//! a library's metadata is shared by everyone who reads it.
 
 use std::time::Duration;
 
@@ -12,7 +12,9 @@ use chek_catalog::{ContributorRecord, PublicationEdit};
 use chek_formats::{MAX_FIELD_CHARS, MAX_SUMMARY_CHARS, Role};
 use serde::{Deserialize, Deserializer};
 
-use crate::api::{ApiError, AppState, blocking, publication_detail, start_scan};
+use crate::api::{
+    ApiError, AppState, SeriesDto, blocking, publication_detail, readable_series, start_scan,
+};
 use crate::auth::CurrentUser;
 
 /// The most contributors a scan keeps from a file, and so the most an edit
@@ -119,6 +121,44 @@ pub async fn clear_edits(
         // edits; the next scan reports it like any other unreadable file.
         Ok(_) => Ok(Json(publication_detail(&state, id).await?).into_response()),
     }
+}
+
+/// The one thing a series has to edit.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeriesEditRequest {
+    title: String,
+}
+
+/// `PATCH /api/v1/series/{id}`.
+pub async fn edit_series(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+    body: Result<Json<SeriesEditRequest>, JsonRejection>,
+) -> Result<Json<SeriesDto>, ApiError> {
+    current.require_admin()?;
+    let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
+    let title = text("title", body.title, MAX_FIELD_CHARS)?
+        .ok_or_else(|| ApiError::bad_request("title can't be empty"))?;
+    let sort_title = chek_formats::natural_key(&title);
+    if !blocking(&state, move |c| c.edit_series(id, &title, &sort_title)).await? {
+        return Err(ApiError::series_not_found(id));
+    }
+    Ok(Json(readable_series(&state, &current, id).await?.into()))
+}
+
+/// `DELETE /api/v1/series/{id}/edits`: brings the scanned title back.
+pub async fn clear_series_edits(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Json<SeriesDto>, ApiError> {
+    current.require_admin()?;
+    if !blocking(&state, move |c| c.clear_series_edit(id)).await? {
+        return Err(ApiError::series_not_found(id));
+    }
+    Ok(Json(readable_series(&state, &current, id).await?.into()))
 }
 
 fn checked(body: EditRequest) -> Result<PublicationEdit, ApiError> {

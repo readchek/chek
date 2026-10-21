@@ -18,6 +18,9 @@ mod telemetry;
 mod upload;
 mod verification;
 
+#[cfg(test)]
+mod tests;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

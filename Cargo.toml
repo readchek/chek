@@ -13,6 +13,7 @@ repository = "https://github.com/readchek/chek"
 [workspace.dependencies]
 chek-catalog = { path = "crates/chek-catalog" }
 chek-formats = { path = "crates/chek-formats" }
+chek-kavita = { path = "crates/chek-kavita" }
 chek-komga = { path = "crates/chek-komga" }
 chek-library = { path = "crates/chek-library" }
 chek-sources = { path = "crates/chek-sources" }

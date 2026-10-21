@@ -3,8 +3,10 @@
 # the domain set in its Domains tab; see docs/deploy.md.
 services:
   chek:
-    build:
-      context: ../..
+    # The image CI publishes from main; a release tag such as 0.1.0 pins it.
+    image: ${CHEK_IMAGE:-ghcr.io/readchek/chek:edge}
+    # `edge` moves with main, and `up` alone keeps whatever was pulled last.
+    pull_policy: always
     restart: unless-stopped
     expose:
       - "8080"

@@ -1,11 +1,12 @@
 //! Restricted HTTPS tunnels for native browser sessions. Chromium retains its TLS stack.
 
 use std::io::{Read, Write};
-use std::net::{IpAddr, Shutdown, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use crate::resolve::lookup;
 use crate::sites::Sites;
 
 pub(crate) fn start(sites: Sites) -> Result<String, String> {
@@ -51,13 +52,13 @@ fn connect(mut client: TcpStream, sites: &Sites, bytes: Arc<AtomicUsize>) -> std
     }
     // Resolve once and connect to the checked address, preventing rebinding
     // between validation and connection. Never reach local services.
-    let addresses: Vec<_> = (host, 443).to_socket_addrs()?.collect();
-    if addresses.is_empty() || addresses.iter().any(|address| !public(address.ip())) {
+    let Ok(addresses) = lookup(host) else {
         client.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n")?;
         return Ok(());
-    }
+    };
     let mut remote = None;
-    for address in addresses.into_iter().take(4) {
+    for mut address in addresses.into_iter().take(4) {
+        address.set_port(443);
         if let Ok(stream) = TcpStream::connect_timeout(&address, Duration::from_secs(3)) {
             remote = Some(stream);
             break;
@@ -93,29 +94,4 @@ fn copy(mut from: TcpStream, mut to: TcpStream, total: &AtomicUsize) {
     }
     let _ = from.shutdown(Shutdown::Both);
     let _ = to.shutdown(Shutdown::Both);
-}
-
-fn public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let [a, b, _, _] = ip.octets();
-            !ip.is_private()
-                && !ip.is_loopback()
-                && !ip.is_link_local()
-                && !ip.is_documentation()
-                && !ip.is_broadcast()
-                && !ip.is_unspecified()
-                && a != 0
-                && a < 224
-                && !(a == 100 && (64..128).contains(&b))
-                && !(a == 198 && (b == 18 || b == 19))
-                && !(a == 192 && b == 0)
-        }
-        IpAddr::V6(ip) => {
-            let segments = ip.segments();
-            segments[0] & 0xe000 == 0x2000
-                && segments[0] != 0x2002
-                && !(segments[0] == 0x2001 && (segments[1] < 0x200 || segments[1] == 0xdb8))
-        }
-    }
 }
