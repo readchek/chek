@@ -18,6 +18,7 @@ mod http;
 mod images;
 mod installed;
 pub mod repository;
+mod resolve;
 mod session;
 mod sites;
 mod store;

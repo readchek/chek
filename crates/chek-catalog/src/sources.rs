@@ -76,6 +76,7 @@ impl Catalog {
             ],
             |row| row.get(0),
         )?;
+        crate::edits::keep_series_edit(&tx, series_id)?;
         tx.execute(
             "UPDATE publication SET available = 0 WHERE series_id = ?1",
             [series_id],
