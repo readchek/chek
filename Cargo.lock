@@ -315,6 +315,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chek-kavita"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "chek-komga"
 version = "0.1.0"
 dependencies = [
@@ -331,6 +341,7 @@ dependencies = [
  "blake3",
  "chek-catalog",
  "chek-formats",
+ "chek-kavita",
  "chek-komga",
  "serde",
  "serde_json",
@@ -350,6 +361,7 @@ dependencies = [
  "blake3",
  "chek-catalog",
  "chek-formats",
+ "chek-kavita",
  "chek-komga",
  "chek-library",
  "chek-sources",

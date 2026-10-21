@@ -17,6 +17,7 @@ base64.workspace = true
 blake3.workspace = true
 chek-catalog.workspace = true
 chek-formats.workspace = true
+chek-kavita.workspace = true
 chek-komga.workspace = true
 chek-library.workspace = true
 chek-sources.workspace = true
