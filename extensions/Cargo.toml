@@ -12,7 +12,7 @@ edition = "2024"
 chek-extension = { path = "sdk" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-wit-bindgen = "0.57.1"
+wit-bindgen = "0.63.0"
 
 [profile.release]
 opt-level = "s"
