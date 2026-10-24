@@ -1,16 +1,16 @@
 //! Comix 1.6.54's WebView flow, ported to Chek browser sessions.
 mod descrambler;
-mod protocol;
 
 use chek_extension::prelude::*;
 use chek_extension::{browser, browser_session, http::HttpError};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 const SITE: &str = "https://comix.to";
 const CLIENT: &str = include_str!("client.js");
-const SITE_API: &str = include_str!("site_api.js");
+const CATALOG: &str = include_str!("catalog.js");
+const HARVEST_BROWSE: &str = include_str!("../upstream/harvest_browse.js");
 const MAX_CHAPTER_PAGES: u32 = 20;
 
 struct Comix;
@@ -19,7 +19,6 @@ struct Comix;
 struct Listing<T> {
     items: Vec<T>,
     meta: Option<Pagination>,
-    pagination: Option<Pagination>,
 }
 
 #[derive(Default, Deserialize)]
@@ -139,103 +138,18 @@ struct Page {
 }
 
 #[derive(Deserialize)]
-struct Target {
-    x: u32,
-    y: u32,
-    scroll: i32,
-}
-
-#[derive(Deserialize)]
 struct Evaluation<T> {
     value: Option<T>,
     error: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct PreparedRequest {
-    kid: String,
-    material: Vec<u8>,
-    query: BTreeMap<String, String>,
-}
-
-#[derive(Deserialize)]
-struct ApiResponse {
-    status: u16,
-    encoding: Option<String>,
-    body: String,
-}
-
 struct Session;
 
 impl Session {
-    fn api<T: DeserializeOwned>(&self, path: &str, params: Value) -> Result<T, Error> {
-        let prepared: PreparedRequest =
-            self.read(&format!("prepareApi({}, {params})", json!(path)))?;
-        let query: Vec<_> = prepared
-            .query
-            .iter()
-            .filter(|(key, _)| key.as_str() != "_")
-            .collect();
-        let canonical = if query.is_empty() {
-            path.to_owned()
-        } else {
-            format!(
-                "{path}?{}",
-                query
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join("&")
-            )
-        };
-        let signature = format!(
-            "{}.{}",
-            prepared.kid,
-            protocol::sign(&prepared.material, &canonical).map_err(Error::Parse)?
-        );
-        if prepared.query.get("_") != Some(&signature) {
-            return Err(Error::Parse(
-                "Comix request signing changed; this build is unsupported".into(),
-            ));
-        }
-        let url = format!(
-            "/api/v1{path}?{}",
-            query
-                .iter()
-                .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
-                .chain(std::iter::once(format!("_={}", encode(&signature))))
-                .collect::<Vec<_>>()
-                .join("&")
-        );
-        let response: ApiResponse = self.read(&format!("fetchApi({})", json!(url)))?;
-        if !(200..300).contains(&response.status) {
-            return Err(Error::Network(format!(
-                "Comix API returned HTTP {}",
-                response.status
-            )));
-        }
-        let value = match response.encoding.as_deref() {
-            Some("2") => {
-                protocol::decode(&prepared.material, &response.body).map_err(Error::Parse)?
-            }
-            None => {
-                serde_json::from_str(&response.body).map_err(|e| Error::Parse(e.to_string()))?
-            }
-            Some(_) => {
-                return Err(Error::Parse(
-                    "Comix uses an unsupported response encoding".into(),
-                ));
-            }
-        };
-        let value = if value.get("status").and_then(Value::as_str) == Some("ok") {
-            value
-                .get("result")
-                .cloned()
-                .ok_or_else(|| Error::Parse("Comix API returned no result".into()))?
-        } else {
-            value
-        };
-        serde_json::from_value(value).map_err(|e| Error::Parse(e.to_string()))
+    fn harvest<T: DeserializeOwned>(&self, script: &str) -> Result<T, Error> {
+        self.read(&format!(
+            "(async () => {{ window.__comixHarvestOptions = {{ timeoutMs: 18000 }}; {script}\n const result = await window.__comixHarvestPromise; if (result.error) throw new Error(result.error); return result; }})()"
+        ))
     }
 
     fn open(path: &str) -> Result<Self, Error> {
@@ -277,7 +191,7 @@ impl Session {
 
     fn evaluate<T: DeserializeOwned>(&self, expression: &str) -> Result<T, Error> {
         let result = browser_session::evaluate(&format!(
-            "(async () => {{ {CLIENT}\n try {{ return {{value: await ({expression})}}; }} catch (error) {{ return {{error: String(error.message || error)}}; }} }})()"
+            "(async () => {{ {CLIENT}\n {CATALOG}\n try {{ return {{value: await ({expression})}}; }} catch (error) {{ return {{error: String(error.message || error)}}; }} }})()"
         ))
         .map_err(Error::Network)?;
         let result: Evaluation<T> =
@@ -289,33 +203,16 @@ impl Session {
         }
     }
 
-    fn tap_chapters(&self, page: u32, field: &str) -> Result<(), Error> {
-        for _ in 0..8 {
-            let target: Target =
-                self.evaluate(&format!("chapterTarget({page}, {})", json!(field)))?;
-            if target.scroll == 0 {
-                browser_session::click(target.x, target.y).map_err(Error::Network)?;
-                if self.evaluate::<bool>("chapterInputReceived()")? {
-                    return Ok(());
-                }
-            } else {
-                browser_session::scroll(target.x, target.y, 0, target.scroll)
-                    .map_err(Error::Network)?;
-            }
-        }
-        Err(Error::Other(
-            "Could not activate Comix's chapter controls".into(),
-        ))
-    }
-
     fn initial<T: DeserializeOwned>(&self, detail: bool) -> Result<T, Error> {
         self.read(&format!("initialData({detail})"))
     }
 
     fn chapter_page(&self, id: &str, page: u32) -> Result<Listing<ChapterData>, Error> {
-        let result = self
-            .tap_chapters(page, "date")
-            .and_then(|()| self.evaluate(&format!("chapterPage({}, {page})", json!(id))));
+        if page > 1 {
+            browser_session::open(&format!("{SITE}/title/{}?page={page}", encode(id)))
+                .map_err(Error::Network)?;
+        }
+        let result = self.read(&format!("renderedChapters({}, {page})", json!(id)));
         result.map_err(|error| match error {
             Error::Network(message) => {
                 Error::Network(format!("Comix chapter page {page}: {message}"))
@@ -354,6 +251,7 @@ impl Guest for Comix {
                 "comix.to",
                 "comix.ws",
                 "static.comix.to",
+                "*.kkplayer.wtf",
                 "challenges.cloudflare.com",
                 "*.softlifejournal.site",
                 "*.notesbyamber.site",
@@ -409,18 +307,18 @@ impl Guest for Comix {
             encode(query.trim()),
             page.max(1)
         ))?;
-        let order = if query.trim().is_empty() {
-            "order[score]"
-        } else {
-            "order[relevance]"
-        };
-        let list: Listing<Manga> = session.api("/manga", json!({
-            "keyword": query.trim(), "page": page.max(1).to_string(), "limit": "28", order: "desc"
-        }))?;
-        let has_more = list
-            .meta
-            .or(list.pagination)
-            .is_some_and(|pagination| pagination.page.max(1) < pagination.last());
+        #[derive(Deserialize)]
+        struct Browse {
+            items: Vec<BrowseItem>,
+        }
+        #[derive(Deserialize)]
+        struct BrowseItem {
+            hid: String,
+            title: String,
+            cover: Option<String>,
+        }
+        let list: Browse = session.harvest(HARVEST_BROWSE)?;
+        let has_more = session.read::<bool>(&format!("browseHasMore({})", page.max(1)))?;
         Ok(SeriesPage {
             has_more,
             items: list
@@ -429,7 +327,7 @@ impl Guest for Comix {
                 .map(|manga| SeriesItem {
                     id: manga.hid,
                     title: manga.title,
-                    cover: manga.poster.and_then(Poster::cover),
+                    cover: manga.cover.filter(|url| !url.is_empty()).map(image),
                 })
                 .collect(),
         })
@@ -480,7 +378,6 @@ impl Guest for Comix {
 
     fn chapters(series_id: String) -> Result<Vec<Chapter>, Error> {
         let session = Session::open(&format!("/title/{}", encode(&series_id)))?;
-        session.read::<Value>(&format!("chapterApi(({SITE_API}))"))?;
         let mut chapters = Vec::new();
         let mut seen = HashSet::new();
         let mut previous_total = None;
@@ -526,37 +423,21 @@ impl Guest for Comix {
         let (slug, chapter) = chapter_id
             .split_once('/')
             .ok_or_else(|| Error::Parse("Invalid Comix chapter id".into()))?;
-        let id = chapter
+        let _id = chapter
             .split('-')
             .next()
             .and_then(|value| value.parse::<u64>().ok())
             .ok_or_else(|| Error::Parse("Invalid Comix chapter number".into()))?;
         let session = Session::open(&format!("/title/{}/{}", encode(slug), encode(chapter)))?;
-        let chapter: Value = session.api(&format!("/chapters/{id}"), json!({}))?;
-        let pages = std::iter::once(&chapter)
-            .chain(
-                chapter
-                    .as_object()
-                    .into_iter()
-                    .flat_map(|object| object.values()),
-            )
-            .find_map(|value| {
-                let items = value
-                    .as_array()
-                    .or_else(|| value.get("items")?.as_array())?;
-                (!items.is_empty()
-                    && items
-                        .iter()
-                        .all(|item| item.get("url").is_some_and(Value::is_string)))
-                .then(|| {
-                    if value.is_array() {
-                        json!({ "items": value })
-                    } else {
-                        value.clone()
-                    }
-                })
-            })
-            .ok_or_else(|| Error::Parse("Comix returned no chapter pages".into()))?;
+        #[derive(Deserialize)]
+        struct Reader {
+            images: Vec<String>,
+        }
+        let reader: Reader = session.read("renderedPages()")?;
+        if reader.images.is_empty() {
+            return Err(Error::Network("Comix did not load chapter images".into()));
+        }
+        let pages = json!({ "items": reader.images.into_iter().map(|url| json!({"url": url})).collect::<Vec<_>>() });
         let list: PageList = session.read(&format!(
             "normalizePages({pages}, {})",
             json!(Self::manifest().sites),
@@ -621,62 +502,42 @@ impl chek_extension::ChapterPagination for Comix {
             return Err(Error::Parse("Invalid Comix chapter cursor".into()));
         }
         let start = cursor.as_ref().map_or(1, |cursor| cursor.page);
-        let mut total = cursor.as_ref().map(|cursor| cursor.total);
-        let session = Session::open(&format!(
-            "/title/{}?page={}",
-            encode(&series_id),
-            start.saturating_sub(1).max(1)
-        ))?;
-        session.read::<Value>(&format!("chapterApi(({SITE_API}))"))?;
-        let mut items = Vec::new();
-        for page in start..start + 10 {
-            // Toggle the initial number sort twice to obtain a fresh descending
-            // response. Later batches start on the preceding URL page.
-            if page == 1 {
-                session.tap_chapters(page, "chapter")?;
-            }
-            session.tap_chapters(page, "chapter")?;
-            let list: Listing<ChapterData> = session.evaluate(&format!(
-                "chapterPage({}, {page}, 'number')",
-                json!(series_id)
-            ))?;
-            let meta = list
-                .meta
-                .ok_or_else(|| Error::Parse("Missing chapter pagination".into()))?;
-            if meta.page != page
-                || meta.total > 20_000
-                || total.is_some_and(|total| total != meta.total)
-            {
-                return Err(Error::Other(
-                    "Comix's chapter pagination changed; restart the traversal".into(),
-                ));
-            }
-            total = Some(meta.total);
-            items.extend(
-                list.items
-                    .into_iter()
-                    .map(ChapterData::chapter)
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
-            if page >= meta.last() || page == start + 9 {
-                let next = (page < meta.last())
-                    .then(|| {
-                        serde_json::to_string(&ChapterCursor {
-                            series: series_id.clone(),
-                            page: page + 1,
-                            total: meta.total,
-                        })
-                    })
-                    .transpose()
-                    .map_err(|error| Error::Parse(error.to_string()))?;
-                return Ok(chek_extension::ChapterBatch {
-                    items,
-                    next,
-                    total: meta.total as u32,
-                });
-            }
+        let total = cursor.as_ref().map(|cursor| cursor.total);
+        let session = Session::open(&format!("/title/{}?page={}", encode(&series_id), start))?;
+        let page = start;
+        let list: Listing<ChapterData> =
+            session.evaluate(&format!("renderedChapters({}, {page})", json!(series_id)))?;
+        let meta = list
+            .meta
+            .ok_or_else(|| Error::Parse("Missing chapter pagination".into()))?;
+        if meta.page != page
+            || meta.total > 20_000
+            || total.is_some_and(|total| total != meta.total)
+        {
+            return Err(Error::Other(
+                "Comix's chapter pagination changed; restart the traversal".into(),
+            ));
         }
-        Err(Error::Other("Comix chapter batch did not complete".into()))
+        let items = list
+            .items
+            .into_iter()
+            .map(ChapterData::chapter)
+            .collect::<Result<Vec<_>, _>>()?;
+        let next = (page < meta.last())
+            .then(|| {
+                serde_json::to_string(&ChapterCursor {
+                    series: series_id.clone(),
+                    page: page + 1,
+                    total: meta.total,
+                })
+            })
+            .transpose()
+            .map_err(|error| Error::Parse(error.to_string()))?;
+        Ok(chek_extension::ChapterBatch {
+            items,
+            next,
+            total: meta.total as u32,
+        })
     }
 }
 

@@ -358,11 +358,14 @@ pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
         Error::Source(SourceError::NotFound) => {
             ApiError::not_found("the source has no such item".to_owned())
         }
-        Error::Source(_) | Error::Trap(_) | Error::Image(_) | Error::Pagination(_) => ApiError {
-            status: StatusCode::BAD_GATEWAY,
-            code: "source_failed",
-            message: error.to_string(),
-        },
+        Error::Source(_) | Error::Trap(_) | Error::Image(_) | Error::Pagination(_) => {
+            tracing::warn!(error = %error, "source request failed");
+            ApiError {
+                status: StatusCode::BAD_GATEWAY,
+                code: "source_failed",
+                message: error.to_string(),
+            }
+        }
         _ => ApiError::internal(error),
     }
 }
