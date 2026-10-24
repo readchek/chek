@@ -65,6 +65,11 @@ The last row covers hosts that check their own headers, such as
 [Cloudflare Access service tokens](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/),
 which take `CF-Access-Client-Id` and `CF-Access-Client-Secret`.
 
+Two common hosts don't challenge, so Chek recognizes them: a private
+repository's files on `raw.githubusercontent.com` answer `404` to anyone not
+signed in, which Chek takes as asking for a token, and Cloudflare Access
+redirects to its sign-in page, which Chek takes as asking for headers.
+
 Chek reads the challenge when you add a repository and asks for those
 details, then stores them on the server, never in the app. It sends them
 only to the index's own origin (scheme, host and port), and it won't follow
@@ -152,7 +157,7 @@ limited to that repository with read-only Contents access. Chek reads
 
 ### Any web server
 
-Basic auth with Caddy:
+Basic auth with Caddy 2.8 or later (earlier versions spell it `basicauth`):
 
 ```caddyfile
 extensions.example.org {

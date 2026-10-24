@@ -269,8 +269,17 @@ pub fn refresh_repositories_every(state: AppState, interval: std::time::Duration
         ticks.tick().await;
         loop {
             ticks.tick().await;
-            let repositories = match blocking(&state, |c| c.all_extension_repositories()).await {
-                Ok(repositories) => repositories,
+            let listed = blocking(&state, |c| {
+                Ok((c.all_extension_repositories()?, c.allow_any_repository()?))
+            })
+            .await;
+            let repositories = match listed {
+                // Users' own repositories can't be used while only the allow
+                // list is allowed, so they aren't read either.
+                Ok((repositories, allow_any)) => repositories
+                    .into_iter()
+                    .filter(|r| allow_any || r.owner_id.is_none())
+                    .collect::<Vec<_>>(),
                 Err(e) => {
                     tracing::error!(error = %e.message, "couldn't list extension repositories to refresh");
                     continue;

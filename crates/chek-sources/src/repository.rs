@@ -206,15 +206,28 @@ pub enum RepositoryError {
     Invalid(String),
     #[error("the credentials can't be used: {0}")]
     Credentials(String),
-    /// The repository answered 401 or 403. `signed` says whether
-    /// credentials were sent, and so were refused rather than missing.
-    #[error("{url} answered {status}; {}", if *signed { "it refused the credentials" } else { "it's private and needs credentials" })]
+    /// The repository refused, or looks private: it answered 401 or 403,
+    /// or is a host known to answer otherwise (see [`get`]). `signed` says
+    /// whether credentials were sent, and so were refused rather than
+    /// missing.
+    #[error("{}", unauthorized_message(url, *status, *signed))]
     Unauthorized {
         url: String,
         status: u16,
         challenge: Challenge,
         signed: bool,
     },
+}
+
+fn unauthorized_message(url: &str, status: u16, signed: bool) -> String {
+    let why = if signed {
+        "it refused the credentials"
+    } else if status == 401 || status == 403 {
+        "it's private and needs credentials"
+    } else {
+        "it may be private and need credentials, or the address may be wrong"
+    };
+    format!("{url} answered {status}; {why}")
 }
 
 /// Turns what a user typed into the URL of the repository's index, which is
@@ -239,6 +252,14 @@ pub fn repository_url(input: &str) -> Result<String, RepositoryError> {
     let mut parsed = Url::parse(&url).map_err(|_| not_https())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return Err(not_https());
+    }
+    // The address is shown to everyone who can use the repository and kept
+    // in fetch errors, so a password in it would leak.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(RepositoryError::Credentials(
+            "the address has a user name or password in it; give them as credentials instead"
+                .to_owned(),
+        ));
     }
     if !parsed.path().ends_with(".json") {
         if !parsed.path().ends_with('/') {
@@ -289,6 +310,11 @@ pub fn parse_index(bytes: &[u8]) -> Result<Index, RepositoryError> {
         return Err(RepositoryError::Invalid(format!(
             "it's written in repository format {spec}, and this server reads up to {SPEC_VERSION}; update Chek"
         )));
+    }
+    if index.spec == Some(0) {
+        return Err(RepositoryError::Invalid(
+            "repository formats count from 1".to_owned(),
+        ));
     }
     if index.extensions.len() > MAX_ENTRIES {
         return Err(RepositoryError::Invalid(format!(
@@ -408,15 +434,35 @@ fn get(
         .send()
         .map_err(|e| RepositoryError::Fetch(crate::http::describe(&e)))?;
     let status = response.status();
-    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-        let challenge = response
+    let challenge = if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        let header = response
             .headers()
             .get(WWW_AUTHENTICATE)
             .and_then(|h| h.to_str().ok());
+        Some(Challenge::parse(header))
+    } else if signed {
+        None
+    } else if status == StatusCode::NOT_FOUND && url.host_str() == Some("raw.githubusercontent.com")
+    {
+        // GitHub hides a private repository's files behind 404 from anyone
+        // not signed in to it, and takes a token for them.
+        Some(Challenge::Bearer)
+    } else if response
+        .url()
+        .host_str()
+        .is_some_and(|host| host.ends_with(".cloudflareaccess.com"))
+    {
+        // Cloudflare Access sends requests without a service token to its
+        // sign-in page; the token is two headers.
+        Some(Challenge::Other)
+    } else {
+        None
+    };
+    if let Some(challenge) = challenge {
         return Err(RepositoryError::Unauthorized {
             url: url.to_string(),
             status: status.as_u16(),
-            challenge: Challenge::parse(challenge),
+            challenge,
             signed,
         });
     }
@@ -443,6 +489,22 @@ fn get(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn addresses_with_passwords_are_refused() {
+        assert!(matches!(
+            repository_url("https://reader:secret@example.org/chek"),
+            Err(RepositoryError::Credentials(_))
+        ));
+        assert!(matches!(
+            repository_url("reader@example.org/chek"),
+            Err(RepositoryError::Credentials(_))
+        ));
+        assert_eq!(
+            repository_url("example.org/chek").unwrap(),
+            "https://example.org/chek/index.json"
+        );
+    }
 
     #[test]
     fn challenges_name_their_scheme() {
@@ -496,6 +558,7 @@ mod tests {
         let index = |spec: &str| format!(r#"{{{spec}"extensions":[]}}"#);
         assert!(parse_index(index("").as_bytes()).is_ok());
         assert!(parse_index(index(r#""spec":1,"#).as_bytes()).is_ok());
+        assert!(parse_index(index(r#""spec":0,"#).as_bytes()).is_err());
         assert!(matches!(
             parse_index(index(r#""spec":2,"#).as_bytes()),
             Err(RepositoryError::Invalid(_))

@@ -2152,6 +2152,10 @@ paths:
             The component isn't a valid source extension (`extension_invalid`),
             doesn't match the index (`extension_mismatch`), or was built for
             another version of the source contract (`extension_incompatible`).
+            It can also be one of the repository codes of
+            `RepositoryNeedsCredentials` when the host refuses the component:
+            stored credentials were revoked, or the component is on another
+            origin, which isn't sent them.
           content:
             application/json:
               schema:
@@ -3076,6 +3080,10 @@ components:
             - repository_exists
             - repository_not_allowed
             - repository_unreadable
+            - repository_needs_token
+            - repository_needs_password
+            - repository_needs_credentials
+            - repository_credentials_refused
             - extension_invalid
             - source_failed
             - source_unavailable
