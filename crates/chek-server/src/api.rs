@@ -217,6 +217,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/me/extensions/{id}/search", get(browse::search))
         .route("/api/v1/me/extensions/{id}/series", get(browse::series))
         .route("/api/v1/me/extensions/{id}/chapters", get(browse::chapters))
+        .route(
+            "/api/v1/me/extensions/{id}/release-group",
+            put(browse::set_release_group),
+        )
         .route("/api/v1/me/extensions/{id}/pages", get(browse::pages))
         .route("/api/v1/me/extensions/{id}/image", get(browse::image))
         .route(

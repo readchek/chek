@@ -35,6 +35,8 @@ pub struct RemoteChapter {
     /// Changes when the chapter's pages change.
     pub version: Option<String>,
     pub published: Option<String>,
+    /// The BCP 47 tag of the language the release is written in.
+    pub language: Option<String>,
 }
 
 impl Catalog {
@@ -140,7 +142,7 @@ impl Catalog {
                     details: &PublicationDetails {
                         summary: series.summary.clone(),
                         publisher: None,
-                        language: None,
+                        language: chapter.language.clone(),
                         published: chapter.published.clone(),
                         // Publications allow only ltr and rtl; vertical
                         // strips stay on the series.

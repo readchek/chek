@@ -49,6 +49,13 @@ stands, and implement `Guest`:
 - `search`, `series`, `chapters` and `pages` return the source's own ids,
   and images as URLs with any headers the site needs. Chek fetches and
   caches images itself.
+- Each `Chapter` is one release. Fill `language` with the release's BCP 47
+  tag (not the series' original language), `release_group` with who
+  released it and `official` when that's the publisher, where the site
+  says. List every release the site has: Chek groups them by `number` and
+  shows one chapter with a choice of releases. Keep `version` for a content
+  revision that changes when the pages do; a group's name doesn't belong
+  there.
 - `Get::new(url).cache(seconds).json()` fetches and parses a response, and
   lets Chek answer repeats from its cache. Cache listings; don't cache
   anything with a short-lived token in it.
@@ -124,7 +131,7 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
-Chapter pagination is an optional export alongside the existing 0.4 source
+Chapter pagination is an optional export alongside the existing 0.5 source
 world. Implement `chek_extension::ChapterPagination` and invoke
 `chek_extension::export_chapter_pagination!(YourSource)` as well as
 `export_source!`. Return `ChapterBatch { items, next, total }`; `next` is an
@@ -152,14 +159,17 @@ the whole list: implement `chek_extension::ChapterPages` and invoke
 offset, limit, after)` returns `ChapterPage { items, offset, total }`: up to
 `limit` chapters from `offset`, counted from the first chapter
 (`OldestFirst`) or the newest (`NewestFirst`), and the series' total as the
-site reports it. `after` is a chapter id to start just past; return
+site reports it. List a chapter's releases next to each other, as sites
+that sort by number do: Chek groups them a page at a time. `after` is a chapter id to start just past; return
 `Error::NotFound` when the site can't place it cheaply, and the host finds it
 in the complete list instead. Pages allow at most 500 chapters, no more than
 `limit`, and 4 MiB of text. Keep `chapters` (and batches, if the site has
 them) for library sync, which still reads the complete list.
 
-The current contract is `chek:source@0.4.0`. Components built against 0.3
-must be rebuilt with the current SDK: add `transform: None` to directly
+The current contract is `chek:source@0.5.0`. Components built against 0.4
+must be rebuilt with the current SDK: add `language`, `release_group` and
+`official` to every `Chapter`, and move a group name out of `version` if the
+source put one there. Components built against 0.3 also need `transform: None` added to directly
 constructed images and implement `transform_image`, returning `Ok(None)`
 when unused. Bump the source version and regenerate the repository index.
 Old components fail loading with a rebuild message; they are not converted

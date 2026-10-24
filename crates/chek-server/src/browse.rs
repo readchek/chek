@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::{ApiError, AppState, blocking};
 use crate::auth::CurrentUser;
 use crate::installs::{not_installed, not_usable};
+use crate::releases::{Group, Pager, chapter_count, group_list, list_page, order_releases};
 
 /// Longer queries are almost certainly not typed by a person.
 const MAX_QUERY_CHARS: usize = 200;
@@ -86,17 +87,21 @@ pub struct RemoteSeriesDto {
     tags: Vec<String>,
 }
 
-#[derive(Serialize)]
+/// One release of a chapter, as one group put it out.
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteChapterDto {
+pub struct RemoteReleaseDto {
     id: String,
     title: String,
     number: Option<String>,
     version: Option<String>,
     published: Option<String>,
+    language: Option<String>,
+    release_group: Option<String>,
+    official: bool,
 }
 
-impl From<Chapter> for RemoteChapterDto {
+impl From<Chapter> for RemoteReleaseDto {
     fn from(chapter: Chapter) -> Self {
         Self {
             id: chapter.id,
@@ -104,6 +109,35 @@ impl From<Chapter> for RemoteChapterDto {
             number: chapter.number,
             version: chapter.version,
             published: chapter.published,
+            language: chapter.language,
+            release_group: chapter.release_group,
+            official: chapter.official,
+        }
+    }
+}
+
+/// A chapter: its picked release's fields, and every release of it with
+/// the picked one first.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteChapterDto {
+    #[serde(flatten)]
+    release: RemoteReleaseDto,
+    releases: Vec<RemoteReleaseDto>,
+}
+
+impl RemoteChapterDto {
+    fn new(mut group: Group, preferred: Option<&str>) -> Self {
+        order_releases(&mut group.releases, preferred);
+        let releases: Vec<RemoteReleaseDto> = group
+            .releases
+            .into_iter()
+            .map(RemoteReleaseDto::from)
+            .collect();
+        Self {
+            // A group always has a release.
+            release: releases[0].clone(),
+            releases,
         }
     }
 }
@@ -112,8 +146,15 @@ impl From<Chapter> for RemoteChapterDto {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteChapterPageDto {
     items: Vec<RemoteChapterDto>,
+    /// The release position the page starts at.
     offset: usize,
+    /// Where the next page starts, or `None` at the end.
+    next_offset: Option<usize>,
+    /// How many releases the series has.
     total: usize,
+    /// How many chapters, when the whole list has been read.
+    chapter_count: Option<usize>,
+    preferred_group: Option<String>,
 }
 
 /// Which end of a series a chapter page counts from.
@@ -135,10 +176,14 @@ pub struct ChaptersQuery {
     order: ChapterOrder,
     #[serde(default)]
     offset: usize,
-    /// Starts the page just past this chapter instead of at `offset`, as
-    /// a reader asks for the chapter after the one it's showing.
+    /// Starts the page just past the chapter this release belongs to
+    /// instead of at `offset`, as a reader asks for the chapter after the
+    /// one it's showing.
     after: Option<String>,
     limit: Option<usize>,
+    /// Only releases in this language, a BCP 47 tag, and those whose
+    /// language the source doesn't give.
+    language: Option<String>,
     /// Reads the list from the source again instead of the kept one.
     #[serde(default)]
     refresh: bool,
@@ -152,6 +197,15 @@ const MAX_CHAPTER_LIMIT: usize = 500;
 const CHAPTER_LIST_TTL: Duration = Duration::from_secs(10 * 60);
 /// How many series' lists are kept at once; the oldest goes first.
 const CHAPTER_LISTS_KEPT: usize = 64;
+/// The most pages of releases one page of chapters asks an extension for.
+/// It stops sooner once a chapter is complete, so this only matters for a
+/// chapter with releases across many of the site's pages.
+const MAX_EXTENSION_PAGES: usize = 8;
+/// Longer than any BCP 47 tag a person would ask for.
+const MAX_LANGUAGE_CHARS: usize = 35;
+/// Bounds on what a release group preference stores.
+const MAX_SERIES_ID_BYTES: usize = 1024;
+const MAX_GROUP_BYTES: usize = 200;
 
 /// Complete chapter lists read from sources lately, so paging through a
 /// series, or reading it newest first, asks the source for the whole list
@@ -196,26 +250,6 @@ impl ChapterLists {
             entries.remove(&oldest);
         }
         entries.insert(key, (Instant::now(), chapters));
-    }
-}
-
-/// The chapters of `chapters` in one page: `limit` of them starting at
-/// `offset`, counted from the end that `order` names.
-fn chapter_page(
-    chapters: &[Chapter],
-    order: ChapterOrder,
-    offset: usize,
-    limit: usize,
-) -> Vec<Chapter> {
-    let start = offset.min(chapters.len());
-    let end = offset.saturating_add(limit).min(chapters.len());
-    match order {
-        ChapterOrder::Asc => chapters[start..end].to_vec(),
-        ChapterOrder::Desc => chapters[chapters.len() - end..chapters.len() - start]
-            .iter()
-            .rev()
-            .cloned()
-            .collect(),
     }
 }
 
@@ -327,10 +361,11 @@ pub async fn series(
     ))
 }
 
-/// One page of a series' chapters, from either end, and how many there
-/// are. An extension that answers pages itself is asked for just that
-/// page; otherwise the whole list is read from the source on the first
-/// page and kept for the pages after it.
+/// One page of a series' chapters, from either end, each with its
+/// releases and one of them picked. An extension that answers pages itself
+/// is asked for just the releases the page needs; otherwise the whole list
+/// is read from the source on the first page and kept for the pages after
+/// it.
 pub async fn chapters(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -343,9 +378,37 @@ pub async fn chapters(
             "limit must be between 1 and {MAX_CHAPTER_LIMIT}"
         )));
     }
+    if query
+        .language
+        .as_ref()
+        .is_some_and(|tag| tag.is_empty() || tag.len() > MAX_LANGUAGE_CHARS)
+    {
+        return Err(ApiError::bad_request(
+            "language must be a BCP 47 tag such as en or pt-BR",
+        ));
+    }
     let (_, source) = usable_source(&state, &current, &id).await?;
-    if let Some(page) = extension_page(&source, &query, limit).await? {
-        return Ok(cached(CHAPTERS_MAX_AGE, page));
+    let preferred = preferred_group(&state, &current, &id, &query.series_id).await?;
+    let language = query.language.as_deref();
+    if query.after.is_none()
+        && let Some((groups, offset, next_offset, total)) =
+            extension_page(&source, &query, limit).await?
+    {
+        let items = groups
+            .into_iter()
+            .map(|group| RemoteChapterDto::new(group, preferred.as_deref()))
+            .collect();
+        return Ok(cached(
+            CHAPTERS_MAX_AGE,
+            RemoteChapterPageDto {
+                items,
+                offset,
+                next_offset,
+                total,
+                chapter_count: None,
+                preferred_group: preferred,
+            },
+        ));
     }
     let key = ChapterListKey {
         extension: id.clone(),
@@ -366,60 +429,155 @@ pub async fn chapters(
             chapters
         }
     };
+    let groups = group_list(&chapters, query.order == ChapterOrder::Desc);
+    let count = chapter_count(&groups, language);
     let offset = match &query.after {
         None => query.offset,
-        Some(after) => {
-            let index = chapters
-                .iter()
-                .position(|chapter| &chapter.id == after)
-                .ok_or_else(|| ApiError::not_found("the source has no such chapter".to_owned()))?;
-            match query.order {
-                ChapterOrder::Asc => index + 1,
-                ChapterOrder::Desc => chapters.len() - index,
-            }
-        }
+        Some(after) => groups
+            .iter()
+            .find(|group| group.releases.iter().any(|r| &r.id == after))
+            .map(|group| group.start + group.releases.len())
+            .ok_or_else(|| ApiError::not_found("the source has no such chapter".to_owned()))?,
     };
-    let items = chapter_page(&chapters, query.order, offset, limit);
+    let (page, next_offset) = list_page(groups, offset, limit, language);
     Ok(cached(
         CHAPTERS_MAX_AGE,
         RemoteChapterPageDto {
-            items: items.into_iter().map(RemoteChapterDto::from).collect(),
-            offset,
+            offset: page.first().map_or(offset, |group| group.start),
+            items: page
+                .into_iter()
+                .map(|group| RemoteChapterDto::new(group, preferred.as_deref()))
+                .collect(),
+            next_offset,
             total: chapters.len(),
+            chapter_count: Some(count),
+            preferred_group: preferred,
         },
     ))
 }
 
-/// The page straight from an extension that answers pages itself, or
-/// `None` to page through the complete list instead: when it doesn't, or
-/// when it can't place the `after` chapter without reading everything.
+/// A page straight from an extension that answers pages itself, or `None`
+/// to page through the complete list instead. The extension pages by
+/// release, so this asks for pages until at least one chapter is known to
+/// be complete, or the page is full, or the list ends, and leaves a chapter
+/// that may continue past what was read for the next page. Returns the
+/// chapters, where they start, where the next page starts and how many
+/// releases the series has.
 async fn extension_page(
     source: &Arc<Source>,
     query: &ChaptersQuery,
     limit: usize,
-) -> Result<Option<RemoteChapterPageDto>, ApiError> {
+) -> Result<Option<(Vec<Group>, usize, Option<usize>, usize)>, ApiError> {
     let order = match query.order {
         ChapterOrder::Asc => SiteChapterOrder::OldestFirst,
         ChapterOrder::Desc => SiteChapterOrder::NewestFirst,
     };
-    let offset =
-        u32::try_from(query.offset).map_err(|_| ApiError::bad_request("offset is too large"))?;
-    let series = query.series_id.clone();
-    let after = query.after.clone();
-    let limit = limit as u32;
-    match run(Arc::clone(source), move |s| {
-        s.chapter_page(&series, order, offset, limit, after.as_deref())
+    let mut pager = Pager::new(limit, query.language.as_deref());
+    let mut position = query.offset;
+    let mut total = None;
+    let mut end = false;
+    for _ in 0..MAX_EXTENSION_PAGES {
+        let offset =
+            u32::try_from(position).map_err(|_| ApiError::bad_request("offset is too large"))?;
+        let series = query.series_id.clone();
+        let Some(page) = run(Arc::clone(source), move |s| {
+            s.chapter_page(&series, order, offset, limit as u32, None)
+        })
+        .await?
+        else {
+            return Ok(None);
+        };
+        let total = *total.get_or_insert(page.total as usize);
+        let start = page.offset as usize;
+        let read = page.items.len();
+        let mut full = false;
+        for (index, chapter) in page.items.into_iter().enumerate() {
+            if !pager.push(start + index, chapter) {
+                full = true;
+                break;
+            }
+        }
+        position = start + read;
+        end = read == 0 || position >= total;
+        if full || end || pager.has_complete() {
+            break;
+        }
+    }
+    let (groups, next) = pager.finish(position, end);
+    let offset = groups.first().map_or(query.offset, |group| group.start);
+    Ok(Some((groups, offset, next, total.unwrap_or(0))))
+}
+
+/// The release group the user prefers for a series. Demo accounts keep
+/// none; see [`set_release_group`].
+async fn preferred_group(
+    state: &AppState,
+    current: &CurrentUser,
+    extension: &str,
+    series: &str,
+) -> Result<Option<String>, ApiError> {
+    if current.demo {
+        return Ok(None);
+    }
+    let user = current.user.id;
+    let (extension, series) = (extension.to_owned(), series.to_owned());
+    blocking(state, move |c| {
+        c.release_group_preference(user, &extension, &series)
     })
     .await
-    {
-        Ok(page) => Ok(page.map(|page| RemoteChapterPageDto {
-            items: page.items.into_iter().map(RemoteChapterDto::from).collect(),
-            offset: page.offset as usize,
-            total: page.total as usize,
-        })),
-        Err(error) if query.after.is_some() && error.status == StatusCode::NOT_FOUND => Ok(None),
-        Err(error) => Err(error),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseGroupBody {
+    series_id: String,
+    /// `None` goes back to the default pick.
+    release_group: Option<String>,
+}
+
+/// Sets the release group picked first in a series' chapters, or clears it.
+pub async fn set_release_group(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<ReleaseGroupBody>,
+) -> Result<StatusCode, ApiError> {
+    if body.series_id.is_empty() || body.series_id.len() > MAX_SERIES_ID_BYTES {
+        return Err(ApiError::bad_request(format!(
+            "seriesId must be between 1 and {MAX_SERIES_ID_BYTES} bytes"
+        )));
     }
+    let group = body
+        .release_group
+        .map(|group| group.trim().to_owned())
+        .filter(|group| !group.is_empty());
+    if group
+        .as_ref()
+        .is_some_and(|group| group.len() > MAX_GROUP_BYTES)
+    {
+        return Err(ApiError::bad_request(format!(
+            "releaseGroup is longer than {MAX_GROUP_BYTES} bytes"
+        )));
+    }
+    let user = current.user.id;
+    let installed = {
+        let id = id.clone();
+        blocking(&state, move |c| c.extension_install(user, &id)).await?
+    };
+    if installed.is_none() {
+        return Err(not_installed(&id));
+    }
+    if current.demo {
+        // Everyone trying the demo shares its account, so a kept choice
+        // would be a stranger's. It's answered as kept, and the app keeps
+        // it on the device.
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    blocking(&state, move |c| {
+        c.set_release_group_preference(user, &id, &body.series_id, group.as_deref())
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn pages(

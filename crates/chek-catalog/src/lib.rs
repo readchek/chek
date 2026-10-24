@@ -50,6 +50,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0016_identities.sql"),
     include_str!("../migrations/0017_repository_credentials.sql"),
     include_str!("../migrations/0018_series_edits.sql"),
+    include_str!("../migrations/0019_release_groups.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

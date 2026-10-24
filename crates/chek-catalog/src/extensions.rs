@@ -305,6 +305,53 @@ impl Catalog {
     }
 }
 
+impl Catalog {
+    /// The release group `user_id` prefers for a series of an extension.
+    pub fn release_group_preference(
+        &self,
+        user_id: i64,
+        extension_id: &str,
+        series_id: &str,
+    ) -> Result<Option<String>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT release_group FROM release_group_preference
+                 WHERE user_id = ?1 AND extension_id = ?2 AND series_id = ?3",
+                params![user_id, extension_id, series_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Sets the release group `user_id` prefers for a series, or clears it.
+    pub fn set_release_group_preference(
+        &self,
+        user_id: i64,
+        extension_id: &str,
+        series_id: &str,
+        release_group: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn();
+        match release_group {
+            Some(group) => conn.execute(
+                "INSERT INTO release_group_preference
+                     (user_id, extension_id, series_id, release_group, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                 ON CONFLICT (user_id, extension_id, series_id) DO UPDATE SET
+                     release_group = excluded.release_group, updated_at = excluded.updated_at",
+                params![user_id, extension_id, series_id, group],
+            )?,
+            None => conn.execute(
+                "DELETE FROM release_group_preference
+                 WHERE user_id = ?1 AND extension_id = ?2 AND series_id = ?3",
+                params![user_id, extension_id, series_id],
+            )?,
+        };
+        Ok(())
+    }
+}
+
 fn digest_in_use(conn: &rusqlite::Connection, sha256: &str) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM extension_install WHERE sha256 = ?1)",
