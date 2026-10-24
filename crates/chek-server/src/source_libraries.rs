@@ -268,6 +268,7 @@ async fn record_series(
                 (title, _) => title.to_owned(),
             };
             RemoteChapter {
+                language: c.language,
                 sort_title: chek_formats::natural_key(&title),
                 sort_number: c.number.as_deref().and_then(chek_formats::leading_number),
                 number_label: c.number,

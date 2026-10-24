@@ -12,7 +12,7 @@
 // `cookies` holds a jar the server sends and fills on every request, as a
 // browser would. All three are kept per extension id and sites, across
 // versions and restarts, and none is available while the manifest is read.
-package chek:source@0.4.0;
+package chek:source@0.5.0;
 
 interface types {
     type header = tuple<string, string>;
@@ -119,10 +119,23 @@ interface types {
         // `12` or `12.5`.
         number: option<string>,
         // Changes when the chapter's pages change, so the server knows to
-        // fetch the page list again.
+        // fetch the page list again. Only a content revision: who released
+        // the chapter goes in `release-group`.
         version: option<string>,
         // When the chapter was published, as an RFC 3339 date or date-time.
         published: option<string>,
+        // The BCP 47 tag of the language this release is written in, when
+        // the source says. Not the series' original language.
+        language: option<string>,
+        // Who released it, such as a scanlation group or a publisher, as
+        // the source names them. Sites often list one chapter several
+        // times, once per group; the server groups those releases by
+        // `number` and shows one chapter with a choice of releases.
+        release-group: option<string>,
+        // Whether the series' publisher released it, such as VIZ Media or
+        // MANGA Plus. Official releases are picked first when a reader
+        // hasn't chosen a group.
+        official: bool,
     }
 
     variant error {
@@ -307,7 +320,9 @@ interface chapter-pages {
         total: u32,
     }
     // Up to `limit` chapters starting at `offset`, or just past chapter
-    // `after` when given, counted from the end `order` names. Return
+    // `after` when given, counted from the end `order` names. Releases of
+    // one chapter must be listed next to each other, as sites that sort by
+    // number do, since the server groups them a page at a time. Return
     // `not-found` for an `after` the site can't place without reading
     // everything; the host then finds it in the complete list.
     page: func(series-id: string, order: chapter-order, offset: u32, limit: u32, after: option<string>) -> result<chapter-page, error>;

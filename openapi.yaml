@@ -2263,13 +2263,31 @@ paths:
       operationId: listRemoteChapters
       summary: List one page of a series' chapters from a source
       description: >-
-        A page of up to limit chapters starting at offset, counted from the
-        first chapter (asc, reading order) or the newest (desc); total is the
-        series' chapter count, so a client can jump to any page. The server
-        reads the whole list from the source on the first request and keeps
-        it for ten minutes, so later pages, either order, are answered without
-        asking the source again; refresh reads it from the source again.
-        Answers may be cached by the client for ten minutes (Cache-Control).
+        Sites often list a chapter once per group that released it, so the
+        server groups releases by chapter number and answers one item per
+        chapter, with every release of it and one picked: the release from
+        the user's preferred group for the series (see setRemoteReleaseGroup),
+        else an official one, else the newest. Releases without a plain
+        number, such as extras, are chapters of their own, and 12.5 is never
+        folded into 12.
+
+
+        Positions count releases, not chapters, since that's what sources
+        page by. A page holds up to limit chapters from offset, counted from
+        the first chapter (asc, reading order) or the newest (desc); ask for
+        the next page at nextOffset, which is null at the end. A page may hold
+        fewer than limit chapters before the end, so don't infer the end from
+        its size. total counts releases; chapterCount counts chapters when the
+        server has read the whole list, and is null when the extension pages
+        the list itself.
+
+
+        An extension that pages chapters itself is asked for just the
+        releases a page needs. Otherwise the server reads the whole list from
+        the source on the first request and keeps it for ten minutes, so later
+        pages, either order, are answered without asking the source again;
+        refresh reads it from the source again. Answers may be cached by the
+        client for ten minutes (Cache-Control).
       parameters:
         - $ref: "#/components/parameters/RemoteSeriesId"
         - name: order
@@ -2280,6 +2298,9 @@ paths:
             default: asc
         - name: offset
           in: query
+          description: >-
+            The release position to start at: 0, or a nextOffset from an
+            earlier page in the same order.
           schema:
             type: integer
             minimum: 0
@@ -2287,11 +2308,23 @@ paths:
         - name: after
           in: query
           description: >-
-            A chapter id; the page starts just past that chapter in the chosen
-            order instead of at offset, and offset in the answer says where.
-            Not found when the series has no such chapter.
+            A release id; the page starts just past the chapter that release
+            belongs to, in the chosen order, instead of at offset, and offset
+            in the answer says where. Not found when the series has no such
+            release.
           schema:
             type: string
+        - name: language
+          in: query
+          description: >-
+            A BCP 47 tag. Only releases in this language, or a narrower or
+            wider form of it (en takes en-US), are listed, along with releases
+            whose language the source doesn't give. Chapters with no such
+            release are left out.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 35
         - name: limit
           in: query
           schema:
@@ -2307,12 +2340,12 @@ paths:
             default: false
       responses:
         "200":
-          description: One page of chapters, where it starts, and how many there are.
+          description: One page of chapters, where it starts and where the next one does.
           content:
             application/json:
               schema:
                 type: object
-                required: [items, offset, total]
+                required: [items, offset, nextOffset, total, chapterCount, preferredGroup]
                 properties:
                   items:
                     type: array
@@ -2321,9 +2354,25 @@ paths:
                   offset:
                     type: integer
                     minimum: 0
+                    description: The release position the page starts at.
+                  nextOffset:
+                    type: [integer, "null"]
+                    minimum: 0
+                    description: The offset of the next page, or null at the end.
                   total:
                     type: integer
                     minimum: 0
+                    description: How many releases the series has.
+                  chapterCount:
+                    type: [integer, "null"]
+                    minimum: 0
+                    description: >-
+                      How many chapters the series has in the requested
+                      language, or null when the extension pages its list and
+                      the server hasn't read all of it.
+                  preferredGroup:
+                    type: [string, "null"]
+                    description: The user's preferred release group for this series.
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2334,6 +2383,51 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/release-group:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    put:
+      tags: [Extensions]
+      operationId: setRemoteReleaseGroup
+      summary: Choose which group's releases a series picks first
+      description: >-
+        Stores the release group the user prefers for a series, so the
+        chapters route picks that group's release of each chapter that has
+        one, on every device. A null releaseGroup goes back to the default
+        pick. Demo accounts get 204 but nothing is kept. Chapter pages the
+        client cached still show the old pick; reorder releases locally or
+        ask again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [seriesId, releaseGroup]
+              properties:
+                seriesId:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                  description: The source's own series id.
+                releaseGroup:
+                  type: [string, "null"]
+                  maxLength: 200
+                  description: >-
+                    A release's releaseGroup, matched ignoring case; null or
+                    empty clears the choice.
+      responses:
+        "204":
+          description: Saved.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/me/extensions/{extensionId}/pages:
@@ -3279,13 +3373,13 @@ components:
           items:
             type: string
           description: Genres and themes as the source names them, most important first.
-    RemoteChapter:
+    RemoteRelease:
       type: object
-      required: [id, title, number, version, published]
+      required: [id, title, number, version, published, language, releaseGroup, official]
       properties:
         id:
           type: string
-          description: The source's own chapter id.
+          description: The source's own id for this release; open it with listRemotePages.
         title:
           type: string
         number:
@@ -3293,10 +3387,37 @@ components:
           description: The chapter or volume number as the source writes it.
         version:
           type: [string, "null"]
-          description: Changes when the chapter's pages change.
+          description: >-
+            Changes when the release's pages change. A content revision
+            only; who released it is releaseGroup.
         published:
           type: [string, "null"]
           description: An RFC 3339 date or date-time.
+        language:
+          type: [string, "null"]
+          description: >-
+            The BCP 47 tag of the language the release is written in, or null
+            when the source doesn't say.
+        releaseGroup:
+          type: [string, "null"]
+          description: Who released it, such as a scanlation group or a publisher.
+        official:
+          type: boolean
+          description: Whether the series' publisher released it.
+    RemoteChapter:
+      description: >-
+        A chapter: the fields of its picked release, and all its releases
+        with the picked one first.
+      allOf:
+        - $ref: "#/components/schemas/RemoteRelease"
+        - type: object
+          required: [releases]
+          properties:
+            releases:
+              type: array
+              minItems: 1
+              items:
+                $ref: "#/components/schemas/RemoteRelease"
     InstalledExtension:
       type: object
       required: [id, name, version, repositoryId, sites, languages, installedAt, usable, update]

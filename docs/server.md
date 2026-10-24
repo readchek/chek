@@ -370,8 +370,11 @@ their own repositories, and `chek ext build` builds them into a repository folde
   chapter ids are the source's own, stored as remote ids; pages and covers
   come back as URLs with headers, which the server fetches itself. A series
   also says whether it's still going, the year it started and its genres,
-  where the source knows, which the API passes on as it is.
-- The contract's version is in the package name, `chek:source@0.4.0`. A
+  where the source knows, which the API passes on as it is. A chapter
+  says, where the source knows, the language it's written in, the group
+  that released it and whether that's the publisher. Its `version` is only
+  a content revision, so a group's name never goes there.
+- The contract's version is in the package name, `chek:source@0.5.0`. A
   component built against another version doesn't link, so every change to
   a record or call bumps it, and every source is rebuilt and republished.
 - Each call runs in a fresh instance, so nothing in memory carries over
@@ -470,7 +473,7 @@ their own repositories, and `chek ext build` builds them into a repository folde
   a supervised ten-second worker: at most 256 tiles, 8 million pixels, four
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
-  rebuild from contract 0.3 to 0.4.
+  rebuild for contract 0.5.
 - The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
@@ -578,7 +581,7 @@ their own repositories, and `chek ext build` builds them into a repository folde
   version changed has its page list dropped. Edits survive syncs, as for
   Komga's books.
 - Sources may additionally export chapter pagination without changing the
-  required 0.4 contract. Each batch gets a fresh bounded instance; the host
+  required 0.5 contract. Each batch gets a fresh bounded instance; the host
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
@@ -592,8 +595,24 @@ their own repositories, and `chek ext build` builds them into a repository folde
   page reads the whole list (through the batches above when the source has
   them) and the server keeps it in memory for ten minutes, for up to 64
   series per server, per user and extension; `refresh` reads it again. A page
-  that starts after a chapter the extension can't place falls back the same
-  way.
+  that starts after a given chapter is always found in the complete list,
+  since a site's next page could hold more releases of that chapter.
+- Sites list a chapter once per group that released it; Comix lists One
+  Piece's chapter 1196 four times. Browsing answers one item per chapter
+  number, with its releases and one picked: the user's preferred group for
+  the series, stored on the server so it follows them across devices, then
+  an official release, then the newest. Numbers are compared as decimals,
+  so `012` meets `12` but `12.5` stays apart, and a release without a plain
+  number stays a chapter of its own. A `language` filter keeps releases in
+  that language and those whose language the source doesn't give.
+- Offsets count releases, since that's what sources page by, and each page
+  says where the next starts. From a complete list, a chapter's releases
+  are gathered wherever they were listed. An extension that pages chapters
+  itself must list a chapter's releases together; the server reads its
+  pages until a chapter is complete, up to eight, and leaves a chapter that
+  may go on past the last one read for the next page. Such pages can't
+  count chapters without reading everything, so only a complete list gives
+  a chapter count.
 - Browsing answers carry `Cache-Control` so the app can reuse them: search
   and chapter pages for ten minutes, a series for an hour, a chapter's page
   list for ten minutes since page links expire, and images for a day.

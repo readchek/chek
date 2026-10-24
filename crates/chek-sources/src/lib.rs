@@ -60,7 +60,7 @@ mod pagination_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paginated-chapters",
-        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
     });
 }
 
@@ -68,7 +68,7 @@ mod pages_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paged-chapters",
-        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
     });
 }
 
@@ -82,7 +82,7 @@ pub use bindings::chek::source::types::{
 
 /// The contract version this server links, as the package in `source.wit`
 /// names it. Components built against another don't link.
-pub const CONTRACT_VERSION: &str = "0.4.0";
+pub const CONTRACT_VERSION: &str = "0.5.0";
 
 /// Memory one instance may grow to.
 const MAX_MEMORY: usize = 64 << 20;
@@ -263,12 +263,12 @@ impl Host {
             .instantiate_pre(&component)
             .map_err(link_error)?;
         let pagination = component
-            .get_export_index(None, "chek:source/chapter-pagination@0.4.0")
+            .get_export_index(None, "chek:source/chapter-pagination@0.5.0")
             .map(|_| pagination_bindings::PaginatedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pagination: {error:#}")))?;
         let pages = component
-            .get_export_index(None, "chek:source/chapter-pages@0.4.0")
+            .get_export_index(None, "chek:source/chapter-pages@0.5.0")
             .map(|_| pages_bindings::PagedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pages: {error:#}")))?;
@@ -814,6 +814,8 @@ fn chapter_bytes(chapter: &Chapter) -> usize {
         + chapter.number.as_ref().map_or(0, String::len)
         + chapter.version.as_ref().map_or(0, String::len)
         + chapter.published.as_ref().map_or(0, String::len)
+        + chapter.language.as_ref().map_or(0, String::len)
+        + chapter.release_group.as_ref().map_or(0, String::len)
 }
 
 /// Runs one export in a fresh instance.

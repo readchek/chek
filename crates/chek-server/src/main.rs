@@ -12,6 +12,7 @@ mod limit;
 mod oidc;
 mod opds;
 mod progress;
+mod releases;
 mod remote;
 mod source_libraries;
 mod telemetry;

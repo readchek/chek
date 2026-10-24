@@ -46,7 +46,7 @@ pub mod pagination_bindings {
     wit_bindgen::generate!({
         path: "../../crates/chek-sources/wit",
         world: "paginated-chapters",
-        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
         pub_export_macro: true,
         export_macro_name: "export_chapter_pagination",
         default_bindings_module: "chek_extension::pagination_bindings",
@@ -65,7 +65,7 @@ pub mod pages_bindings {
     wit_bindgen::generate!({
         path: "../../crates/chek-sources/wit",
         world: "paged-chapters",
-        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
         pub_export_macro: true,
         export_macro_name: "export_chapter_pages",
         default_bindings_module: "chek_extension::pages_bindings",
