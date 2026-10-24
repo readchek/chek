@@ -287,3 +287,32 @@ interface chapter-pagination {
 world paginated-chapters {
     export chapter-pagination;
 }
+
+// Optional export alongside `source`, for sites that list chapters a page at
+// a time from either end. With it, a client's page of chapters is one call
+// here rather than reading the whole list first. Older components need not
+// implement it; the host then pages through the complete list itself.
+interface chapter-pages {
+    use types.{chapter, error};
+    enum chapter-order {
+        // Reading order, first chapter first.
+        oldest-first,
+        newest-first,
+    }
+    record chapter-page {
+        items: list<chapter>,
+        // Where the page starts, counted from the end the order names.
+        offset: u32,
+        // How many chapters the series has, as the site reports it.
+        total: u32,
+    }
+    // Up to `limit` chapters starting at `offset`, or just past chapter
+    // `after` when given, counted from the end `order` names. Return
+    // `not-found` for an `after` the site can't place without reading
+    // everything; the host then finds it in the complete list.
+    page: func(series-id: string, order: chapter-order, offset: u32, limit: u32, after: option<string>) -> result<chapter-page, error>;
+}
+
+world paged-chapters {
+    export chapter-pages;
+}

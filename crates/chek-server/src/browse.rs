@@ -17,7 +17,9 @@ use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chek_catalog::ExtensionInstall;
-use chek_sources::{Chapter, Image, ReadingDirection, Source, SourceError, Status};
+use chek_sources::{
+    Chapter, ChapterOrder as SiteChapterOrder, Image, ReadingDirection, Source, SourceError, Status,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -326,8 +328,9 @@ pub async fn series(
 }
 
 /// One page of a series' chapters, from either end, and how many there
-/// are. The whole list is read from the source on the first page and kept
-/// for the pages after it.
+/// are. An extension that answers pages itself is asked for just that
+/// page; otherwise the whole list is read from the source on the first
+/// page and kept for the pages after it.
 pub async fn chapters(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -339,6 +342,10 @@ pub async fn chapters(
         return Err(ApiError::bad_request(format!(
             "limit must be between 1 and {MAX_CHAPTER_LIMIT}"
         )));
+    }
+    let (_, source) = usable_source(&state, &current, &id).await?;
+    if let Some(page) = extension_page(&source, &query, limit).await? {
+        return Ok(cached(CHAPTERS_MAX_AGE, page));
     }
     let key = ChapterListKey {
         extension: id.clone(),
@@ -353,7 +360,6 @@ pub async fn chapters(
     let chapters = match kept {
         Some(chapters) => chapters,
         None => {
-            let (_, source) = usable_source(&state, &current, &id).await?;
             let series = query.series_id.clone();
             let chapters = Arc::new(run(source, move |s| s.chapters(&series)).await?);
             state.chapter_lists.insert(key, Arc::clone(&chapters));
@@ -382,6 +388,38 @@ pub async fn chapters(
             total: chapters.len(),
         },
     ))
+}
+
+/// The page straight from an extension that answers pages itself, or
+/// `None` to page through the complete list instead: when it doesn't, or
+/// when it can't place the `after` chapter without reading everything.
+async fn extension_page(
+    source: &Arc<Source>,
+    query: &ChaptersQuery,
+    limit: usize,
+) -> Result<Option<RemoteChapterPageDto>, ApiError> {
+    let order = match query.order {
+        ChapterOrder::Asc => SiteChapterOrder::OldestFirst,
+        ChapterOrder::Desc => SiteChapterOrder::NewestFirst,
+    };
+    let offset =
+        u32::try_from(query.offset).map_err(|_| ApiError::bad_request("offset is too large"))?;
+    let series = query.series_id.clone();
+    let after = query.after.clone();
+    let limit = limit as u32;
+    match run(Arc::clone(source), move |s| {
+        s.chapter_page(&series, order, offset, limit, after.as_deref())
+    })
+    .await
+    {
+        Ok(page) => Ok(page.map(|page| RemoteChapterPageDto {
+            items: page.items.into_iter().map(RemoteChapterDto::from).collect(),
+            offset: page.offset as usize,
+            total: page.total as usize,
+        })),
+        Err(error) if query.after.is_some() && error.status == StatusCode::NOT_FOUND => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 pub async fn pages(
