@@ -99,6 +99,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             config.oidc_redirects,
         )),
         demo_users: Arc::new(config.demo_users),
+        chapter_lists: Arc::default(),
     };
     if let Some(callback) = state.oidc.callback_url() {
         info!(%callback, "sign-in providers send people back to this address; register it with each provider");

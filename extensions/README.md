@@ -140,11 +140,10 @@ The host assembles complete lists for library sync, allowing up to 20,000 chapte
 cursor cycles, changing totals and incomplete results before applying a sync.
 An ordinary network failure retries the current batch once in a fresh instance;
 traps and invalid data are not retried.
-Browsing clients call `/api/v1/me/extensions/{id}/chapters` with `seriesId`
-and an optional `cursor`, one batch per request, preserving partial results
-locally and retrying only the failed batch. `nextCursor: null` ends the
-traversal. Sources without this export return their complete list as one
-batch.
+Browsing clients never see batches: `/api/v1/me/extensions/{id}/chapters`
+answers a page at a time from the complete list, which the server reads the
+same way and keeps for ten minutes. Sources without this export are read with
+one `chapters` call.
 
 The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly
