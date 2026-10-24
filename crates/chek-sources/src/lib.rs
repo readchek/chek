@@ -12,6 +12,7 @@
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
 mod browser;
+mod calls;
 mod cdp;
 mod cookies;
 mod http;
@@ -52,13 +53,17 @@ use crate::sites::Sites;
 use crate::store::Namespace;
 
 mod bindings {
-    wasmtime::component::bindgen!({ path: "wit", world: "source" });
+    wasmtime::component::bindgen!({
+        path: "wit", world: "source",
+        additional_derives: [serde::Serialize, serde::Deserialize],
+    });
 }
 
 mod pagination_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paginated-chapters",
+        additional_derives: [serde::Serialize, serde::Deserialize],
         with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
     });
 }
@@ -323,7 +328,7 @@ impl Host {
                 .filter(|_| manifest.capabilities.contains(&Capability::ImageTransform)),
             handoff: Mutex::new(None),
             verification_pending: AtomicBool::new(false),
-            calls: Mutex::new(()),
+            calls: calls::Calls::default(),
             user,
             _clock: Arc::clone(&self.clock),
             worker_executable: self.worker_executable.clone(),
@@ -353,7 +358,7 @@ struct Context {
     browser_args: Vec<String>,
     verification_pending: AtomicBool,
     handoff: Mutex<Option<session::Session>>,
-    calls: Mutex<()>,
+    calls: calls::Calls,
     user: Option<i64>,
     /// Names the extension's state: its id and sites.
     scope: String,
@@ -484,13 +489,27 @@ impl Source {
     /// A page of series matching `query`, counting pages from 1. An empty
     /// query lists what the source shows first.
     pub fn search(&self, query: &str, page: u32) -> Result<SeriesPage, Error> {
-        self.call(|bindings, store| bindings.call_search(store, query, page))?
+        self.cached(json!(["search", query, page]), 60, || {
+            run(
+                &self.pre,
+                Some(Arc::clone(&self.context)),
+                false,
+                |bindings, store| bindings.call_search(store, query, page),
+            )?
             .map_err(Error::Source)
+        })
     }
 
     pub fn series(&self, id: &str) -> Result<Series, Error> {
-        self.call(|bindings, store| bindings.call_series(store, id))?
+        self.cached(json!(["series", id]), 300, || {
+            run(
+                &self.pre,
+                Some(Arc::clone(&self.context)),
+                false,
+                |bindings, store| bindings.call_series(store, id),
+            )?
             .map_err(Error::Source)
+        })
     }
 
     /// The series' chapters in reading order.
@@ -592,7 +611,17 @@ impl Source {
                 total,
             });
         };
-        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        self.cached(json!(["chapters", series_id, cursor]), 60, || {
+            self.read_chapter_batch(pre, series_id, cursor)
+        })
+    }
+
+    fn read_chapter_batch(
+        &self,
+        pre: &pagination_bindings::PaginatedChaptersPre<State>,
+        series_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ChapterBatch, Error> {
         let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
         let bindings = pre.instantiate(&mut store).map_err(trap)?;
         let batch = bindings
@@ -624,8 +653,19 @@ impl Source {
 
     /// The chapter's pages in reading order.
     pub fn pages(&self, chapter_id: &str) -> Result<Vec<Image>, Error> {
-        self.call(|bindings, store| bindings.call_pages(store, chapter_id))?
-            .map_err(Error::Source)
+        let waiting = Instant::now();
+        let _call = self.context.calls.lock(true);
+        tracing::debug!(
+            queue_ms = waiting.elapsed().as_millis() as u64,
+            "reader source call started"
+        );
+        run(
+            &self.pre,
+            Some(Arc::clone(&self.context)),
+            false,
+            |bindings, store| bindings.call_pages(store, chapter_id),
+        )?
+        .map_err(Error::Source)
     }
 
     /// Fetches a cover or page the extension returned, held to the same sites.
@@ -727,11 +767,54 @@ impl Source {
         })
     }
 
+    fn cached<T: serde::Serialize + serde::de::DeserializeOwned>(
+        &self,
+        request: serde_json::Value,
+        ttl: u32,
+        fetch: impl FnOnce() -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let key = repository::sha256_hex(json!([self.digest, request]).to_string().as_bytes());
+        let read = || {
+            self.context
+                .store
+                .get(&self.context.scope, Namespace::Catalog, &key)
+                .and_then(|(_, bytes)| serde_json::from_slice::<T>(&bytes).ok())
+        };
+        if let Some(value) = read() {
+            return Ok(value);
+        }
+        let waiting = Instant::now();
+        let _call = self.context.calls.lock(false);
+        tracing::debug!(
+            queue_ms = waiting.elapsed().as_millis() as u64,
+            "catalog source call started"
+        );
+        // Another caller may have fetched the same value while this one waited.
+        if let Some(value) = read() {
+            return Ok(value);
+        }
+        let value = fetch()?;
+        if let Ok(bytes) = serde_json::to_vec(&value)
+            && bytes.len() <= store::MAX_ENTRY
+            && let Err(error) = self.context.store.set(
+                &self.context.scope,
+                Namespace::Catalog,
+                &key,
+                None,
+                &bytes,
+                ttl,
+            )
+        {
+            tracing::warn!(%error, "could not cache source catalog result");
+        }
+        Ok(value)
+    }
+
     fn call<R>(
         &self,
         export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> Result<R, Error> {
-        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let _call = self.context.calls.lock(false);
         run(&self.pre, Some(Arc::clone(&self.context)), false, export)
     }
 }

@@ -547,8 +547,16 @@ their own repositories, and `chek ext build` builds them into a repository folde
   default; past it, the least recently read images are deleted, and an
   image larger than a tenth of the cap isn't kept. 0 turns the cache off and
   empties the folder at startup.
-- Browsing stores nothing; following a series into an extension library
-  does.
+- Successful search results and chapter batches are cached for 60 seconds;
+  series details for five minutes. Catalog entries share the existing bounded
+  state store, are isolated per user and component digest, and cannot collide
+  with extension-controlled cache keys. Hits bypass the browser queue; duplicate
+  misses recheck the cache after waiting. Failures and reader page URLs are not
+  cached. Following a series, rather than browsing it, adds it to the library.
+- Reader page-list calls take priority over queued catalog work. Calls still
+  run one at a time per source to protect verification sessions; an active call
+  is not interrupted. After three reader calls, waiting catalog work gets a turn.
+  Debug logs report queue time, browser startup and browser operation durations.
 
 ## Extension libraries
 
