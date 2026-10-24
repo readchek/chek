@@ -2,9 +2,12 @@
 # file and route your domain to service `chek`, port 8080.
 services:
   chek:
-    build:
-      context: ../..
-      target: browser
+    # The image CI publishes from main with Chromium for browser-backed
+    # extensions; a release such as 0.1.0-browser pins it.
+    image: ${CHEK_IMAGE:-ghcr.io/readchek/chek:edge-browser}
+    # `edge-browser` moves with main, and `up` alone keeps whatever was
+    # pulled last.
+    pull_policy: always
     restart: unless-stopped
     shm_size: 1gb
     expose: ["8080"]
