@@ -5,7 +5,9 @@
 //! never contacts the source's sites itself and the server fetches only
 //! from the sites the extension declares.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::Json;
 use axum::body::Body;
@@ -24,6 +26,28 @@ use crate::installs::{not_installed, not_usable};
 
 /// Longer queries are almost certainly not typed by a person.
 const MAX_QUERY_CHARS: usize = 200;
+
+/// How long clients may reuse an answer without asking again. A source's
+/// series and chapters change a few times a day at most, and each fresh
+/// answer costs a trip to its site, so clients keep them for a while;
+/// `refresh` on the chapters route is how a client asks past its cache.
+const SEARCH_MAX_AGE: &str = "private, max-age=600";
+const SERIES_MAX_AGE: &str = "private, max-age=3600";
+const CHAPTERS_MAX_AGE: &str = "private, max-age=600";
+/// Short, since sources often hand out page links that expire.
+const PAGES_MAX_AGE: &str = "private, max-age=600";
+/// An image at a given address doesn't change.
+const IMAGE_MAX_AGE: &str = "private, max-age=86400";
+
+/// A JSON answer with the `Cache-Control` it may be kept for.
+type Cached<T> = ([(header::HeaderName, HeaderValue); 1], Json<T>);
+
+fn cached<T>(max_age: &'static str, body: T) -> Cached<T> {
+    (
+        [(header::CACHE_CONTROL, HeaderValue::from_static(max_age))],
+        Json(body),
+    )
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,15 +110,111 @@ impl From<Chapter> for RemoteChapterDto {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteChapterPageDto {
     items: Vec<RemoteChapterDto>,
-    next_cursor: Option<String>,
-    total: u32,
+    offset: usize,
+    total: usize,
+}
+
+/// Which end of a series a chapter page counts from.
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ChapterOrder {
+    /// Reading order, first chapter first.
+    #[default]
+    Asc,
+    /// Newest first, as people usually look for what's new.
+    Desc,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChaptersQuery {
     series_id: String,
-    cursor: Option<String>,
+    #[serde(default)]
+    order: ChapterOrder,
+    #[serde(default)]
+    offset: usize,
+    /// Starts the page just past this chapter instead of at `offset`, as
+    /// a reader asks for the chapter after the one it's showing.
+    after: Option<String>,
+    limit: Option<usize>,
+    /// Reads the list from the source again instead of the kept one.
+    #[serde(default)]
+    refresh: bool,
+}
+
+/// Chapters in one page unless the client asks for another size.
+const DEFAULT_CHAPTER_LIMIT: usize = 100;
+/// The most chapters one page holds.
+const MAX_CHAPTER_LIMIT: usize = 500;
+/// How long a complete chapter list is kept before the source is asked again.
+const CHAPTER_LIST_TTL: Duration = Duration::from_secs(10 * 60);
+/// How many series' lists are kept at once; the oldest goes first.
+const CHAPTER_LISTS_KEPT: usize = 64;
+
+/// Complete chapter lists read from sources lately, so paging through a
+/// series, or reading it newest first, asks the source for the whole list
+/// once rather than on every page. Sources hand chapters out in reading
+/// order and, when paginated, only forwards through an opaque cursor, so a
+/// page from the end or the middle needs the whole list anyway.
+#[derive(Default)]
+pub struct ChapterLists {
+    entries: Mutex<HashMap<ChapterListKey, KeptChapters>>,
+}
+
+/// When a list was read, and the list.
+type KeptChapters = (Instant, Arc<Vec<Chapter>>);
+
+/// One user's install of an extension and a series in it. Sources are
+/// loaded per user, with that user's cookies, so lists aren't shared.
+#[derive(Hash, PartialEq, Eq, Clone)]
+struct ChapterListKey {
+    extension: String,
+    user: i64,
+    series: String,
+}
+
+impl ChapterLists {
+    fn get(&self, key: &ChapterListKey) -> Option<Arc<Vec<Chapter>>> {
+        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        entries
+            .get(key)
+            .filter(|(read, _)| read.elapsed() < CHAPTER_LIST_TTL)
+            .map(|(_, chapters)| Arc::clone(chapters))
+    }
+
+    fn insert(&self, key: ChapterListKey, chapters: Arc<Vec<Chapter>>) {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        entries.retain(|_, (read, _)| read.elapsed() < CHAPTER_LIST_TTL);
+        if entries.len() >= CHAPTER_LISTS_KEPT
+            && let Some(oldest) = entries
+                .iter()
+                .min_by_key(|(_, (read, _))| *read)
+                .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        }
+        entries.insert(key, (Instant::now(), chapters));
+    }
+}
+
+/// The chapters of `chapters` in one page: `limit` of them starting at
+/// `offset`, counted from the end that `order` names.
+fn chapter_page(
+    chapters: &[Chapter],
+    order: ChapterOrder,
+    offset: usize,
+    limit: usize,
+) -> Vec<Chapter> {
+    let start = offset.min(chapters.len());
+    let end = offset.saturating_add(limit).min(chapters.len());
+    match order {
+        ChapterOrder::Asc => chapters[start..end].to_vec(),
+        ChapterOrder::Desc => chapters[chapters.len() - end..chapters.len() - start]
+            .iter()
+            .rev()
+            .cloned()
+            .collect(),
+    }
 }
 
 #[derive(Serialize)]
@@ -147,7 +267,7 @@ pub async fn search(
     current: CurrentUser,
     Path(id): Path<String>,
     Query(query): Query<SearchQuery>,
-) -> Result<Json<RemoteSeriesPageDto>, ApiError> {
+) -> Result<Cached<RemoteSeriesPageDto>, ApiError> {
     let q = query.q.unwrap_or_default().trim().to_owned();
     if q.chars().count() > MAX_QUERY_CHARS {
         return Err(ApiError::bad_request(format!(
@@ -157,18 +277,21 @@ pub async fn search(
     let page = query.page.unwrap_or(1).max(1);
     let (_, source) = usable_source(&state, &current, &id).await?;
     let found = run(source, move |s| s.search(&q, page)).await?;
-    Ok(Json(RemoteSeriesPageDto {
-        items: found
-            .items
-            .into_iter()
-            .map(|item| RemoteSeriesItemDto {
-                cover_url: item.cover.map(|c| image_url(&id, &c)),
-                id: item.id,
-                title: item.title,
-            })
-            .collect(),
-        has_more: found.has_more,
-    }))
+    Ok(cached(
+        SEARCH_MAX_AGE,
+        RemoteSeriesPageDto {
+            items: found
+                .items
+                .into_iter()
+                .map(|item| RemoteSeriesItemDto {
+                    cover_url: item.cover.map(|c| image_url(&id, &c)),
+                    id: item.id,
+                    title: item.title,
+                })
+                .collect(),
+            has_more: found.has_more,
+        },
+    ))
 }
 
 pub async fn series(
@@ -176,62 +299,89 @@ pub async fn series(
     current: CurrentUser,
     Path(id): Path<String>,
     Query(query): Query<SeriesQuery>,
-) -> Result<Json<RemoteSeriesDto>, ApiError> {
+) -> Result<Cached<RemoteSeriesDto>, ApiError> {
     let (_, source) = usable_source(&state, &current, &id).await?;
     let series = run(source, move |s| s.series(&query.series_id)).await?;
-    Ok(Json(RemoteSeriesDto {
-        cover_url: series.cover.map(|c| image_url(&id, &c)),
-        id: series.id,
-        title: series.title,
-        summary: series.summary,
-        contributors: series
-            .contributors
-            .into_iter()
-            .map(|c| ContributorDto {
-                name: c.name,
-                role: c.role,
-            })
-            .collect(),
-        reading_direction: series.reading_direction.map(direction),
-        status: series.status.map(status),
-        year: series.year,
-        tags: series.tags,
-    }))
+    Ok(cached(
+        SERIES_MAX_AGE,
+        RemoteSeriesDto {
+            cover_url: series.cover.map(|c| image_url(&id, &c)),
+            id: series.id,
+            title: series.title,
+            summary: series.summary,
+            contributors: series
+                .contributors
+                .into_iter()
+                .map(|c| ContributorDto {
+                    name: c.name,
+                    role: c.role,
+                })
+                .collect(),
+            reading_direction: series.reading_direction.map(direction),
+            status: series.status.map(status),
+            year: series.year,
+            tags: series.tags,
+        },
+    ))
 }
 
-/// One batch of a series' chapters, in reading order, and the cursor for
-/// the next. Extensions without pagination return every chapter at once.
+/// One page of a series' chapters, from either end, and how many there
+/// are. The whole list is read from the source on the first page and kept
+/// for the pages after it.
 pub async fn chapters(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<String>,
     Query(query): Query<ChaptersQuery>,
-) -> Result<Json<RemoteChapterPageDto>, ApiError> {
-    if query
-        .cursor
-        .as_ref()
-        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096)
-    {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            code: "invalid_cursor",
-            message: "chapter cursor must contain 1–4096 bytes".into(),
-        });
+) -> Result<Cached<RemoteChapterPageDto>, ApiError> {
+    let limit = query.limit.unwrap_or(DEFAULT_CHAPTER_LIMIT);
+    if !(1..=MAX_CHAPTER_LIMIT).contains(&limit) {
+        return Err(ApiError::bad_request(format!(
+            "limit must be between 1 and {MAX_CHAPTER_LIMIT}"
+        )));
     }
-    let (_, source) = usable_source(&state, &current, &id).await?;
-    let batch = run(source, move |source| {
-        source.chapter_batch(&query.series_id, query.cursor.as_deref())
-    })
-    .await?;
-    Ok(Json(RemoteChapterPageDto {
-        items: batch
-            .items
-            .into_iter()
-            .map(RemoteChapterDto::from)
-            .collect(),
-        next_cursor: batch.next,
-        total: batch.total,
-    }))
+    let key = ChapterListKey {
+        extension: id.clone(),
+        user: current.user.id,
+        series: query.series_id.clone(),
+    };
+    let kept = if query.refresh {
+        None
+    } else {
+        state.chapter_lists.get(&key)
+    };
+    let chapters = match kept {
+        Some(chapters) => chapters,
+        None => {
+            let (_, source) = usable_source(&state, &current, &id).await?;
+            let series = query.series_id.clone();
+            let chapters = Arc::new(run(source, move |s| s.chapters(&series)).await?);
+            state.chapter_lists.insert(key, Arc::clone(&chapters));
+            chapters
+        }
+    };
+    let offset = match &query.after {
+        None => query.offset,
+        Some(after) => {
+            let index = chapters
+                .iter()
+                .position(|chapter| &chapter.id == after)
+                .ok_or_else(|| ApiError::not_found("the source has no such chapter".to_owned()))?;
+            match query.order {
+                ChapterOrder::Asc => index + 1,
+                ChapterOrder::Desc => chapters.len() - index,
+            }
+        }
+    };
+    let items = chapter_page(&chapters, query.order, offset, limit);
+    Ok(cached(
+        CHAPTERS_MAX_AGE,
+        RemoteChapterPageDto {
+            items: items.into_iter().map(RemoteChapterDto::from).collect(),
+            offset,
+            total: chapters.len(),
+        },
+    ))
 }
 
 pub async fn pages(
@@ -239,19 +389,22 @@ pub async fn pages(
     current: CurrentUser,
     Path(id): Path<String>,
     Query(query): Query<ChapterQuery>,
-) -> Result<Json<List<RemotePageDto>>, ApiError> {
+) -> Result<Cached<List<RemotePageDto>>, ApiError> {
     let (_, source) = usable_source(&state, &current, &id).await?;
     let pages = run(source, move |s| s.pages(&query.chapter_id)).await?;
-    Ok(Json(List {
-        items: pages
-            .iter()
-            .enumerate()
-            .map(|(index, page)| RemotePageDto {
-                index,
-                url: image_url(&id, page),
-            })
-            .collect(),
-    }))
+    Ok(cached(
+        PAGES_MAX_AGE,
+        List {
+            items: pages
+                .iter()
+                .enumerate()
+                .map(|(index, page)| RemotePageDto {
+                    index,
+                    url: image_url(&id, page),
+                })
+                .collect(),
+        },
+    ))
 }
 
 /// Fetches a cover or page named by a link from the routes above.
@@ -274,7 +427,7 @@ pub async fn image(
     headers.insert(header::CONTENT_TYPE, content_type);
     headers.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("private, max-age=3600"),
+        HeaderValue::from_static(IMAGE_MAX_AGE),
     );
     // Images come from sites the server doesn't control, so the browser
     // mustn't read them as anything but an image.

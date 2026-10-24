@@ -100,6 +100,7 @@ impl Server {
             ),
             oidc: Arc::new(oidc::Oidc::new(None, Vec::new(), Vec::new())),
             demo_users: Arc::new(demo_users),
+            chapter_lists: Arc::default(),
         };
         auth::prepare_setup(&state, Some(SETUP_TOKEN.to_owned()))
             .await

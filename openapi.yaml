@@ -2261,38 +2261,66 @@ paths:
     get:
       tags: [Extensions]
       operationId: listRemoteChapters
-      summary: List a series' chapters from a source, a batch at a time
+      summary: List one page of a series' chapters from a source
       description: >-
-        Chapters come in reading order, one batch per request. Omit cursor for
-        the first batch, then pass nextCursor unchanged with the same seriesId
-        until it is null; total is the series' chapter count. Keep partial
-        results separate until traversal finishes; a failed batch can be
-        retried with the same cursor. If the source reports a changed catalog,
-        restart from the first batch. Extensions without pagination return
-        their complete list in one batch.
+        A page of up to limit chapters starting at offset, counted from the
+        first chapter (asc, reading order) or the newest (desc); total is the
+        series' chapter count, so a client can jump to any page. The server
+        reads the whole list from the source on the first request and keeps
+        it for ten minutes, so later pages, either order, are answered without
+        asking the source again; refresh reads it from the source again.
+        Answers may be cached by the client for ten minutes (Cache-Control).
       parameters:
         - $ref: "#/components/parameters/RemoteSeriesId"
-        - name: cursor
+        - name: order
           in: query
           schema:
             type: string
-            minLength: 1
-            maxLength: 4096
+            enum: [asc, desc]
+            default: asc
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: after
+          in: query
+          description: >-
+            A chapter id; the page starts just past that chapter in the chosen
+            order instead of at offset, and offset in the answer says where.
+            Not found when the series has no such chapter.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: refresh
+          in: query
+          description: Read the list from the source again rather than the kept copy.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: One batch of chapters and the cursor for the next, null after the last.
+          description: One page of chapters, where it starts, and how many there are.
           content:
             application/json:
               schema:
                 type: object
-                required: [items, nextCursor, total]
+                required: [items, offset, total]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/RemoteChapter"
-                  nextCursor:
-                    type: [string, "null"]
+                  offset:
+                    type: integer
+                    minimum: 0
                   total:
                     type: integer
                     minimum: 0

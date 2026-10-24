@@ -49,6 +49,9 @@ pub struct AppState {
     pub oidc: Arc<crate::oidc::Oidc>,
     /// Names of shared demo accounts; see [`crate::auth::CurrentUser::demo`].
     pub demo_users: Arc<Vec<String>>,
+    /// Complete chapter lists read from sources lately; see
+    /// [`crate::browse::ChapterLists`].
+    pub chapter_lists: Arc<crate::browse::ChapterLists>,
 }
 
 /// Starts a background scan of every library.

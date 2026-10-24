@@ -582,10 +582,18 @@ their own repositories, and `chek ext build` builds them into a repository folde
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
-  with a 30-minute budget checked between calls. Browsing clients read
-  `/api/v1/me/extensions/{id}/chapters` one batch per request, passing back
-  its `nextCursor`, so a failed batch is retried alone. Existing components
-  need no rebuild to keep working.
+  with a 30-minute budget checked between calls. Existing components need no
+  rebuild to keep working.
+- Browsing clients read `/api/v1/me/extensions/{id}/chapters` a page at a
+  time, oldest or newest first, with an offset and limit and the series'
+  total, so they can show the newest chapters at once and jump anywhere. A
+  source can only be read forwards, so the first page reads the whole list
+  (through the batches above when the source has them) and the server keeps
+  it in memory for ten minutes, for up to 64 series per server, per user
+  and extension; `refresh` reads it again.
+- Browsing answers carry `Cache-Control` so the app can reuse them: search
+  and chapter pages for ten minutes, a series for an hour, a chapter's page
+  list for ten minutes since page links expire, and images for a day.
 - A chapter's page list is asked of the source the first time it's read
   and stored as the image requests the extension returned. Pages are
   fetched through the source on every read, with no cache on the server
