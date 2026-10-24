@@ -64,6 +64,15 @@ mod pagination_bindings {
     });
 }
 
+mod pages_bindings {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "paged-chapters",
+        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+    });
+}
+
+pub use pages_bindings::exports::chek::source::chapter_pages::{ChapterOrder, ChapterPage};
 pub use pagination_bindings::exports::chek::source::chapter_pagination::Batch as ChapterBatch;
 
 pub use bindings::chek::source::types::{
@@ -258,6 +267,11 @@ impl Host {
             .map(|_| pagination_bindings::PaginatedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pagination: {error:#}")))?;
+        let pages = component
+            .get_export_index(None, "chek:source/chapter-pages@0.4.0")
+            .map(|_| pages_bindings::PagedChaptersPre::new(instance.clone()))
+            .transpose()
+            .map_err(|error| Error::Invalid(format!("invalid chapter pages: {error:#}")))?;
         let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
         let manifest = run(&pre, None, false, |bindings, store| {
@@ -332,6 +346,7 @@ impl Host {
         Ok(Source {
             pre,
             pagination,
+            pages,
             manifest,
             context,
             digest: repository::sha256_hex(wasm),
@@ -343,6 +358,8 @@ impl Host {
 pub struct Source {
     pre: bindings::SourcePre<State>,
     pagination: Option<pagination_bindings::PaginatedChaptersPre<State>>,
+    /// Set when the extension answers pages of chapters itself.
+    pages: Option<pages_bindings::PagedChaptersPre<State>>,
     manifest: Manifest,
     context: Arc<Context>,
     digest: String,
@@ -621,6 +638,44 @@ impl Source {
             return Err(Error::Pagination("invalid chapter batch contents".into()));
         }
         Ok(batch)
+    }
+
+    /// One page of a series' chapters straight from the extension, for
+    /// sources whose sites list chapters a page at a time from either end.
+    /// `None` when the extension doesn't answer pages itself, in which case
+    /// the caller pages through [`Source::chapters`].
+    pub fn chapter_page(
+        &self,
+        series_id: &str,
+        order: ChapterOrder,
+        offset: u32,
+        limit: u32,
+        after: Option<&str>,
+    ) -> Result<Option<ChapterPage>, Error> {
+        let Some(pre) = &self.pages else {
+            return Ok(None);
+        };
+        let _call = self.context.calls.lock(false);
+        let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
+        let bindings = pre.instantiate(&mut store).map_err(trap)?;
+        let page = bindings
+            .chek_source_chapter_pages()
+            .call_page(&mut store, series_id, order, offset, limit, after)
+            .map_err(trap)?
+            .map_err(Error::Source)?;
+        let mut ids = HashSet::new();
+        if page.total > 20_000
+            || page.items.len() > limit as usize
+            || page.items.len() > 500
+            || page
+                .items
+                .iter()
+                .any(|chapter| chapter.id.is_empty() || !ids.insert(&chapter.id))
+            || page.items.iter().map(chapter_bytes).sum::<usize>() > 4 << 20
+        {
+            return Err(Error::Pagination("invalid chapter page".into()));
+        }
+        Ok(Some(page))
     }
 
     /// The chapter's pages in reading order.
