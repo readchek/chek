@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
 use crate::auth::CurrentUser;
+use crate::content_ratings::{self, content_ratings};
 use crate::installs::{not_installed, not_usable};
 use crate::releases::{Group, Pager, chapter_count, group_list, list_page, order_releases};
 
@@ -58,6 +59,7 @@ pub struct RemoteSeriesItemDto {
     id: String,
     title: String,
     cover_url: Option<String>,
+    content_rating: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +87,7 @@ pub struct RemoteSeriesDto {
     status: Option<&'static str>,
     year: Option<u16>,
     tags: Vec<String>,
+    content_rating: Option<&'static str>,
 }
 
 /// One release of a chapter, as one group put it out.
@@ -312,7 +315,8 @@ pub async fn search(
     }
     let page = query.page.unwrap_or(1).max(1);
     let (_, source) = usable_source(&state, &current, &id).await?;
-    let found = run(source, move |s| s.search(&q, page)).await?;
+    let ratings = content_ratings(&state, &current).await?;
+    let found = run(source, move |s| s.search(&q, page, &ratings)).await?;
     Ok(cached(
         SEARCH_MAX_AGE,
         RemoteSeriesPageDto {
@@ -323,6 +327,7 @@ pub async fn search(
                     cover_url: item.cover.map(|c| image_url(&id, &c)),
                     id: item.id,
                     title: item.title,
+                    content_rating: item.content_rating.map(content_ratings::name),
                 })
                 .collect(),
             has_more: found.has_more,
@@ -357,6 +362,7 @@ pub async fn series(
             status: series.status.map(status),
             year: series.year,
             tags: series.tags,
+            content_rating: series.content_rating.map(content_ratings::name),
         },
     ))
 }

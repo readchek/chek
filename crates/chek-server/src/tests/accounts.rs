@@ -208,3 +208,48 @@ async fn demo_accounts_change_nothing() {
     assert_eq!(saved["revision"], 0);
     assert!(saved["locator"].is_null(), "{saved}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn content_ratings_are_chosen_per_account() {
+    let server = Server::start_with(vec!["demo".to_owned()]).await;
+    let admin = server.admin().await;
+    let reader = server.reader(&admin, "reader", &[]).await;
+    let demo = server.reader(&admin, "demo", &[]).await;
+    let ratings = |token: &str| {
+        let request = server.get("/api/v1/me/content-ratings").bearer_auth(token);
+        async move { body(request.send().await.unwrap()).await }
+    };
+    let set = |token: &str, chosen: serde_json::Value| {
+        server
+            .put("/api/v1/me/content-ratings")
+            .bearer_auth(token)
+            .json(&json!({ "contentRatings": chosen }))
+            .send()
+    };
+
+    // Everyone starts out seeing nothing past fan service.
+    let default = json!({ "contentRatings": ["safe", "suggestive"] });
+    assert_eq!(ratings(&reader).await, default);
+
+    // A choice comes back mildest first, without repeats, and is the
+    // reader's alone.
+    let response = set(&reader, json!(["pornographic", "safe", "safe"]))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let chosen = json!({ "contentRatings": ["safe", "pornographic"] });
+    assert_eq!(body(response).await, chosen);
+    assert_eq!(ratings(&reader).await, chosen);
+    assert_eq!(ratings(&admin).await, default);
+
+    for invalid in [json!([]), json!(["nsfw"])] {
+        let response = set(&reader, invalid).await.unwrap();
+        assert_error(response, StatusCode::BAD_REQUEST, "bad_request").await;
+    }
+    assert_eq!(ratings(&reader).await, chosen);
+
+    // Visitors to a demo account share it, so none chooses for the next.
+    let response = set(&demo, json!(["safe"])).await.unwrap();
+    assert_error(response, StatusCode::FORBIDDEN, "demo_account").await;
+    assert_eq!(ratings(&demo).await, default);
+}

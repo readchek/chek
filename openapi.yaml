@@ -2076,6 +2076,54 @@ paths:
                       $ref: "#/components/schemas/AvailableExtension"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/content-ratings:
+    get:
+      tags: [Extensions]
+      operationId: getContentRatings
+      summary: Get the content ratings you see
+      description: >-
+        The ratings every source's search is limited to. Until a user
+        chooses, and always for a demo account, `safe` and `suggestive`.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The ratings you see.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRatings"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [Extensions]
+      operationId: setContentRatings
+      summary: Choose the content ratings you see
+      description: >-
+        Replaces the ratings every source's search is limited to. Order and
+        repeats don't matter. Refused for a demo account (`demo_account`),
+        whose visitors share one choice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentRatings"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The ratings you now see.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRatings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/me/extensions:
     get:
       tags: [Extensions]
@@ -2188,7 +2236,13 @@ paths:
       summary: Search a source
       description: >-
         One page of the source's series matching `q`. Without `q`, the series
-        the source shows first, such as its popular ones.
+        the source shows first, such as its popular ones. Only series in the
+        user's [content ratings](#operation/getContentRatings) are listed:
+        the source is asked for those, and items it rates otherwise are
+        dropped, so a page may hold fewer items than the source's usual
+        page while `hasMore` is true. Series the source doesn't rate are
+        kept. After changing the ratings, a client reloads past its cached
+        answers.
       parameters:
         - name: q
           in: query
@@ -3321,9 +3375,30 @@ components:
       type: string
       description: A path on this server, relative to its base URL, that serves the image.
       example: /api/v1/me/extensions/org.example.comics/image?ref=eyJ1cmwiOi
+    ContentRating:
+      type: string
+      enum: [safe, suggestive, erotica, pornographic]
+      description: >-
+        How explicit a series is, mildest first, on the scale MangaDex uses.
+        `suggestive` is fan service and mild sexual themes, `erotica` nudity
+        or sexual content short of explicit, and `pornographic` explicit.
+    ContentRatings:
+      type: object
+      additionalProperties: false
+      required: [contentRatings]
+      properties:
+        contentRatings:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ContentRating"
+          description: The ratings the user sees, mildest first.
+      example:
+        contentRatings: [safe, suggestive]
     RemoteSeriesItem:
       type: object
-      required: [id, title, coverUrl]
+      required: [id, title, coverUrl, contentRating]
       properties:
         id:
           type: string
@@ -3334,9 +3409,14 @@ components:
           oneOf:
             - $ref: "#/components/schemas/RemoteImageUrl"
             - type: "null"
+        contentRating:
+          description: As the source rates the series; null when it doesn't.
+          oneOf:
+            - $ref: "#/components/schemas/ContentRating"
+            - type: "null"
     RemoteSeries:
       type: object
-      required: [id, title, summary, coverUrl, contributors, readingDirection, status, year, tags]
+      required: [id, title, summary, coverUrl, contributors, readingDirection, status, year, tags, contentRating]
       properties:
         id:
           type: string
@@ -3373,6 +3453,14 @@ components:
           items:
             type: string
           description: Genres and themes as the source names them, most important first.
+        contentRating:
+          description: >-
+            As the source rates the series; null when it doesn't. A series is
+            answered whatever the user's content ratings, since only search
+            filters by them.
+          oneOf:
+            - $ref: "#/components/schemas/ContentRating"
+            - type: "null"
     RemoteRelease:
       type: object
       required: [id, title, number, version, published, language, releaseGroup, official]

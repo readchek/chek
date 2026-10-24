@@ -350,6 +350,31 @@ impl Catalog {
         };
         Ok(())
     }
+
+    /// The content ratings `user_id` chose to see, comma-separated, or
+    /// `None` if they never chose.
+    pub fn content_rating_preference(&self, user_id: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT ratings FROM content_rating_preference WHERE user_id = ?1",
+                [user_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Sets the content ratings `user_id` sees, comma-separated.
+    pub fn set_content_rating_preference(&self, user_id: i64, ratings: &str) -> Result<()> {
+        self.conn().execute(
+            "INSERT INTO content_rating_preference (user_id, ratings, updated_at)
+             VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             ON CONFLICT (user_id) DO UPDATE SET
+                 ratings = excluded.ratings, updated_at = excluded.updated_at",
+            params![user_id, ratings],
+        )?;
+        Ok(())
+    }
 }
 
 fn digest_in_use(conn: &rusqlite::Connection, sha256: &str) -> rusqlite::Result<bool> {

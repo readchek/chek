@@ -22,7 +22,13 @@ impl Guest for Source {
         }
     }
 
-    fn search(query: String, page: u32) -> Result<SeriesPage, Error> {
+    // Ask the site for only `content_ratings` where it can filter by rating,
+    // and set each item's `content_rating` where it says.
+    fn search(
+        query: String,
+        page: u32,
+        _content_ratings: Vec<ContentRating>,
+    ) -> Result<SeriesPage, Error> {
         let _found: Value = Get::new(format!(
             "https://example.com/api/search?q={}&page={page}",
             encode(&query)

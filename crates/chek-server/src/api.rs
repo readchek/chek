@@ -209,6 +209,11 @@ pub fn router(state: AppState) -> Router {
             post(extensions::refresh_repository),
         )
         .route("/api/v1/extensions", get(extensions::list_extensions))
+        .route(
+            "/api/v1/me/content-ratings",
+            get(crate::content_ratings::get_content_ratings)
+                .put(crate::content_ratings::set_content_ratings),
+        )
         .route("/api/v1/me/extensions", get(installs::list_installed))
         .route(
             "/api/v1/me/extensions/{id}",

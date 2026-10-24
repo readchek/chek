@@ -12,7 +12,7 @@
 // `cookies` holds a jar the server sends and fills on every request, as a
 // browser would. All three are kept per extension id and sites, across
 // versions and restarts, and none is available while the manifest is read.
-package chek:source@0.5.0;
+package chek:source@0.6.0;
 
 interface types {
     type header = tuple<string, string>;
@@ -69,11 +69,27 @@ interface types {
         image-transform,
     }
 
+    // How explicit a series is, on the scale MangaDex uses. Readers choose
+    // which ratings they see; `search` is given that choice, and the server
+    // also drops results rated outside it.
+    enum content-rating {
+        // Fit for everyone.
+        safe,
+        // Fan service, revealing outfits or mild sexual themes.
+        suggestive,
+        // Nudity or sexual content short of explicit.
+        erotica,
+        // Explicit sexual content.
+        pornographic,
+    }
+
     record series-item {
         // The source's own id, stored as the series' remote id.
         id: string,
         title: string,
         cover: option<image>,
+        // As the source rates it, when it does.
+        content-rating: option<content-rating>,
     }
 
     record series-page {
@@ -109,6 +125,8 @@ interface types {
         // Genres and themes as the source names them, in reading order of
         // importance, such as `Action` or `Slice of Life`. Empty if none.
         tags: list<string>,
+        // As the source rates it, when it does.
+        content-rating: option<content-rating>,
     }
 
     record chapter {
@@ -263,14 +281,18 @@ world source {
     import browser;
     import browser-session;
     import images;
-    use types.{manifest, series-page, series, chapter, image, image-data, error};
+    use types.{manifest, series-page, series, chapter, image, image-data, error, content-rating};
     use http.{response};
 
     // Called without network access, before anything else.
     export manifest: func() -> manifest;
     // A page of the source's series matching `query`, counting pages from 1.
     // An empty query lists what the source shows first, such as popular series.
-    export search: func(query: string, page: u32) -> result<series-page, error>;
+    // `content-ratings` are the ratings the reader chose to see, never
+    // empty: ask the site for only those where it can filter, and leave out
+    // the rest where it can't. The server drops items rated outside them
+    // too, but a page the site filtered stays full.
+    export search: func(query: string, page: u32, content-ratings: list<content-rating>) -> result<series-page, error>;
     export series: func(id: string) -> result<series, error>;
     // The series' chapters in reading order.
     export chapters: func(series-id: string) -> result<list<chapter>, error>;
