@@ -87,7 +87,7 @@ jobs:
           mkdir -p digests
           digest="${{ steps.build.outputs.digest }}"
           touch "digests/${digest#sha256:}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.target }}-${{ matrix.arch }}
           path: digests/*
