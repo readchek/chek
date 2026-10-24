@@ -74,7 +74,12 @@ fn serve(
         })
         .transpose()?;
     if let Some(sites) = &native_sites {
-        proxy = format!("--proxy-server={}", crate::tunnel::start(sites.clone())?);
+        let upstream = serde_json::from_value(start["proxy"].clone())
+            .map_err(|_| "invalid outbound proxy configuration")?;
+        proxy = format!(
+            "--proxy-server={}",
+            crate::tunnel::start(sites.clone(), upstream)?
+        );
     }
     let args: Vec<String> = serde_json::from_value(start["args"].clone())
         .map_err(|e| format!("invalid browser launch arguments: {e}"))?;

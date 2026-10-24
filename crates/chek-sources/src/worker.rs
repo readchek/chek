@@ -28,7 +28,7 @@ impl Worker {
         let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
         // Workers get no server credentials or automatically loaded .env.
         command.env_clear().current_dir(directory.path());
-        for name in ["PATH", "HOME", "TMPDIR"] {
+        for name in ["PATH", "HOME", "TMPDIR", "DISPLAY", "XAUTHORITY"] {
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
             }

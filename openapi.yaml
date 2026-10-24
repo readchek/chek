@@ -2252,45 +2252,15 @@ paths:
     get:
       tags: [Extensions]
       operationId: listRemoteChapters
-      summary: List a series' chapters from a source
-      parameters:
-        - $ref: "#/components/parameters/RemoteSeriesId"
-      responses:
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "200":
-          description: The chapters in reading order.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/RemoteChapter"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "502":
-          $ref: "#/components/responses/SourceFailed"
-        "500":
-          $ref: "#/components/responses/Internal"
-  /api/v1/me/extensions/{extensionId}/chapter-batches:
-    parameters:
-      - $ref: "#/components/parameters/ExtensionId"
-    get:
-      tags: [Extensions]
-      operationId: listRemoteChapterBatch
-      summary: Read a resumable batch of chapters
+      summary: List a series' chapters from a source, a batch at a time
       description: >-
-        Omit cursor for the first batch. Pass nextCursor unchanged with the same
-        seriesId until it is null. Keep partial results separate until traversal
-        finishes; a failed batch can be retried with the same cursor. If the
-        source reports a changed catalog, restart from the first batch.
-        Extensions without pagination return their complete list in one batch.
+        Chapters come in reading order, one batch per request. Omit cursor for
+        the first batch, then pass nextCursor unchanged with the same seriesId
+        until it is null; total is the series' chapter count. Keep partial
+        results separate until traversal finishes; a failed batch can be
+        retried with the same cursor. If the source reports a changed catalog,
+        restart from the first batch. Extensions without pagination return
+        their complete list in one batch.
       parameters:
         - $ref: "#/components/parameters/RemoteSeriesId"
         - name: cursor
@@ -2301,7 +2271,7 @@ paths:
             maxLength: 4096
       responses:
         "200":
-          description: One batch and its continuation, or null when complete.
+          description: One batch of chapters and the cursor for the next, null after the last.
           content:
             application/json:
               schema:

@@ -114,6 +114,9 @@ can't be changed and keep no reading places.
 To run a demo instance with the reader test corpus loaded, on Dokploy or with
 Docker Compose, see [deploying a demo instance](docs/deploy.md).
 
+For a normal instance with browser-backed extensions and an optional outbound
+proxy, use the [server Compose deployment](deploy/server/README.md).
+
 With Docker, use the image CI publishes for amd64 and arm64, and read the
 setup token from `docker logs chek`:
 

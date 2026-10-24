@@ -70,6 +70,7 @@ impl Server {
         let extensions = chek_sources::Extensions::new(
             data.path().join("extensions"),
             &chek_sources::Options {
+                outbound_proxy: None,
                 image_cache_bytes: 0,
                 browser_solver: None,
                 browser_executable: None,

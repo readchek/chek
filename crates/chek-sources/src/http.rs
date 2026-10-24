@@ -21,6 +21,7 @@ const MAX_REDIRECTS: usize = 10;
 
 /// The network one extension may use.
 pub(crate) struct Net {
+    pub(crate) outbound_proxy: Option<crate::OutboundProxy>,
     client: Client,
     browser_client: Client,
     sites: Arc<Sites>,
@@ -42,6 +43,7 @@ impl Net {
     /// Sends and fills `jar` on every request, and passes challenges through
     /// `browser` when there is one.
     pub(crate) fn new(
+        outbound_proxy: Option<crate::OutboundProxy>,
         sites: Sites,
         jar: Arc<Jar>,
         browser: Option<Arc<Browser>>,
@@ -49,9 +51,19 @@ impl Net {
     ) -> Result<Self, String> {
         let sites = Arc::new(sites);
         let redirect_sites = Arc::clone(&sites);
-        let client = Client::builder()
+        // Through a proxy, the only name resolved here is the proxy's own,
+        // which the admin chose and may be on a private network; the proxy
+        // resolves the extension's sites. Directly, every site name goes
+        // through the public-address check.
+        let proxied = || -> Result<reqwest::blocking::ClientBuilder, String> {
+            let client = Client::builder().no_proxy();
+            Ok(match &outbound_proxy {
+                Some(proxy) => client.proxy(proxy.reqwest()?),
+                None => client.dns_resolver(Arc::new(PublicResolver)),
+            })
+        };
+        let client = proxied()?
             .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
-            .dns_resolver(Arc::new(PublicResolver))
             .cookie_provider(Arc::clone(&jar))
             .timeout(TIMEOUT)
             .https_only(true)
@@ -70,14 +82,14 @@ impl Net {
             }))
             .build()
             .map_err(|error| error.to_string())?;
-        let browser_client = Client::builder()
-            .dns_resolver(Arc::new(PublicResolver))
+        let browser_client = proxied()?
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::none())
             .build()
             .map_err(|error| error.to_string())?;
         Ok(Net {
+            outbound_proxy,
             client,
             browser_client,
             sites,

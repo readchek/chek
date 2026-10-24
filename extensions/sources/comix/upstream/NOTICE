@@ -4,7 +4,13 @@ Derived from Keiyoushi extensions-source, Comix 1.6.54:
 https://github.com/keiyoushi/extensions-source/tree/24bd7e69e54020079298d19bf808ccc0961b0a69/src/en/comix
 
 site_api.js and chapter_pages.js are unchanged assets from that release's JAR.
-../src/client.js adapts its chapter-list API discovery and initial-data extraction.
-../src/site_api.js adds discovery for API objects hidden behind proxies.
+../src/client.js adapts its initial-data extraction.
 ../src/descrambler.rs ports Descrambler.kt using Chek's native image operations.
 The upstream code is licensed under Apache-2.0; see LICENSE.
+
+harvest_browse.js is adapted from revision
+4ba2c82725ce999b818c10b5fc10617fd2800d6b:
+https://github.com/keiyoushi/extensions-source/tree/4ba2c82725ce999b818c10b5fc10617fd2800d6b/src/en/comix/assets
+It recognizes explicit empty results and reports loading failures.
+The current adapter reads rendered chapter rows and reader images instead of
+private API objects, and checks that every reader page has been collected.

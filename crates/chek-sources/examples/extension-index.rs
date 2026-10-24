@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = Host::new(
         &state,
         &Options {
+            outbound_proxy: None,
             image_cache_bytes: 0,
             browser_solver: None,
             browser_executable: None,

@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --locked --bin chek \
     && cp target/release/chek /chek
 
-FROM debian:trixie-slim
+FROM debian:trixie-slim AS runtime
 # libvips makes cover thumbnails; its poppler module renders PDF covers.
 # libarchive reads RAR and 7-Zip comics. CA certificates let Chek reach
 # Komga servers and extension repositories over HTTPS.
@@ -30,3 +30,19 @@ ENV CHEK_BIND=0.0.0.0:8080 \
 VOLUME ["/data"]
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/chek"]
+
+# Opt-in browser runtime. The default image below stays lightweight.
+FROM runtime AS browser
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium xvfb xauth tini fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=755 deploy/server/entrypoint.sh /usr/local/bin/chek-browser
+USER chek
+ENV HOME=/data \
+    CHEK_BROWSER_EXECUTABLE=/usr/bin/chromium \
+    CHEK_BROWSER_NATIVE=true \
+    CHEK_BROWSER_ARGS='["--no-sandbox","--disable-blink-features=AutomationControlled"]'
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/chek-browser"]
+
+FROM runtime AS default

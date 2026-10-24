@@ -43,6 +43,7 @@ pub(crate) trait Solver: Send + Sync {
 
 /// A FlareSolverr-compatible service, such as `http://flaresolverr:8191/v1`.
 pub(crate) struct FlareSolverr {
+    proxy: Option<crate::OutboundProxy>,
     /// Made on the first solve: a blocking client can't be made or dropped
     /// on the async runtime, where the host is set up.
     client: OnceLock<Client>,
@@ -50,7 +51,7 @@ pub(crate) struct FlareSolverr {
 }
 
 impl FlareSolverr {
-    pub(crate) fn new(endpoint: &str) -> Result<Self, String> {
+    pub(crate) fn new(endpoint: &str, proxy: Option<crate::OutboundProxy>) -> Result<Self, String> {
         let endpoint =
             Url::parse(endpoint).map_err(|e| format!("browser solver `{endpoint}`: {e}"))?;
         if !matches!(endpoint.scheme(), "http" | "https") {
@@ -59,6 +60,7 @@ impl FlareSolverr {
             ));
         }
         Ok(Self {
+            proxy,
             client: OnceLock::new(),
             endpoint,
         })
@@ -69,6 +71,7 @@ impl FlareSolverr {
             return Ok(client);
         }
         let client = Client::builder()
+            .no_proxy()
             .timeout(SOLVER_TIMEOUT)
             .build()
             .map_err(|e| e.to_string())?;
@@ -140,14 +143,18 @@ impl AnswerCookie {
 
 impl Solver for FlareSolverr {
     fn solve(&self, url: &Url) -> Result<Solution, String> {
+        let mut request = json!({
+            "cmd": "request.get",
+            "url": url.as_str(),
+            "maxTimeout": BROWSER_TIMEOUT_MS,
+        });
+        if let Some(proxy) = &self.proxy {
+            request["proxy"] = proxy.solver();
+        }
         let answer: Answer = self
             .client()?
             .post(self.endpoint.clone())
-            .json(&json!({
-                "cmd": "request.get",
-                "url": url.as_str(),
-                "maxTimeout": BROWSER_TIMEOUT_MS,
-            }))
+            .json(&request)
             .send()
             .and_then(|r| r.json())
             .map_err(|e| format!("the browser solver failed: {}", crate::http::describe(&e)))?;

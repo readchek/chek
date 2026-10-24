@@ -44,6 +44,8 @@ pub struct Config {
     /// `http://flaresolverr:8191/v1`, which extensions with the `browser`
     /// capability use to get past challenges. Default none.
     pub browser_solver: Option<String>,
+    /// `CHEK_OUTBOUND_PROXY_*`, for browser, HTTP and image extension traffic.
+    pub outbound_proxy: Option<chek_sources::OutboundProxy>,
     /// `CHEK_BROWSER_EXECUTABLE`, absolute path to a Chromium executable.
     pub browser_executable: Option<PathBuf>,
     /// `CHEK_BROWSER_ARGS`, a JSON array of Chromium launch arguments.
@@ -121,6 +123,7 @@ impl Config {
             max_upload_bytes: parse("CHEK_MAX_UPLOAD_BYTES", "2147483648")?,
             source_sync_minutes: parse("CHEK_SOURCE_SYNC_MINUTES", "60")?,
             extension_image_cache_mb: parse("CHEK_EXTENSION_IMAGE_CACHE_MB", "2048")?,
+            outbound_proxy: outbound_proxy()?,
             browser_solver: match env::var("CHEK_BROWSER_SOLVER_URL") {
                 Ok(url) if !url.trim().is_empty() => {
                     let parsed = parse::<Url>("CHEK_BROWSER_SOLVER_URL", "")?;
@@ -175,6 +178,26 @@ impl Config {
             }
             Ok(config)
         })
+    }
+}
+
+fn outbound_proxy() -> Result<Option<chek_sources::OutboundProxy>, ConfigError> {
+    let value = |name| env::var(name).ok().filter(|value| !value.is_empty());
+    let url = value("CHEK_OUTBOUND_PROXY_URL");
+    let username = value("CHEK_OUTBOUND_PROXY_USERNAME");
+    let password = value("CHEK_OUTBOUND_PROXY_PASSWORD");
+    let invalid = |reason: String| ConfigError {
+        name: "CHEK_OUTBOUND_PROXY_URL",
+        reason,
+    };
+    match url {
+        Some(url) => chek_sources::OutboundProxy::new(&url, username, password)
+            .map(Some)
+            .map_err(invalid),
+        None if username.is_some() || password.is_some() => {
+            Err(invalid("proxy credentials require a proxy URL".into()))
+        }
+        None => Ok(None),
     }
 }
 
