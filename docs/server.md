@@ -586,11 +586,14 @@ their own repositories, and `chek ext build` builds them into a repository folde
   rebuild to keep working.
 - Browsing clients read `/api/v1/me/extensions/{id}/chapters` a page at a
   time, oldest or newest first, with an offset and limit and the series'
-  total, so they can show the newest chapters at once and jump anywhere. A
-  source can only be read forwards, so the first page reads the whole list
-  (through the batches above when the source has them) and the server keeps
-  it in memory for ten minutes, for up to 64 series per server, per user
-  and extension; `refresh` reads it again.
+  total, so they can show the newest chapters at once and jump anywhere. An
+  extension that exports chapter pages answers each page itself, one call to
+  its site. For the rest, a source can only be read forwards, so the first
+  page reads the whole list (through the batches above when the source has
+  them) and the server keeps it in memory for ten minutes, for up to 64
+  series per server, per user and extension; `refresh` reads it again. A page
+  that starts after a chapter the extension can't place falls back the same
+  way.
 - Browsing answers carry `Cache-Control` so the app can reuse them: search
   and chapter pages for ten minutes, a series for an hour, a chapter's page
   list for ten minutes since page links expire, and images for a day.

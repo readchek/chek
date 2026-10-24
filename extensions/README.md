@@ -145,6 +145,19 @@ answers a page at a time from the complete list, which the server reads the
 same way and keeps for ten minutes. Sources without this export are read with
 one `chapters` call.
 
+When the site itself lists chapters a page at a time from either end, also
+export chapter pages, so a client's page is one call to the site instead of
+the whole list: implement `chek_extension::ChapterPages` and invoke
+`chek_extension::export_chapter_pages!(YourSource)`. `page(series_id, order,
+offset, limit, after)` returns `ChapterPage { items, offset, total }`: up to
+`limit` chapters from `offset`, counted from the first chapter
+(`OldestFirst`) or the newest (`NewestFirst`), and the series' total as the
+site reports it. `after` is a chapter id to start just past; return
+`Error::NotFound` when the site can't place it cheaply, and the host finds it
+in the complete list instead. Pages allow at most 500 chapters, no more than
+`limit`, and 4 MiB of text. Keep `chapters` (and batches, if the site has
+them) for library sync, which still reads the complete list.
+
 The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly
 constructed images and implement `transform_image`, returning `Ok(None)`

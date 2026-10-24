@@ -56,6 +56,25 @@ pub use pagination_bindings::export_chapter_pagination;
 pub use pagination_bindings::exports::chek::source::chapter_pagination::{
     Batch as ChapterBatch, Guest as ChapterPagination,
 };
+/// For sites that list chapters a page at a time from either end: implement
+/// [`ChapterPages`] and export it with [`export_chapter_pages!`] beside
+/// [`export_source!`], and a client's page of chapters becomes one call to
+/// the site instead of reading the whole list first.
+#[doc(hidden)]
+pub mod pages_bindings {
+    wit_bindgen::generate!({
+        path: "../../crates/chek-sources/wit",
+        world: "paged-chapters",
+        with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
+        pub_export_macro: true,
+        export_macro_name: "export_chapter_pages",
+        default_bindings_module: "chek_extension::pages_bindings",
+    });
+}
+pub use pages_bindings::export_chapter_pages;
+pub use pages_bindings::exports::chek::source::chapter_pages::{
+    ChapterOrder, ChapterPage, Guest as ChapterPages,
+};
 pub use serde_json::{self, Value};
 
 use bindings::chek::source::http::{HttpError, Method, Request, Response};
