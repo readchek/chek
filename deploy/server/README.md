@@ -36,6 +36,9 @@ not supported. Keep credentials in their separate variables, not in the URL.
 These settings cover source HTTP requests, images, relayed browser requests
 and native browser tunnels. Native tunnels retain declared-host/public-IP
 checks and CONNECT to the checked destination IP through the upstream proxy.
+Source HTTP requests, images and relayed browser requests send the declared
+host name, which the proxy resolves, so run the proxy where it can't reach
+your private network, as the Fly.io one is.
 There is no direct-connection fallback if the proxy fails. Repository downloads,
 OIDC, telemetry and other server integrations do not use this proxy. Without an
 explicit proxy, source transports connect directly rather than reading ambient
@@ -61,5 +64,6 @@ by the site later. No remote desktop or exposed Chrome debugging port is needed.
 ## Updating
 
 Redeploy the same Compose application to rebuild from the selected revision.
-Keep its data volume. This repository does not currently publish prebuilt images.
-For the raw Compose equivalent, use the Git build context with `target: browser`.
+Keep its data volume. The published `ghcr.io/readchek/chek` image has no
+browser, so this file builds the `browser` target from source. For the raw
+Compose equivalent, use the Git build context with `target: browser`.
