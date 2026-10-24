@@ -84,7 +84,7 @@ impl From<Chapter> for RemoteChapterDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteChapterBatchDto {
+pub struct RemoteChapterPageDto {
     items: Vec<RemoteChapterDto>,
     next_cursor: Option<String>,
     total: u32,
@@ -92,7 +92,7 @@ pub struct RemoteChapterBatchDto {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChapterBatchQuery {
+pub struct ChaptersQuery {
     series_id: String,
     cursor: Option<String>,
 }
@@ -199,25 +199,14 @@ pub async fn series(
     }))
 }
 
+/// One batch of a series' chapters, in reading order, and the cursor for
+/// the next. Extensions without pagination return every chapter at once.
 pub async fn chapters(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<String>,
-    Query(query): Query<SeriesQuery>,
-) -> Result<Json<List<RemoteChapterDto>>, ApiError> {
-    let (_, source) = usable_source(&state, &current, &id).await?;
-    let chapters = run(source, move |s| s.chapters(&query.series_id)).await?;
-    Ok(Json(List {
-        items: chapters.into_iter().map(RemoteChapterDto::from).collect(),
-    }))
-}
-
-pub async fn chapter_batch(
-    State(state): State<AppState>,
-    current: CurrentUser,
-    Path(id): Path<String>,
-    Query(query): Query<ChapterBatchQuery>,
-) -> Result<Json<RemoteChapterBatchDto>, ApiError> {
+    Query(query): Query<ChaptersQuery>,
+) -> Result<Json<RemoteChapterPageDto>, ApiError> {
     if query
         .cursor
         .as_ref()
@@ -234,7 +223,7 @@ pub async fn chapter_batch(
         source.chapter_batch(&query.series_id, query.cursor.as_deref())
     })
     .await?;
-    Ok(Json(RemoteChapterBatchDto {
+    Ok(Json(RemoteChapterPageDto {
         items: batch
             .items
             .into_iter()

@@ -572,9 +572,10 @@ the `index.json` for any folder of components.
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
-  with a 30-minute budget checked between calls. Browsing clients can use
-  `/api/v1/me/extensions/{id}/chapter-batches` to retain a cursor and retry a
-  failed batch. Existing components need no rebuild to keep working.
+  with a 30-minute budget checked between calls. Browsing clients read
+  `/api/v1/me/extensions/{id}/chapters` one batch per request, passing back
+  its `nextCursor`, so a failed batch is retried alone. Existing components
+  need no rebuild to keep working.
 - A chapter's page list is asked of the source the first time it's read
   and stored as the image requests the extension returned. Pages are
   fetched through the source on every read, with no cache on the server
