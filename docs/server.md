@@ -394,6 +394,13 @@ their own repositories, and `chek ext build` builds them into a repository folde
   component that reuses another's id with different sites starts empty, and
   an update that changes the sites does too. None is available while the
   manifest is read.
+- `CHEK_OUTBOUND_PROXY_URL`, with optional `CHEK_OUTBOUND_PROXY_USERNAME` and
+  `CHEK_OUTBOUND_PROXY_PASSWORD`, routes source HTTP, images and browser traffic
+  through one admin-configured HTTP CONNECT proxy. Credentials must be provided
+  together. Native browser tunnels still validate and pin public destination IPs.
+  A failed proxy never falls back to direct access. Solver requests receive the
+  same proxy configuration, but the solver API and other server integrations
+  connect directly. See the [normal deployment guide](../deploy/server/README.md).
 - For challenge solving, an admin points `CHEK_BROWSER_SOLVER_URL` at a
   FlareSolverr-compatible service, such as `http://flaresolverr:8191/v1`,
   and extensions whose manifest lists the `browser` capability may use it.
@@ -571,9 +578,10 @@ their own repositories, and `chek ext build` builds them into a repository folde
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,
-  with a 30-minute budget checked between calls. Browsing clients can use
-  `/api/v1/me/extensions/{id}/chapter-batches` to retain a cursor and retry a
-  failed batch. Existing components need no rebuild to keep working.
+  with a 30-minute budget checked between calls. Browsing clients read
+  `/api/v1/me/extensions/{id}/chapters` one batch per request, passing back
+  its `nextCursor`, so a failed batch is retried alone. Existing components
+  need no rebuild to keep working.
 - A chapter's page list is asked of the source the first time it's read
   and stored as the image requests the extension returned. Pages are
   fetched through the source on every read, with no cache on the server

@@ -83,6 +83,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         extensions: Arc::new(chek_sources::Extensions::new(
             config.data_dir.join("extensions"),
             &chek_sources::Options {
+                outbound_proxy: config.outbound_proxy,
                 image_cache_bytes: config.extension_image_cache_mb.saturating_mul(1 << 20),
                 browser_solver: config.browser_solver,
                 browser_executable: config.browser_executable,

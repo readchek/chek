@@ -1,5 +1,9 @@
 # Deploying a demo instance
 
+For a normal server with browser-backed extensions, use
+[`deploy/server`](../deploy/server/README.md). This guide is for the separate
+App Store demo and its extension-free corpus setup.
+
 [`deploy/demo`](../deploy/demo) runs the server with the reader test corpus
 already loaded, for trying apps against a real server. It's a Docker Compose
 file written for [Dokploy](https://dokploy.com), and it works with plain

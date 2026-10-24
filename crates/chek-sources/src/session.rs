@@ -99,6 +99,7 @@ impl Session {
         start["args"] = json!(context.browser_args);
         if let Some(sites) = sites {
             start["sites"] = json!(sites);
+            start["proxy"] = json!(context.net.outbound_proxy);
         }
         worker.send(&start, deadline)?;
         match serde_json::from_value(worker.receive(deadline)?)

@@ -135,17 +135,16 @@ for older hosts.
 
 Each batch has the normal WASM and browser limits. Paginated batches allow
 at most 500 chapters and 4 MiB of chapter text, with cursors up to 4 KiB.
-The host assembles complete lists for library sync and the existing chapters
-endpoint, allowing up to 20,000 chapters, 32 MiB of text, 256 batches and a
+The host assembles complete lists for library sync, allowing up to 20,000 chapters, 32 MiB of text, 256 batches and a
 30-minute traversal budget checked between calls. It rejects duplicate IDs,
 cursor cycles, changing totals and incomplete results before applying a sync.
 An ordinary network failure retries the current batch once in a fresh instance;
 traps and invalid data are not retried.
-Clients can instead call `/api/v1/me/extensions/{id}/chapter-batches` with
-`seriesId` and an optional `cursor`, preserving partial results locally and
-retrying only the failed batch. `nextCursor: null` ends the traversal.
-Sources without this export retain their existing behavior and return their
-complete list as one batch when called through the new endpoint.
+Browsing clients call `/api/v1/me/extensions/{id}/chapters` with `seriesId`
+and an optional `cursor`, one batch per request, preserving partial results
+locally and retrying only the failed batch. `nextCursor: null` ends the
+traversal. Sources without this export return their complete list as one
+batch.
 
 The current contract is `chek:source@0.4.0`. Components built against 0.3
 must be rebuilt with the current SDK: add `transform: None` to directly
