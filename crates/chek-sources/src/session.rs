@@ -91,6 +91,7 @@ impl Session {
         sites: Option<&[String]>,
         lifetime: Duration,
     ) -> Result<Self, String> {
+        let started = Instant::now();
         let mut command = Command::new(path);
         command.arg("--extension-browser-worker").arg(executable);
         let worker = Worker::start(command, lifetime)?;
@@ -113,6 +114,10 @@ impl Session {
             Event::Error { message, .. } => return Err(message),
             _ => return Err("browser worker didn't start".to_owned()),
         }
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "source browser started"
+        );
         Ok(Self {
             worker,
             operations: 0,
@@ -127,6 +132,7 @@ impl Session {
         mut command: Value,
         requests: &mut u32,
     ) -> Result<String, String> {
+        let started = Instant::now();
         self.recoverable = false;
         if self.operations >= MAX_OPERATIONS {
             return Err("browser session reached its operation limit".to_owned());
@@ -197,6 +203,14 @@ impl Session {
                     json,
                     cookies: updated,
                 } => {
+                    tracing::debug!(
+                        operation = command
+                            .get("type")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("unknown"),
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "source browser operation completed"
+                    );
                     if json.len() > MAX_RESULT {
                         return Err("browser result is larger than 1 MiB".to_owned());
                     }

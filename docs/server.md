@@ -549,6 +549,10 @@ their own repositories, and `chek ext build` builds them into a repository folde
   empties the folder at startup.
 - Browsing stores nothing; following a series into an extension library
   does.
+- Reader page-list calls take priority over queued catalog work. Calls still
+  run one at a time per source to protect verification sessions; an active call
+  is not interrupted. After three reader calls, waiting catalog work gets a turn.
+  Debug logs report queue time, browser startup and browser operation durations.
 
 ## Extension libraries
 

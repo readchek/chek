@@ -116,9 +116,16 @@ fn serve(
         .map_err(|e| format!("couldn't start Chromium: {e}"))?;
     let mut process = BrowserProcess(child);
     let deadline = Instant::now() + OPERATION;
-    let address = loop {
-        if let Ok(port) = std::fs::read_to_string(profile.join("DevToolsActivePort")) {
-            break port;
+    let (port, path) = loop {
+        if let Ok(address) = std::fs::read_to_string(profile.join("DevToolsActivePort")) {
+            let mut lines = address.lines();
+            // Chromium creates the file before it finishes writing both lines.
+            if let Some(port) = lines.next().and_then(|line| line.parse::<u16>().ok())
+                && port != 0
+                && let Some(path) = lines.next().filter(|p| p.starts_with("/devtools/browser/"))
+            {
+                break (port, path.to_owned());
+            }
         }
         crate::worker::remaining(deadline)?;
         if process.0.try_wait().map_err(|e| e.to_string())?.is_some() {
@@ -126,16 +133,6 @@ fn serve(
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let mut lines = address.lines();
-    let port: u16 = lines
-        .next()
-        .ok_or("missing CDP port")?
-        .parse()
-        .map_err(|_| "invalid CDP port")?;
-    let path = lines
-        .next()
-        .filter(|p| p.starts_with("/devtools/browser/"))
-        .ok_or("invalid CDP path")?;
     let stream = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), OPERATION)
         .map_err(|e| e.to_string())?;
     stream.set_nodelay(true).map_err(|e| e.to_string())?;

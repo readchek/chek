@@ -12,6 +12,7 @@
 //! Everything here blocks: call it from async code through `spawn_blocking`.
 
 mod browser;
+mod calls;
 mod cdp;
 mod cookies;
 mod http;
@@ -323,7 +324,7 @@ impl Host {
                 .filter(|_| manifest.capabilities.contains(&Capability::ImageTransform)),
             handoff: Mutex::new(None),
             verification_pending: AtomicBool::new(false),
-            calls: Mutex::new(()),
+            calls: calls::Calls::default(),
             user,
             _clock: Arc::clone(&self.clock),
             worker_executable: self.worker_executable.clone(),
@@ -353,7 +354,7 @@ struct Context {
     browser_args: Vec<String>,
     verification_pending: AtomicBool,
     handoff: Mutex<Option<session::Session>>,
-    calls: Mutex<()>,
+    calls: calls::Calls,
     user: Option<i64>,
     /// Names the extension's state: its id and sites.
     scope: String,
@@ -592,7 +593,7 @@ impl Source {
                 total,
             });
         };
-        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let _call = self.context.calls.lock(false);
         let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
         let bindings = pre.instantiate(&mut store).map_err(trap)?;
         let batch = bindings
@@ -624,8 +625,19 @@ impl Source {
 
     /// The chapter's pages in reading order.
     pub fn pages(&self, chapter_id: &str) -> Result<Vec<Image>, Error> {
-        self.call(|bindings, store| bindings.call_pages(store, chapter_id))?
-            .map_err(Error::Source)
+        let waiting = Instant::now();
+        let _call = self.context.calls.lock(true);
+        tracing::debug!(
+            queue_ms = waiting.elapsed().as_millis() as u64,
+            "reader source call started"
+        );
+        run(
+            &self.pre,
+            Some(Arc::clone(&self.context)),
+            false,
+            |bindings, store| bindings.call_pages(store, chapter_id),
+        )?
+        .map_err(Error::Source)
     }
 
     /// Fetches a cover or page the extension returned, held to the same sites.
@@ -731,7 +743,12 @@ impl Source {
         &self,
         export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> Result<R, Error> {
-        let _call = self.context.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let waiting = Instant::now();
+        let _call = self.context.calls.lock(false);
+        tracing::debug!(
+            queue_ms = waiting.elapsed().as_millis() as u64,
+            "catalog source call started"
+        );
         run(&self.pre, Some(Arc::clone(&self.context)), false, export)
     }
 }
