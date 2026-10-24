@@ -35,7 +35,7 @@ pub fn new(name: &str) -> Result<(), String> {
     let fill = |template: &str| {
         template
             .replace("{name}", name)
-            .replace("{id}", &name.replace('-', "_"))
+            .replace("{id}", name)
             .replace("{title}", &title)
     };
     let write = |path: &str, contents: &str| {

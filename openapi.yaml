@@ -2950,7 +2950,9 @@ components:
             $ref: "#/components/schemas/Error"
     RepositoryNeedsCredentials:
       description: >-
-        The repository answered 401 or 403. The code says what to ask for, from
+        The repository answered 401 or 403, or is a host known to refuse
+        another way: a private GitHub repository's 404, or Cloudflare Access's
+        redirect to its sign-in page. The code says what to ask for, from
         the scheme of its `WWW-Authenticate` header:
         `repository_needs_token` (Bearer), `repository_needs_password` (Basic),
         or `repository_needs_credentials` (another scheme or none, as for a

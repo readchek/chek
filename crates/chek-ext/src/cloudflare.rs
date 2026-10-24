@@ -53,25 +53,26 @@ pub fn deploy(options: &Deploy) -> Result<(), String> {
     std::fs::write(&config, json)
         .map_err(|e| format!("couldn't write {}: {e}", config.display()))?;
 
-    let output = wrangler(&["deploy", "--config", path_str(&config)?], None)?;
+    let config_arg = path_str(&config)?;
+    let output = wrangler(&["deploy", "--config", config_arg], Input::None, Echo::Yes)?;
     let url = output
         .split_whitespace()
         .find(|word| word.starts_with("https://") && word.contains(".workers.dev"))
         .map(str::to_owned);
 
-    // The token is set once and kept by Cloudflare. A marker per Worker
-    // remembers that, so deploying an update doesn't change it.
-    let marker = config_dir.join(format!("{worker}.token-set"));
-    let token = if options.public || (marker.exists() && !options.rotate_token) {
+    // The token is set once and kept by Cloudflare, so deploying an update,
+    // from this machine or another, leaves it alone. Cloudflare is asked
+    // whether it has one rather than anything kept here.
+    let has_token = !options.public && has_secret(config_arg);
+    let token = if options.public || (has_token && !options.rotate_token) {
         None
     } else {
         let token = new_token();
         wrangler(
-            &["secret", "put", SECRET, "--config", path_str(&config)?],
-            Some(&token),
+            &["secret", "put", SECRET, "--config", config_arg],
+            Input::Secret(&token),
+            Echo::No,
         )?;
-        std::fs::write(&marker, "")
-            .map_err(|e| format!("couldn't write {}: {e}", marker.display()))?;
         Some(token)
     };
 
@@ -89,9 +90,42 @@ pub fn deploy(options: &Deploy) -> Result<(), String> {
     Ok(())
 }
 
+enum Input<'a> {
+    None,
+    /// Passed on stdin, never as an argument, so it stays out of process
+    /// lists and shell history.
+    Secret(&'a str),
+}
+
+#[derive(PartialEq)]
+enum Echo {
+    Yes,
+    No,
+}
+
+/// Whether the Worker already has its token. A Worker that doesn't exist
+/// yet, or a listing that fails, counts as no.
+fn has_secret(config: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Secret {
+        name: String,
+    }
+    wrangler(
+        &["secret", "list", "--format", "json", "--config", config],
+        Input::None,
+        Echo::No,
+    )
+    .ok()
+    .and_then(|output| serde_json::from_str::<Vec<Secret>>(output.trim()).ok())
+    .is_some_and(|secrets| secrets.iter().any(|s| s.name == SECRET))
+}
+
 /// Runs Cloudflare's CLI, from the PATH or through npx, and returns what it
-/// printed after showing it.
-fn wrangler(args: &[&str], stdin: Option<&str>) -> Result<String, String> {
+/// printed. With `Echo::Yes` its output is shown line by line as it runs,
+/// so a sign-in link appears while wrangler waits on it.
+fn wrangler(args: &[&str], input: Input<'_>, echo: Echo) -> Result<String, String> {
+    use std::io::BufRead;
+
     let installed = Command::new("wrangler")
         .arg("--version")
         .stdout(Stdio::null())
@@ -108,26 +142,37 @@ fn wrangler(args: &[&str], stdin: Option<&str>) -> Result<String, String> {
     command
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    command.stdin(if stdin.is_some() {
-        Stdio::piped()
-    } else {
-        Stdio::inherit()
-    });
+        .stderr(if echo == Echo::Yes {
+            Stdio::inherit()
+        } else {
+            Stdio::null()
+        })
+        .stdin(match input {
+            Input::None => Stdio::inherit(),
+            Input::Secret(_) => Stdio::piped(),
+        });
     let mut child = command.spawn().map_err(|e| {
-        format!("couldn't run wrangler ({e}); install Node.js, or wrangler itself with `npm install -g wrangler`")
+        format!(
+            "couldn't run wrangler ({e}); install Node.js, or wrangler itself with `npm install -g wrangler`"
+        )
     })?;
-    if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
+    if let (Input::Secret(text), Some(mut pipe)) = (input, child.stdin.take()) {
         pipe.write_all(text.as_bytes())
             .map_err(|e| format!("couldn't pass the token to wrangler: {e}"))?;
     }
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
-    let printed = String::from_utf8_lossy(&output.stdout).into_owned();
-    // Never echo what `secret put` printed alongside a token being set.
-    if stdin.is_none() {
-        print!("{printed}");
+    let mut printed = String::new();
+    if let Some(stdout) = child.stdout.take() {
+        for line in std::io::BufReader::new(stdout).lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            if echo == Echo::Yes {
+                println!("{line}");
+            }
+            printed.push_str(&line);
+            printed.push('\n');
+        }
     }
-    if !output.status.success() {
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
         return Err(format!(
             "wrangler {} failed",
             args.first().copied().unwrap_or_default()

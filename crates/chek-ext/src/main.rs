@@ -44,38 +44,53 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<(), String> {
     let (command, rest) = args.split_first().ok_or(USAGE)?;
     let mut options = Options::parse(rest)?;
-    match command.as_str() {
-        "new" => scaffold::new(&options.positional(0, "a name for the source")?),
+    // Every argument is read before anything runs, so a mistyped flag
+    // stops the command instead of being ignored by it.
+    let action: Box<dyn FnOnce() -> Result<(), String>> = match command.as_str() {
+        "new" => {
+            let name = options.positional(0, "a name for the source")?;
+            Box::new(move || scaffold::new(&name))
+        }
         "build" => {
             let out = options.path("--out", "dist");
-            compile::build(&out)?;
-            index::write(&out, options.value("--name").as_deref())
+            let name = options.value("--name");
+            Box::new(move || {
+                compile::build(&out)?;
+                index::write(&out, name.as_deref())
+            })
         }
-        "index" => index::write(
-            &PathBuf::from(options.positional(0, "the folder of components")?),
-            options.value("--name").as_deref(),
-        ),
+        "index" => {
+            let dir = PathBuf::from(options.positional(0, "the folder of components")?);
+            let name = options.value("--name");
+            Box::new(move || index::write(&dir, name.as_deref()))
+        }
         "deploy" => match options
             .positional(0, "where to deploy, such as cloudflare")?
             .as_str()
         {
-            "cloudflare" => cloudflare::deploy(&cloudflare::Deploy {
-                dir: options.path("--dir", "dist"),
-                worker: options.value("--worker"),
-                public: options.flag("--public"),
-                rotate_token: options.flag("--rotate-token"),
-            }),
-            other => Err(format!(
-                "can't deploy to {other:?} yet; Cloudflare is supported"
-            )),
+            "cloudflare" => {
+                let deploy = cloudflare::Deploy {
+                    dir: options.path("--dir", "dist"),
+                    worker: options.value("--worker"),
+                    public: options.flag("--public"),
+                    rotate_token: options.flag("--rotate-token"),
+                };
+                Box::new(move || cloudflare::deploy(&deploy))
+            }
+            other => {
+                return Err(format!(
+                    "can't deploy to {other:?} yet; Cloudflare is supported"
+                ));
+            }
         },
-        "help" | "--help" | "-h" => {
+        "help" | "--help" | "-h" => Box::new(|| {
             print!("{USAGE}");
             Ok(())
-        }
-        other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
-    }
-    .and_then(|()| options.finish())
+        }),
+        other => return Err(format!("unknown command {other:?}\n\n{USAGE}")),
+    };
+    options.finish()?;
+    action()
 }
 
 /// Arguments after the command: `--flag`, `--key value` and positionals.

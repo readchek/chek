@@ -440,13 +440,13 @@ fn get(
             .get(WWW_AUTHENTICATE)
             .and_then(|h| h.to_str().ok());
         Some(Challenge::parse(header))
-    } else if signed {
-        None
     } else if status == StatusCode::NOT_FOUND && url.host_str() == Some("raw.githubusercontent.com")
     {
         // GitHub hides a private repository's files behind 404 from anyone
-        // not signed in to it, and takes a token for them.
+        // not signed in to it, a wrong token included, and takes a token.
         Some(Challenge::Bearer)
+    } else if signed {
+        None
     } else if response
         .url()
         .host_str()
