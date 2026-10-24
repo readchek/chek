@@ -1961,6 +1961,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/RepositoryNeedsCredentials"
         "502":
           $ref: "#/components/responses/RepositoryUnreadable"
         "500":
@@ -2005,6 +2007,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RepositoryNeedsCredentials"
         "502":
           $ref: "#/components/responses/RepositoryUnreadable"
         "500":
@@ -2034,7 +2038,8 @@ paths:
       summary: Fetch a repository's index again
       description: >-
         A failed fetch is recorded in `fetchError`, and the repository keeps
-        its last good index.
+        its last good index. The server also fetches every repository's index
+        again every six hours, so new versions show up as updates.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -2939,6 +2944,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    RepositoryNeedsCredentials:
+      description: >-
+        The repository answered 401 or 403. The code says what to ask for, from
+        the scheme of its `WWW-Authenticate` header:
+        `repository_needs_token` (Bearer), `repository_needs_password` (Basic),
+        or `repository_needs_credentials` (another scheme or none, as for a
+        host that checks its own headers). `repository_credentials_refused`
+        means credentials were sent and refused. Not 401, which would mean the
+        client's own session ended.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Internal:
       description: The server failed; details are in its log.
       content:
@@ -3138,6 +3156,27 @@ components:
               example: X-Api-Key
             value:
               type: string
+        - type: object
+          additionalProperties: false
+          required: [type, headers]
+          description: Several headers, such as a Cloudflare Access service token's ID and secret.
+          properties:
+            type:
+              const: headers
+            headers:
+              type: array
+              minItems: 1
+              maxItems: 8
+              items:
+                type: object
+                additionalProperties: false
+                required: [name, value]
+                properties:
+                  name:
+                    type: string
+                    example: CF-Access-Client-Id
+                  value:
+                    type: string
     AvailableExtension:
       type: object
       required: [repositoryId, id, name, version, sites, languages, capabilities, installedVersion]

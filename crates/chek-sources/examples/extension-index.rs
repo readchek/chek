@@ -68,7 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{} {} ({})", manifest.id, manifest.version, path.display());
     }
     let _ = std::fs::remove_dir_all(&state);
-    let index = Index { name, extensions };
+    let index = Index {
+        spec: Some(chek_sources::repository::SPEC_VERSION),
+        name,
+        extensions,
+    };
     std::fs::write(
         dir.join("index.json"),
         serde_json::to_string_pretty(&index)? + "\n",

@@ -62,6 +62,14 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Every repository, everyone's, for refreshing them all.
+    pub fn all_extension_repositories(&self) -> Result<Vec<ExtensionRepository>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!("{SELECT} ORDER BY id"))?;
+        let rows = stmt.query_map([], from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn extension_repository(&self, id: i64) -> Result<Option<ExtensionRepository>> {
         Ok(self
             .conn()

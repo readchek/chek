@@ -22,8 +22,11 @@ Needs Rust with the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`).
 The folder holds one `<crate>-<version>.wasm` per source and an
 `index.json` written from each component's own manifest, with its SHA-256
 digest. Serve it over HTTPS and add the folder's URL in Chek. A private
-repository can sit behind a bearer token, basic auth or a custom header,
+repository can sit behind a bearer token, basic auth or headers of its own,
 which Chek sends only to the repository's own origin.
+[Extension repositories](../docs/extension-repositories.md) is the format and
+how to host one privately, such as on Cloudflare Workers or in a private
+GitHub repository; [`index.schema.json`](index.schema.json) checks an index.
 
 ## Write a source
 
