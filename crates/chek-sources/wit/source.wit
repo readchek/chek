@@ -322,7 +322,9 @@ interface chapter-pages {
     // Up to `limit` chapters starting at `offset`, or just past chapter
     // `after` when given, counted from the end `order` names. Releases of
     // one chapter must be listed next to each other, as sites that sort by
-    // number do, since the server groups them a page at a time. Return
+    // number do, since the server groups them a page at a time. Items are
+    // the entries from `offset` on with none left out, so the next page
+    // starts at `offset` plus their count; fewer than `limit` is fine. Return
     // `not-found` for an `after` the site can't place without reading
     // everything; the host then finds it in the complete list.
     page: func(series-id: string, order: chapter-order, offset: u32, limit: u32, after: option<string>) -> result<chapter-page, error>;
