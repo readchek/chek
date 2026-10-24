@@ -369,12 +369,13 @@ their own repositories, and `chek ext build` builds them into a repository folde
   manifest, search, series, chapters, pages and an image transform hook. Series and
   chapter ids are the source's own, stored as remote ids; pages and covers
   come back as URLs with headers, which the server fetches itself. A series
-  also says whether it's still going, the year it started and its genres,
-  where the source knows, which the API passes on as it is. A chapter
+  also says whether it's still going, the year it started, its genres and
+  its content rating, where the source knows, which the API passes on as
+  it is. Search is given the content ratings the user sees. A chapter
   says, where the source knows, the language it's written in, the group
   that released it and whether that's the publisher. Its `version` is only
   a content revision, so a group's name never goes there.
-- The contract's version is in the package name, `chek:source@0.5.0`. A
+- The contract's version is in the package name, `chek:source@0.6.0`. A
   component built against another version doesn't link, so every change to
   a record or call bumps it, and every source is rebuilt and republished.
 - Each call runs in a fresh instance, so nothing in memory carries over
@@ -473,7 +474,7 @@ their own repositories, and `chek ext build` builds them into a repository folde
   a supervised ten-second worker: at most 256 tiles, 8 million pixels, four
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
-  rebuild for contract 0.5.
+  rebuild for contract 0.6.
 - The manifest names up to 64 hosts the extension may reach, exactly or as
   `*.example.org` for any subdomain. Requests, redirects and image fetches
   go over HTTPS to those hosts only. IP addresses and local names such as
@@ -550,6 +551,14 @@ their own repositories, and `chek ext build` builds them into a repository folde
   default; past it, the least recently read images are deleted, and an
   image larger than a tenth of the cap isn't kept. 0 turns the cache off and
   empties the folder at startup.
+- Each user chooses the content ratings they see, on MangaDex's scale of
+  safe, suggestive, erotica and pornographic, through
+  `/api/v1/me/content-ratings`. One choice covers every source: it's passed
+  to the extension's search, and the server drops results the extension
+  rates outside it, so a source that ignores it still can't show them.
+  Unrated results are kept. Until a user chooses, and always on a demo
+  account, they see safe and suggestive. Only search filters; a series
+  opened by id is answered with its rating whatever the choice.
 - Browsing stores nothing; following a series into an extension library
   does.
 - Reader page-list calls take priority over queued catalog work. Calls still
@@ -581,7 +590,7 @@ their own repositories, and `chek ext build` builds them into a repository folde
   version changed has its page list dropped. Edits survive syncs, as for
   Komga's books.
 - Sources may additionally export chapter pagination without changing the
-  required 0.5 contract. Each batch gets a fresh bounded instance; the host
+  required 0.6 contract. Each batch gets a fresh bounded instance; the host
   collects the complete list before updating the catalog. It rejects duplicate
   IDs, cursor cycles, changing totals and incomplete traversals. Complete
   traversals are capped at 20,000 chapters, 32 MiB of text and 256 batches,

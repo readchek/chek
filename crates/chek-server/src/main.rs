@@ -5,6 +5,7 @@ mod api;
 mod auth;
 mod browse;
 mod config;
+mod content_ratings;
 mod edits;
 mod extensions;
 mod installs;

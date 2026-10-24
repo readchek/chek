@@ -56,6 +56,12 @@ stands, and implement `Guest`:
   shows one chapter with a choice of releases. Keep `version` for a content
   revision that changes when the pages do; a group's name doesn't belong
   there.
+- `search` gets the content ratings the reader chose to see, from `Safe`
+  through `Suggestive` and `Erotica` to `Pornographic`, never empty. Ask
+  the site for only those where it filters by rating, so pages stay full,
+  and set `content_rating` on each `SeriesItem` and `Series` where the site
+  says. Chek drops search results rated outside the reader's choice and
+  keeps unrated ones, so a source that can't tell leaves it `None`.
 - `Get::new(url).cache(seconds).json()` fetches and parses a response, and
   lets Chek answer repeats from its cache. Cache listings; don't cache
   anything with a short-lived token in it.
@@ -131,7 +137,7 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
-Chapter pagination is an optional export alongside the existing 0.5 source
+Chapter pagination is an optional export alongside the existing 0.6 source
 world. Implement `chek_extension::ChapterPagination` and invoke
 `chek_extension::export_chapter_pagination!(YourSource)` as well as
 `export_source!`. Return `ChapterBatch { items, next, total }`; `next` is an
@@ -166,8 +172,11 @@ in the complete list instead. Pages allow at most 500 chapters, no more than
 `limit`, and 4 MiB of text. Keep `chapters` (and batches, if the site has
 them) for library sync, which still reads the complete list.
 
-The current contract is `chek:source@0.5.0`. Components built against 0.4
-must be rebuilt with the current SDK: add `language`, `release_group` and
+The current contract is `chek:source@0.6.0`. Components built against 0.5
+must be rebuilt with the current SDK: `search` takes a third argument, the
+`ContentRating`s the reader chose to see, and `SeriesItem` and `Series`
+gain `content_rating`, set where the site rates its series. Components
+built against 0.4 also need `language`, `release_group` and
 `official` to every `Chapter`, and move a group name out of `version` if the
 source put one there. Components built against 0.3 also need `transform: None` added to directly
 constructed images and implement `transform_image`, returning `Ok(None)`

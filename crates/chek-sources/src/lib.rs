@@ -60,7 +60,7 @@ mod pagination_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paginated-chapters",
-        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
     });
 }
 
@@ -68,7 +68,7 @@ mod pages_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paged-chapters",
-        with: { "chek:source/types@0.5.0": crate::bindings::chek::source::types },
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
     });
 }
 
@@ -76,13 +76,13 @@ pub use pages_bindings::exports::chek::source::chapter_pages::{ChapterOrder, Cha
 pub use pagination_bindings::exports::chek::source::chapter_pagination::Batch as ChapterBatch;
 
 pub use bindings::chek::source::types::{
-    Capability, Chapter, Contributor, Error as SourceError, Image, ImageData, Manifest,
-    ReadingDirection, Series, SeriesItem, SeriesPage, Status,
+    Capability, Chapter, ContentRating, Contributor, Error as SourceError, Image, ImageData,
+    Manifest, ReadingDirection, Series, SeriesItem, SeriesPage, Status,
 };
 
 /// The contract version this server links, as the package in `source.wit`
 /// names it. Components built against another don't link.
-pub const CONTRACT_VERSION: &str = "0.5.0";
+pub const CONTRACT_VERSION: &str = "0.6.0";
 
 /// Memory one instance may grow to.
 const MAX_MEMORY: usize = 64 << 20;
@@ -263,12 +263,12 @@ impl Host {
             .instantiate_pre(&component)
             .map_err(link_error)?;
         let pagination = component
-            .get_export_index(None, "chek:source/chapter-pagination@0.5.0")
+            .get_export_index(None, "chek:source/chapter-pagination@0.6.0")
             .map(|_| pagination_bindings::PaginatedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pagination: {error:#}")))?;
         let pages = component
-            .get_export_index(None, "chek:source/chapter-pages@0.5.0")
+            .get_export_index(None, "chek:source/chapter-pages@0.6.0")
             .map(|_| pages_bindings::PagedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pages: {error:#}")))?;
@@ -500,10 +500,22 @@ impl Source {
     }
 
     /// A page of series matching `query`, counting pages from 1. An empty
-    /// query lists what the source shows first.
-    pub fn search(&self, query: &str, page: u32) -> Result<SeriesPage, Error> {
-        self.call(|bindings, store| bindings.call_search(store, query, page))?
-            .map_err(Error::Source)
+    /// query lists what the source shows first. Items the source rates
+    /// outside `content_ratings` are dropped, whether or not it honored them.
+    pub fn search(
+        &self,
+        query: &str,
+        page: u32,
+        content_ratings: &[ContentRating],
+    ) -> Result<SeriesPage, Error> {
+        let mut found = self
+            .call(|bindings, store| bindings.call_search(store, query, page, content_ratings))?
+            .map_err(Error::Source)?;
+        found.items.retain(|item| {
+            item.content_rating
+                .is_none_or(|rating| content_ratings.contains(&rating))
+        });
+        Ok(found)
     }
 
     pub fn series(&self, id: &str) -> Result<Series, Error> {
