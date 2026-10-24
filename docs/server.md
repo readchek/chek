@@ -31,6 +31,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 | Crate | Responsibility |
 | --- | --- |
 | `chek-catalog` | Data model, SQLite migrations and queries |
+| `chek-ext` | The command-line tool extension authors use to start a source, build a repository and deploy it |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
 | `chek-kavita` | Client for Kavita's REST API, which Kavita source libraries read |
 | `chek-komga` | Client for Komga's REST API, which Komga source libraries read |

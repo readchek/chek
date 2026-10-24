@@ -94,7 +94,9 @@ it keeps caches from serving an old component as a new one.
 
 ### Cloudflare Workers
 
-A Worker with [static assets](https://developers.cloudflare.com/workers/static-assets/)
+`chek-ext deploy cloudflare` does all of this, setting a random token; see
+[`extensions/README.md`](../extensions/README.md#publish-a-private-repository).
+By hand, a Worker with [static assets](https://developers.cloudflare.com/workers/static-assets/)
 serves the folder and checks a token. Next to `dist/`, add `wrangler.jsonc`:
 
 ```jsonc
@@ -111,7 +113,10 @@ and `worker.js`:
 ```js
 export default {
   async fetch(request, env) {
-    const expected = new TextEncoder().encode(`Bearer ${env.CHEK_REPOSITORY_TOKEN}`);
+    const token = env.CHEK_REPOSITORY_TOKEN;
+    // Until a token is set, serve nothing rather than accept "Bearer undefined".
+    if (!token) return new Response("Not ready.", { status: 503 });
+    const expected = new TextEncoder().encode(`Bearer ${token}`);
     const given = new TextEncoder().encode(request.headers.get("Authorization") ?? "");
     const ok = given.byteLength === expected.byteLength
       && crypto.subtle.timingSafeEqual(given, expected);

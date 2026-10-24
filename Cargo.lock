@@ -301,6 +301,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "chek-ext"
+version = "0.1.0"
+dependencies = [
+ "chek-sources",
+ "getrandom 0.4.3",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "wasmtime",
+ "wasmtime-wasi",
+]
+
+[[package]]
 name = "chek-formats"
 version = "0.1.0"
 dependencies = [

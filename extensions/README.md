@@ -28,6 +28,26 @@ which Chek sends only to the repository's own origin.
 how to host one privately, such as on Cloudflare Workers or in a private
 GitHub repository; [`index.schema.json`](index.schema.json) checks an index.
 
+## Publish a private repository
+
+`chek-ext` takes a source from a new folder to a repository online behind a
+token, outside this repository too. It needs Rust with the `wasm32-wasip2`
+target, and Node.js for Cloudflare's `wrangler`.
+
+```sh
+cargo install --git https://github.com/readchek/chek chek-ext
+chek-ext new my-source        # a source crate that builds as it stands
+cd my-source
+chek-ext build                # dist/: the component and index.json
+chek-ext deploy cloudflare    # a Worker that serves dist/ to whoever has the token
+```
+
+The first deploy signs in to Cloudflare if needed, sets a random token and
+prints it once with the address. Add both in Chek under Sources, Add
+Repository. Deploying again publishes an update and keeps the token;
+`--rotate-token` replaces it and `--public` serves without one. The Worker's
+files are in `.chek/cloudflare`.
+
 ## Write a source
 
 Copy `sources/mangadex`, rename the crate, and implement `Guest`:

@@ -1,0 +1,21 @@
+[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+chek-extension = { git = "https://github.com/readchek/chek" }
+serde = { version = "1", features = ["derive"] }
+
+# A project of its own, even inside another workspace.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
