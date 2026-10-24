@@ -1,7 +1,10 @@
 name: Publish image
 
 # Pushes ghcr.io/readchek/chek for every push to main (`edge`) and for every
-# release tag such as `0.1.0` (`0.1.0`, `0.1` and `latest`). Pull requests are
+# release tag such as `0.1.0` (`0.1.0`, `0.1` and `latest`). The Dockerfile's
+# `browser` target, with Chromium for browser-backed extensions, gets the same
+# tags with `-browser` on the end, such as `edge-browser`, in the same package
+# so it needs no visibility setting of its own. Pull requests are
 # checked by the Docker jobs in ci.yml, which build the same image without
 # pushing; both share the GitHub Actions build cache, so a push to main
 # mostly reuses what its pull request already built.
@@ -30,11 +33,13 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.arch }}
+    name: Build ${{ matrix.target }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        target: [default, browser]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-latest
@@ -56,13 +61,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           # Push the layers without a tag; the manifest job tags the pair.
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           tags: ${{ env.IMAGE }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+          # The same scopes as ci.yml's Docker jobs, so a push to main reuses
+          # what its pull request built.
+          cache-from: |
+            type=gha,scope=${{ matrix.arch }}
+            type=gha,scope=${{ matrix.arch }}-${{ matrix.target }}
+          cache-to: type=gha,scope=${{ matrix.arch }}-${{ matrix.target }},mode=max
       - name: Start the image
         run: |
           docker run -d --name chek -p 8080:8080 "$IMAGE@${{ steps.build.outputs.digest }}"
@@ -79,20 +89,23 @@ jobs:
           touch "digests/${digest#sha256:}"
       - uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.arch }}
+          name: digest-${{ matrix.target }}-${{ matrix.arch }}
           path: digests/*
           if-no-files-found: error
           retention-days: 1
 
   manifest:
-    name: Tag the manifest
+    name: Tag the ${{ matrix.target }} manifest
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [default, browser]
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: digests
-          pattern: digest-*
+          pattern: digest-${{ matrix.target }}-*
           merge-multiple: true
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v3
@@ -104,6 +117,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
+          flavor: suffix=${{ matrix.target == 'browser' && '-browser' || '' }},onlatest=true
           # main is `edge`; a release tag gets its version, its minor
           # series and `latest`.
           tags: |

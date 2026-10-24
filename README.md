@@ -126,7 +126,8 @@ docker run -d --name chek -p 8080:8080 -v chek-data:/data -v /path/to/comics:/li
 ```
 
 `latest` is the newest release, such as `0.1.0`, and `edge` is the newest
-commit on `main`. A release is a tag on `main` named by its version, which
+commit on `main`. Each tag has a `-browser` twin, such as `latest-browser`,
+with Chromium for browser-backed extensions. A release is a tag on `main` named by its version, which
 CI publishes: run the Release workflow in the Actions tab with the version,
 or `git tag 0.1.0 && git push origin 0.1.0`. To build the image yourself,
 `docker build -t chek .`.

@@ -5,7 +5,8 @@ In Dokploy, create a Compose application from `readchek/chek` and select
 Set `CHEK_SETUP_TOKEN` to at least 32 random characters, then deploy. Create the
 first admin through `/api/v1/setup` as described in the root README.
 
-This uses the Dockerfile's `browser` target: Chromium, Xvfb, fonts and process
+This runs `ghcr.io/readchek/chek:edge-browser`, which CI publishes from main
+and is built from the Dockerfile's `browser` target: Chromium, Xvfb, fonts and process
 cleanup are included. No browser path, display or launch arguments are needed.
 The container runs as the `chek` user. Chromium's own sandbox is disabled for
 container compatibility; use this image only for trusted source extensions.
@@ -63,7 +64,7 @@ by the site later. No remote desktop or exposed Chrome debugging port is needed.
 
 ## Updating
 
-Redeploy the same Compose application to rebuild from the selected revision.
-Keep its data volume. The published `ghcr.io/readchek/chek` image has no
-browser, so this file builds the `browser` target from source. For the raw
-Compose equivalent, use the Git build context with `target: browser`.
+Redeploy the same Compose application to pull the latest `edge-browser`.
+Keep its data volume. To pin a release instead, set `CHEK_IMAGE` to its
+browser tag, such as `ghcr.io/readchek/chek:0.1.0-browser`; every release
+tag has one, alongside the browser-free `0.1.0`.
