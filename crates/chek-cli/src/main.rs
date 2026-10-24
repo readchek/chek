@@ -1,4 +1,5 @@
-//! `chek-ext`: makes Chek extension repositories and puts them online.
+//! `chek`: the command for working with Chek outside the app. `chek ext`
+//! makes extension repositories and puts them online.
 //!
 //! The repository format is in `docs/extension-repositories.md`. This tool
 //! only writes that format and drives the host's own CLI; nothing it makes
@@ -13,13 +14,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-chek-ext: build Chek extensions and publish them as a repository
+chek: work with Chek from the command line
 
 Usage:
-  chek-ext new <name>                     Start a source crate in ./<name>
-  chek-ext build [--out dist] [--name N]  Build every source here into a repository folder
-  chek-ext index <folder> [--name N]      Write index.json for a folder of components
-  chek-ext deploy cloudflare [options]    Put the folder on Cloudflare Workers
+  chek ext new <name>                     Start a source crate in ./<name>
+  chek ext build [--out dist] [--name N]  Build every source here into a repository folder
+  chek ext index <folder> [--name N]      Write index.json for a folder of components
+  chek ext deploy cloudflare [options]    Put the folder on Cloudflare Workers
 
 Deploy options:
   --dir <folder>     The repository folder (default dist)
@@ -42,6 +43,19 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    match args.split_first() {
+        Some((group, rest)) if group == "ext" => ext(rest),
+        None => Err(USAGE.to_owned()),
+        Some((help, _)) if matches!(help.as_str(), "help" | "--help" | "-h") => {
+            print!("{USAGE}");
+            Ok(())
+        }
+        Some((other, _)) => Err(format!("unknown command {other:?}\n\n{USAGE}")),
+    }
+}
+
+/// `chek ext …`: extension repositories.
+fn ext(args: &[String]) -> Result<(), String> {
     let (command, rest) = args.split_first().ok_or(USAGE)?;
     let mut options = Options::parse(rest)?;
     // Every argument is read before anything runs, so a mistyped flag

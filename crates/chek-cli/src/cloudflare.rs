@@ -1,4 +1,4 @@
-//! `chek-ext deploy cloudflare`: the repository folder as a Cloudflare
+//! `chek ext deploy cloudflare`: the repository folder as a Cloudflare
 //! Worker's static assets, behind a bearer token unless it's public.
 //!
 //! The Worker's files go in `.chek/cloudflare`, and Cloudflare's own
@@ -22,7 +22,7 @@ pub struct Deploy {
 pub fn deploy(options: &Deploy) -> Result<(), String> {
     if !options.dir.join("index.json").is_file() {
         return Err(format!(
-            "{} has no index.json; run `chek-ext build` first",
+            "{} has no index.json; run `chek ext build` first",
             options.dir.display()
         ));
     }

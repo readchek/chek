@@ -1,7 +1,7 @@
 //! {title}, a Chek source.
 //!
-//! Build a repository with `chek-ext build`, and put it online with
-//! `chek-ext deploy cloudflare`.
+//! Build a repository with `chek ext build`, and put it online with
+//! `chek ext deploy cloudflare`.
 
 use chek_extension::prelude::*;
 

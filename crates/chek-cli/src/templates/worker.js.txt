@@ -1,5 +1,5 @@
 // Serves a Chek extension repository to whoever has its token, as
-// docs/extension-repositories.md describes. Written by chek-ext.
+// docs/extension-repositories.md describes. Written by `chek ext`.
 export default {
   async fetch(request, env) {
     const token = env.CHEK_REPOSITORY_TOKEN;

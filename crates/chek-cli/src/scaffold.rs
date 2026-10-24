@@ -1,4 +1,4 @@
-//! `chek-ext new`: a source crate that builds as it stands.
+//! `chek ext new`: a source crate that builds as it stands.
 
 use std::path::Path;
 
@@ -47,6 +47,6 @@ pub fn new(name: &str) -> Result<(), String> {
     write("Cargo.toml", &fill(CARGO_TOML))?;
     write("src/lib.rs", &fill(LIB_RS))?;
     write(".gitignore", GITIGNORE)?;
-    println!("Created {name}. Next:\n  cd {name}\n  chek-ext build\n  chek-ext deploy cloudflare");
+    println!("Created {name}. Next:\n  cd {name}\n  chek ext build\n  chek ext deploy cloudflare");
     Ok(())
 }

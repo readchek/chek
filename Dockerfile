@@ -11,8 +11,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked --bin chek \
-    && cp target/release/chek /chek
+    cargo build --release --locked --bin chek-server \
+    && cp target/release/chek-server /chek
 
 FROM debian:trixie-slim
 # libvips makes cover thumbnails; its poppler module renders PDF covers.

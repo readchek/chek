@@ -31,7 +31,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 | Crate | Responsibility |
 | --- | --- |
 | `chek-catalog` | Data model, SQLite migrations and queries |
-| `chek-ext` | The command-line tool extension authors use to start a source, build a repository and deploy it |
+| `chek-cli` | The `chek` command, whose `chek ext` extension authors use to start a source, build a repository and deploy it |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
 | `chek-kavita` | Client for Kavita's REST API, which Kavita source libraries read |
 | `chek-komga` | Client for Komga's REST API, which Komga source libraries read |
@@ -39,11 +39,9 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
-Source extensions live in [`extensions/`](../extensions/README.md), a
-workspace of its own that builds to WebAssembly: the `chek-extension` SDK,
-one crate per source, and `build.sh`, which writes a repository folder.
-`cargo run -p chek-sources --example extension-index -- <folder>` writes
-the `index.json` for any folder of components.
+The `chek-extension` SDK lives in [`extensions/`](../extensions/README.md), a
+workspace of its own that builds to WebAssembly. Sources themselves live in
+their own repositories, and `chek ext build` builds them into a repository folder.
 
 ## Serving
 

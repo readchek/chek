@@ -46,7 +46,8 @@ is its JSON Schema.
   is at most 1 MiB and lists at most 1,000 extensions, and a component is at
   most 32 MiB.
 
-`extensions/build.sh` writes this folder from the sources in `extensions/sources`.
+`chek ext build` writes this folder from the sources in a workspace, and
+`chek ext index` writes `index.json` for any folder of components.
 
 ## Private repositories
 
@@ -99,7 +100,7 @@ it keeps caches from serving an old component as a new one.
 
 ### Cloudflare Workers
 
-`chek-ext deploy cloudflare` does all of this, setting a random token; see
+`chek ext deploy cloudflare` does all of this, setting a random token; see
 [`extensions/README.md`](../extensions/README.md#publish-a-private-repository).
 By hand, a Worker with [static assets](https://developers.cloudflare.com/workers/static-assets/)
 serves the folder and checks a token. Next to `dist/`, add `wrangler.jsonc`:

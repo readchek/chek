@@ -1,9 +1,8 @@
-# Source extensions for Chek, built to WebAssembly components with
-# `./build.sh`. A workspace of its own: these crates target `wasm32-wasip2`,
-# not the server.
+# The SDK Chek source extensions are written with. A workspace of its own:
+# it targets `wasm32-wasip2`, not the server.
 [workspace]
 resolver = "3"
-members = ["sdk", "sources/*"]
+members = ["sdk"]
 
 [workspace.package]
 edition = "2024"
