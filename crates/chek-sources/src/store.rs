@@ -31,8 +31,6 @@ pub(crate) enum Namespace {
     Response,
     /// What the browser solver earned, such as its user agent.
     Browser,
-    /// Successful catalog exports, separated from extension-controlled values.
-    Catalog,
 }
 
 impl Namespace {
@@ -41,7 +39,6 @@ impl Namespace {
             Namespace::Value => "value",
             Namespace::Response => "response",
             Namespace::Browser => "browser",
-            Namespace::Catalog => "catalog",
         }
     }
 }

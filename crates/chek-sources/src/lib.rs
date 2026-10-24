@@ -53,17 +53,13 @@ use crate::sites::Sites;
 use crate::store::Namespace;
 
 mod bindings {
-    wasmtime::component::bindgen!({
-        path: "wit", world: "source",
-        additional_derives: [serde::Serialize, serde::Deserialize],
-    });
+    wasmtime::component::bindgen!({ path: "wit", world: "source" });
 }
 
 mod pagination_bindings {
     wasmtime::component::bindgen!({
         path: "wit",
         world: "paginated-chapters",
-        additional_derives: [serde::Serialize, serde::Deserialize],
         with: { "chek:source/types@0.4.0": crate::bindings::chek::source::types },
     });
 }
@@ -489,27 +485,13 @@ impl Source {
     /// A page of series matching `query`, counting pages from 1. An empty
     /// query lists what the source shows first.
     pub fn search(&self, query: &str, page: u32) -> Result<SeriesPage, Error> {
-        self.cached(json!(["search", query, page]), 60, || {
-            run(
-                &self.pre,
-                Some(Arc::clone(&self.context)),
-                false,
-                |bindings, store| bindings.call_search(store, query, page),
-            )?
+        self.call(|bindings, store| bindings.call_search(store, query, page))?
             .map_err(Error::Source)
-        })
     }
 
     pub fn series(&self, id: &str) -> Result<Series, Error> {
-        self.cached(json!(["series", id]), 300, || {
-            run(
-                &self.pre,
-                Some(Arc::clone(&self.context)),
-                false,
-                |bindings, store| bindings.call_series(store, id),
-            )?
+        self.call(|bindings, store| bindings.call_series(store, id))?
             .map_err(Error::Source)
-        })
     }
 
     /// The series' chapters in reading order.
@@ -611,17 +593,7 @@ impl Source {
                 total,
             });
         };
-        self.cached(json!(["chapters", series_id, cursor]), 60, || {
-            self.read_chapter_batch(pre, series_id, cursor)
-        })
-    }
-
-    fn read_chapter_batch(
-        &self,
-        pre: &pagination_bindings::PaginatedChaptersPre<State>,
-        series_id: &str,
-        cursor: Option<&str>,
-    ) -> Result<ChapterBatch, Error> {
+        let _call = self.context.calls.lock(false);
         let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
         let bindings = pre.instantiate(&mut store).map_err(trap)?;
         let batch = bindings
@@ -767,54 +739,16 @@ impl Source {
         })
     }
 
-    fn cached<T: serde::Serialize + serde::de::DeserializeOwned>(
+    fn call<R>(
         &self,
-        request: serde_json::Value,
-        ttl: u32,
-        fetch: impl FnOnce() -> Result<T, Error>,
-    ) -> Result<T, Error> {
-        let key = repository::sha256_hex(json!([self.digest, request]).to_string().as_bytes());
-        let read = || {
-            self.context
-                .store
-                .get(&self.context.scope, Namespace::Catalog, &key)
-                .and_then(|(_, bytes)| serde_json::from_slice::<T>(&bytes).ok())
-        };
-        if let Some(value) = read() {
-            return Ok(value);
-        }
+        export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
+    ) -> Result<R, Error> {
         let waiting = Instant::now();
         let _call = self.context.calls.lock(false);
         tracing::debug!(
             queue_ms = waiting.elapsed().as_millis() as u64,
             "catalog source call started"
         );
-        // Another caller may have fetched the same value while this one waited.
-        if let Some(value) = read() {
-            return Ok(value);
-        }
-        let value = fetch()?;
-        if let Ok(bytes) = serde_json::to_vec(&value)
-            && bytes.len() <= store::MAX_ENTRY
-            && let Err(error) = self.context.store.set(
-                &self.context.scope,
-                Namespace::Catalog,
-                &key,
-                None,
-                &bytes,
-                ttl,
-            )
-        {
-            tracing::warn!(%error, "could not cache source catalog result");
-        }
-        Ok(value)
-    }
-
-    fn call<R>(
-        &self,
-        export: impl FnOnce(&bindings::Source, &mut Store<State>) -> wasmtime::Result<R>,
-    ) -> Result<R, Error> {
-        let _call = self.context.calls.lock(false);
         run(&self.pre, Some(Arc::clone(&self.context)), false, export)
     }
 }
