@@ -1,0 +1,22 @@
+// Serves a Chek extension repository to whoever has its token, as
+// docs/extension-repositories.md describes. Written by `chek ext`.
+export default {
+  async fetch(request, env) {
+    const token = env.CHEK_REPOSITORY_TOKEN;
+    // Before the first token is set, nothing is served.
+    if (!token) {
+      return new Response("This repository isn't ready yet.", { status: 503 });
+    }
+    const expected = new TextEncoder().encode(`Bearer ${token}`);
+    const given = new TextEncoder().encode(request.headers.get("Authorization") ?? "");
+    const ok = given.byteLength === expected.byteLength
+      && crypto.subtle.timingSafeEqual(given, expected);
+    if (!ok) {
+      return new Response("Sign in to this Chek repository with its token.", {
+        status: 401,
+        headers: { "WWW-Authenticate": 'Bearer realm="chek"' },
+      });
+    }
+    return env.ASSETS.fetch(request);
+  },
+};

@@ -1,0 +1,58 @@
+//! {title}, a Chek source.
+//!
+//! Build a repository with `chek ext build`, and put it online with
+//! `chek ext deploy cloudflare`.
+
+use chek_extension::prelude::*;
+
+struct Source;
+
+impl Guest for Source {
+    fn manifest() -> Manifest {
+        Manifest {
+            // Reverse-DNS, unique across every repository: use a domain you own.
+            id: "com.example.{id}".into(),
+            name: "{title}".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            // Every host the source fetches from, images included. Requests
+            // anywhere else fail.
+            sites: vec!["example.com".into()],
+            languages: vec!["en".into()],
+            capabilities: vec![],
+        }
+    }
+
+    fn search(query: String, page: u32) -> Result<SeriesPage, Error> {
+        let _found: Value = Get::new(format!(
+            "https://example.com/api/search?q={}&page={page}",
+            encode(&query)
+        ))
+        .cache(600)
+        .json()?;
+        Ok(SeriesPage {
+            items: vec![],
+            has_more: false,
+        })
+    }
+
+    fn series(_id: String) -> Result<Series, Error> {
+        Err(Error::NotFound)
+    }
+
+    fn chapters(_series_id: String) -> Result<Vec<Chapter>, Error> {
+        Ok(vec![])
+    }
+
+    fn pages(_chapter_id: String) -> Result<Vec<Image>, Error> {
+        Ok(vec![])
+    }
+
+    fn transform_image(
+        _: Image,
+        _: chek_extension::http::Response,
+    ) -> Result<Option<ImageData>, Error> {
+        Ok(None)
+    }
+}
+
+export_source!(Source);

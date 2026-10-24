@@ -10,7 +10,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chek_catalog::{ExtensionRepository, Role};
-use chek_sources::repository::{self, Credentials, Index, RepositoryError};
+use chek_sources::repository::{self, Challenge, Credentials, Index, RepositoryError};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiError, AppState, blocking};
@@ -224,6 +224,20 @@ pub async fn refresh_repository(
     Path(id): Path<i64>,
 ) -> Result<Json<RepositoryDto>, ApiError> {
     let repository = visible_repository(&state, &current, id).await?;
+    let repository = refresh(&state, repository)
+        .await?
+        .ok_or_else(|| repository_not_found(id))?;
+    let allow_any = blocking(&state, |c| c.allow_any_repository()).await?;
+    Ok(Json(RepositoryDto::new(repository, allow_any)))
+}
+
+/// Reads a repository's index again and records the result, or why it
+/// failed. None when the repository was removed meanwhile.
+async fn refresh(
+    state: &AppState,
+    repository: ExtensionRepository,
+) -> Result<Option<ExtensionRepository>, ApiError> {
+    let id = repository.id;
     let credentials = credentials(&repository)?;
     let fetched = match fetch(repository.url, credentials).await {
         Ok(index) => Ok((
@@ -232,19 +246,55 @@ pub async fn refresh_repository(
         )),
         Err(e) => Err(e.message),
     };
-    let (repository, allow_any) = blocking(&state, move |c| {
+    blocking(state, move |c| {
         let fetched = match &fetched {
             Ok((name, index)) => Ok((name.as_deref(), index.as_str())),
             Err(error) => Err(error.as_str()),
         };
-        Ok((
-            c.record_repository_fetch(id, fetched)?,
-            c.allow_any_repository()?,
-        ))
+        c.record_repository_fetch(id, fetched)
     })
-    .await?;
-    let repository = repository.ok_or_else(|| repository_not_found(id))?;
-    Ok(Json(RepositoryDto::new(repository, allow_any)))
+    .await
+}
+
+/// How often every repository's index is read again, so new versions show
+/// up as updates without anyone refreshing by hand.
+pub const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Reads every repository's index again each `interval`, one at a time.
+pub fn refresh_repositories_every(state: AppState, interval: std::time::Duration) {
+    tokio::spawn(async move {
+        let mut ticks = tokio::time::interval(interval);
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The first tick is immediate; indexes were read when added.
+        ticks.tick().await;
+        loop {
+            ticks.tick().await;
+            let listed = blocking(&state, |c| {
+                Ok((c.all_extension_repositories()?, c.allow_any_repository()?))
+            })
+            .await;
+            let repositories = match listed {
+                // Users' own repositories can't be used while only the allow
+                // list is allowed, so they aren't read either.
+                Ok((repositories, allow_any)) => repositories
+                    .into_iter()
+                    .filter(|r| allow_any || r.owner_id.is_none())
+                    .collect::<Vec<_>>(),
+                Err(e) => {
+                    tracing::error!(error = %e.message, "couldn't list extension repositories to refresh");
+                    continue;
+                }
+            };
+            for repository in repositories {
+                let url = repository.url.clone();
+                // A failed read is recorded on the repository, which keeps its
+                // last good index; only a failure to record it is logged.
+                if let Err(e) = refresh(&state, repository).await {
+                    tracing::warn!(%url, error = %e.message, "couldn't refresh an extension repository");
+                }
+            }
+        }
+    });
 }
 
 /// Every extension offered by the repositories the user may install from.
@@ -362,6 +412,20 @@ async fn fetch(url: String, credentials: Option<Credentials>) -> Result<Index, A
 
 pub(crate) fn repository_error(error: RepositoryError) -> ApiError {
     let (status, code) = match error {
+        // 422 rather than 401, which clients take to mean their own session
+        // with Chek ended. The code says what to ask for.
+        RepositoryError::Unauthorized { signed: true, .. } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "repository_credentials_refused",
+        ),
+        RepositoryError::Unauthorized { challenge, .. } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            match challenge {
+                Challenge::Bearer => "repository_needs_token",
+                Challenge::Basic => "repository_needs_password",
+                Challenge::Other => "repository_needs_credentials",
+            },
+        ),
         RepositoryError::NotHttps(_) | RepositoryError::Credentials(_) => {
             (StatusCode::BAD_REQUEST, "bad_request")
         }

@@ -1961,6 +1961,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/RepositoryNeedsCredentials"
         "502":
           $ref: "#/components/responses/RepositoryUnreadable"
         "500":
@@ -2005,6 +2007,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RepositoryNeedsCredentials"
         "502":
           $ref: "#/components/responses/RepositoryUnreadable"
         "500":
@@ -2034,7 +2038,8 @@ paths:
       summary: Fetch a repository's index again
       description: >-
         A failed fetch is recorded in `fetchError`, and the repository keeps
-        its last good index.
+        its last good index. The server also fetches every repository's index
+        again every six hours, so new versions show up as updates.
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -2147,6 +2152,10 @@ paths:
             The component isn't a valid source extension (`extension_invalid`),
             doesn't match the index (`extension_mismatch`), or was built for
             another version of the source contract (`extension_incompatible`).
+            It can also be one of the repository codes of
+            `RepositoryNeedsCredentials` when the host refuses the component:
+            stored credentials were revoked, or the component is on another
+            origin, which isn't sent them.
           content:
             application/json:
               schema:
@@ -2909,6 +2918,21 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    RepositoryNeedsCredentials:
+      description: >-
+        The repository answered 401 or 403, or is a host known to refuse
+        another way: a private GitHub repository's 404, or Cloudflare Access's
+        redirect to its sign-in page. The code says what to ask for, from
+        the scheme of its `WWW-Authenticate` header:
+        `repository_needs_token` (Bearer), `repository_needs_password` (Basic),
+        or `repository_needs_credentials` (another scheme or none, as for a
+        host that checks its own headers). `repository_credentials_refused`
+        means credentials were sent and refused. Not 401, which would mean the
+        client's own session ended.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Internal:
       description: The server failed; details are in its log.
       content:
@@ -3028,6 +3052,10 @@ components:
             - repository_exists
             - repository_not_allowed
             - repository_unreadable
+            - repository_needs_token
+            - repository_needs_password
+            - repository_needs_credentials
+            - repository_credentials_refused
             - extension_invalid
             - source_failed
             - source_unavailable
@@ -3108,6 +3136,27 @@ components:
               example: X-Api-Key
             value:
               type: string
+        - type: object
+          additionalProperties: false
+          required: [type, headers]
+          description: Several headers, such as a Cloudflare Access service token's ID and secret.
+          properties:
+            type:
+              const: headers
+            headers:
+              type: array
+              minItems: 1
+              maxItems: 8
+              items:
+                type: object
+                additionalProperties: false
+                required: [name, value]
+                properties:
+                  name:
+                    type: string
+                    example: CF-Access-Client-Id
+                  value:
+                    type: string
     AvailableExtension:
       type: object
       required: [repositoryId, id, name, version, sites, languages, capabilities, installedVersion]

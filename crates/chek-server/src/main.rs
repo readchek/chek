@@ -115,6 +115,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             std::time::Duration::from_secs(config.source_sync_minutes * 60),
         );
     }
+    extensions::refresh_repositories_every(state.clone(), extensions::REFRESH_EVERY);
     let app = api::router(state);
 
     // Without TCP_NODELAY, small responses wait on Nagle's algorithm and

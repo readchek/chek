@@ -31,6 +31,7 @@ are in the planning doc; this page keeps the decisions next to the code.
 | Crate | Responsibility |
 | --- | --- |
 | `chek-catalog` | Data model, SQLite migrations and queries |
+| `chek-cli` | The `chek` command, whose `chek ext` extension authors use to start a source, build a repository and deploy it |
 | `chek-formats` | Format detection, metadata, page indexes and covers for each format |
 | `chek-kavita` | Client for Kavita's REST API, which Kavita source libraries read |
 | `chek-komga` | Client for Komga's REST API, which Komga source libraries read |
@@ -38,11 +39,9 @@ are in the planning doc; this page keeps the decisions next to the code.
 | `chek-sources` | Extension host for WebAssembly sources: the contract in `wit/source.wit` and the sandbox that runs it |
 | `chek-server` | The `chek` binary: HTTP handlers, config and logging |
 
-Source extensions live in [`extensions/`](../extensions/README.md), a
-workspace of its own that builds to WebAssembly: the `chek-extension` SDK,
-one crate per source, and `build.sh`, which writes a repository folder.
-`cargo run -p chek-sources --example extension-index -- <folder>` writes
-the `index.json` for any folder of components.
+The `chek-extension` SDK lives in [`extensions/`](../extensions/README.md), a
+workspace of its own that builds to WebAssembly. Sources themselves live in
+their own repositories, and `chek ext build` builds them into a repository folder.
 
 ## Serving
 
@@ -499,8 +498,13 @@ the `index.json` for any folder of components.
   those repositories but marks them unusable, so nothing is installed or run
   from them.
 - The server fetches an index when the repository is added, and refuses one
-  it can't read. A refresh that fails records why and keeps the last good
-  index.
+  it can't read. It fetches every index again every six hours, so new
+  versions show up as updates. A refresh that fails records why and keeps
+  the last good index.
+- A private repository that answers `401` names its scheme in
+  `WWW-Authenticate`, and adding it without credentials fails with
+  `repository_needs_token`, `repository_needs_password` or
+  `repository_needs_credentials`, so clients ask for the right ones.
 - A repository can be named by its index, by the folder holding
   `index.json` (`chek.page/extensions`), or as `github:owner/repo[@ref][/path]`,
   which reads the repository's raw files. It's stored as its index's URL.
@@ -510,6 +514,8 @@ the `index.json` for any folder of components.
   origin, so components hosted elsewhere are fetched without them, and a
   signed request isn't followed to another origin. A private GitHub
   repository with a fine-grained, read-only token is the simplest host.
+  [Extension repositories](extension-repositories.md) is the format, how a
+  private repository asks for credentials, and how to host one.
 
 ## Installing extensions
 

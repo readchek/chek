@@ -9,9 +9,10 @@
 use std::io::Read;
 use std::time::Duration;
 
+use reqwest::StatusCode;
 use reqwest::Url;
 use reqwest::blocking::Client;
-use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
+use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue, WWW_AUTHENTICATE};
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 
@@ -24,11 +25,20 @@ const MAX_ENTRIES: usize = 1_000;
 /// The largest component the server downloads.
 const MAX_COMPONENT: u64 = 32 << 20;
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// The newest version of the repository format this server reads. See
+/// `docs/extension-repositories.md`.
+pub const SPEC_VERSION: u32 = 1;
+/// The most headers a `headers` credential can send.
+const MAX_HEADERS: usize = 8;
 
 /// A repository's `index.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Index {
+    /// The version of the repository format the index is written in; absent
+    /// means 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<u32>,
     /// What the repository calls itself.
     #[serde(default)]
     pub name: Option<String>,
@@ -66,6 +76,17 @@ pub enum Credentials {
     Basic { username: String, password: String },
     /// Any other header, such as an API key.
     Header { name: String, value: String },
+    /// Several headers, such as the ID and secret of a Cloudflare Access
+    /// service token.
+    Headers { headers: Vec<NamedHeader> },
+}
+
+/// One header of [`Credentials::Headers`].
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedHeader {
+    pub name: String,
+    pub value: String,
 }
 
 // Credentials are secrets, so they never reach a log.
@@ -75,6 +96,7 @@ impl std::fmt::Debug for Credentials {
             Credentials::Bearer { .. } => "Bearer",
             Credentials::Basic { .. } => "Basic",
             Credentials::Header { .. } => "Header",
+            Credentials::Headers { .. } => "Headers",
         };
         write!(f, "Credentials::{kind}(..)")
     }
@@ -94,32 +116,83 @@ impl Credentials {
             Credentials::Header { name, .. } if HeaderName::try_from(name.as_str()).is_err() => {
                 invalid("the header name isn't valid")
             }
-            _ => match self.header() {
+            Credentials::Headers { headers } if headers.is_empty() => {
+                invalid("there are no headers")
+            }
+            Credentials::Headers { headers } if headers.len() > MAX_HEADERS => {
+                invalid(&format!("there are more than {MAX_HEADERS} headers"))
+            }
+            Credentials::Headers { headers }
+                if headers
+                    .iter()
+                    .any(|h| HeaderName::try_from(h.name.as_str()).is_err()) =>
+            {
+                invalid("a header name isn't valid")
+            }
+            _ => match self.headers() {
                 Some(_) => Ok(()),
-                None => invalid("the value can't be sent as a header"),
+                None => invalid("a value can't be sent as a header"),
             },
         }
     }
 
-    fn header(&self) -> Option<(HeaderName, HeaderValue)> {
+    fn headers(&self) -> Option<Vec<(HeaderName, HeaderValue)>> {
         use base64::Engine;
-        let (name, value) = match self {
-            Credentials::Bearer { token } => (AUTHORIZATION, format!("Bearer {}", token.trim())),
-            Credentials::Basic { username, password } => (
+        let pairs = match self {
+            Credentials::Bearer { token } => {
+                vec![(AUTHORIZATION, format!("Bearer {}", token.trim()))]
+            }
+            Credentials::Basic { username, password } => vec![(
                 AUTHORIZATION,
                 format!(
                     "Basic {}",
                     base64::engine::general_purpose::STANDARD
                         .encode(format!("{username}:{password}"))
                 ),
-            ),
+            )],
             Credentials::Header { name, value } => {
-                (HeaderName::try_from(name.as_str()).ok()?, value.clone())
+                vec![(HeaderName::try_from(name.as_str()).ok()?, value.clone())]
             }
+            Credentials::Headers { headers } => headers
+                .iter()
+                .map(|h| Some((HeaderName::try_from(h.name.as_str()).ok()?, h.value.clone())))
+                .collect::<Option<_>>()?,
         };
-        let mut value = HeaderValue::try_from(value).ok()?;
-        value.set_sensitive(true);
-        Some((name, value))
+        pairs
+            .into_iter()
+            .map(|(name, value)| {
+                let mut value = HeaderValue::try_from(value).ok()?;
+                value.set_sensitive(true);
+                Some((name, value))
+            })
+            .collect()
+    }
+}
+
+/// How a private repository asked to be signed in to, from the scheme of
+/// its `WWW-Authenticate` header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Challenge {
+    Bearer,
+    Basic,
+    /// Another scheme, or none: the repository refused without saying how
+    /// to sign in, as a host checking a custom header does.
+    Other,
+}
+
+impl Challenge {
+    /// Reads the first scheme a `WWW-Authenticate` header offers.
+    pub fn parse(header: Option<&str>) -> Self {
+        let scheme = header
+            .and_then(|h| h.split([' ', ',']).find(|s| !s.is_empty()))
+            .unwrap_or("");
+        if scheme.eq_ignore_ascii_case("bearer") {
+            Challenge::Bearer
+        } else if scheme.eq_ignore_ascii_case("basic") {
+            Challenge::Basic
+        } else {
+            Challenge::Other
+        }
     }
 }
 
@@ -133,6 +206,28 @@ pub enum RepositoryError {
     Invalid(String),
     #[error("the credentials can't be used: {0}")]
     Credentials(String),
+    /// The repository refused, or looks private: it answered 401 or 403,
+    /// or is a host known to answer otherwise (see [`get`]). `signed` says
+    /// whether credentials were sent, and so were refused rather than
+    /// missing.
+    #[error("{}", unauthorized_message(url, *status, *signed))]
+    Unauthorized {
+        url: String,
+        status: u16,
+        challenge: Challenge,
+        signed: bool,
+    },
+}
+
+fn unauthorized_message(url: &str, status: u16, signed: bool) -> String {
+    let why = if signed {
+        "it refused the credentials"
+    } else if status == 401 || status == 403 {
+        "it's private and needs credentials"
+    } else {
+        "it may be private and need credentials, or the address may be wrong"
+    };
+    format!("{url} answered {status}; {why}")
 }
 
 /// Turns what a user typed into the URL of the repository's index, which is
@@ -157,6 +252,14 @@ pub fn repository_url(input: &str) -> Result<String, RepositoryError> {
     let mut parsed = Url::parse(&url).map_err(|_| not_https())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return Err(not_https());
+    }
+    // The address is shown to everyone who can use the repository and kept
+    // in fetch errors, so a password in it would leak.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(RepositoryError::Credentials(
+            "the address has a user name or password in it; give them as credentials instead"
+                .to_owned(),
+        ));
     }
     if !parsed.path().ends_with(".json") {
         if !parsed.path().ends_with('/') {
@@ -203,6 +306,16 @@ pub fn fetch_index(url: &str, credentials: Option<&Credentials>) -> Result<Index
 pub fn parse_index(bytes: &[u8]) -> Result<Index, RepositoryError> {
     let mut index: Index =
         serde_json::from_slice(bytes).map_err(|e| RepositoryError::Invalid(e.to_string()))?;
+    if let Some(spec) = index.spec.filter(|&spec| spec > SPEC_VERSION) {
+        return Err(RepositoryError::Invalid(format!(
+            "it's written in repository format {spec}, and this server reads up to {SPEC_VERSION}; update Chek"
+        )));
+    }
+    if index.spec == Some(0) {
+        return Err(RepositoryError::Invalid(
+            "repository formats count from 1".to_owned(),
+        ));
+    }
     if index.extensions.len() > MAX_ENTRIES {
         return Err(RepositoryError::Invalid(format!(
             "lists {} extensions; the limit is {MAX_ENTRIES}",
@@ -291,13 +404,13 @@ fn get(
         .map_err(|_| RepositoryError::NotHttps(index_url.to_owned()))?
         .origin();
     let credentials = credentials.filter(|_| url.origin() == origin);
-    let header = match credentials {
-        Some(credentials) => Some(credentials.header().ok_or_else(|| {
-            RepositoryError::Credentials("the value can't be sent as a header".to_owned())
-        })?),
-        None => None,
+    let headers = match credentials {
+        Some(credentials) => credentials.headers().ok_or_else(|| {
+            RepositoryError::Credentials("a value can't be sent as a header".to_owned())
+        })?,
+        None => Vec::new(),
     };
-    let signed = header.is_some();
+    let signed = !headers.is_empty();
     let client = Client::builder()
         .user_agent(concat!("Chek/", env!("CARGO_PKG_VERSION")))
         .timeout(TIMEOUT)
@@ -314,13 +427,46 @@ fn get(
         .build()
         .map_err(|e| RepositoryError::Fetch(e.to_string()))?;
     let mut request = client.get(url.clone());
-    if let Some((name, value)) = header {
+    for (name, value) in headers {
         request = request.header(name, value);
     }
     let response = request
         .send()
         .map_err(|e| RepositoryError::Fetch(crate::http::describe(&e)))?;
-    if !response.status().is_success() {
+    let status = response.status();
+    let challenge = if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        let header = response
+            .headers()
+            .get(WWW_AUTHENTICATE)
+            .and_then(|h| h.to_str().ok());
+        Some(Challenge::parse(header))
+    } else if status == StatusCode::NOT_FOUND && url.host_str() == Some("raw.githubusercontent.com")
+    {
+        // GitHub hides a private repository's files behind 404 from anyone
+        // not signed in to it, a wrong token included, and takes a token.
+        Some(Challenge::Bearer)
+    } else if signed {
+        None
+    } else if response
+        .url()
+        .host_str()
+        .is_some_and(|host| host.ends_with(".cloudflareaccess.com"))
+    {
+        // Cloudflare Access sends requests without a service token to its
+        // sign-in page; the token is two headers.
+        Some(Challenge::Other)
+    } else {
+        None
+    };
+    if let Some(challenge) = challenge {
+        return Err(RepositoryError::Unauthorized {
+            url: url.to_string(),
+            status: status.as_u16(),
+            challenge,
+            signed,
+        });
+    }
+    if !status.is_success() {
         return Err(RepositoryError::Fetch(format!(
             "{url} answered {}",
             response.status()
@@ -338,4 +484,84 @@ fn get(
         return Err(RepositoryError::Fetch(format!("larger than {max} bytes")));
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_with_passwords_are_refused() {
+        assert!(matches!(
+            repository_url("https://reader:secret@example.org/chek"),
+            Err(RepositoryError::Credentials(_))
+        ));
+        assert!(matches!(
+            repository_url("reader@example.org/chek"),
+            Err(RepositoryError::Credentials(_))
+        ));
+        assert_eq!(
+            repository_url("example.org/chek").unwrap(),
+            "https://example.org/chek/index.json"
+        );
+    }
+
+    #[test]
+    fn challenges_name_their_scheme() {
+        assert_eq!(
+            Challenge::parse(Some(r#"Bearer realm="chek""#)),
+            Challenge::Bearer
+        );
+        assert_eq!(Challenge::parse(Some("basic realm=x")), Challenge::Basic);
+        assert_eq!(Challenge::parse(Some("  Basic")), Challenge::Basic);
+        assert_eq!(Challenge::parse(Some("Negotiate")), Challenge::Other);
+        assert_eq!(Challenge::parse(None), Challenge::Other);
+    }
+
+    #[test]
+    fn several_headers_are_all_sent() {
+        let credentials: Credentials = serde_json::from_str(
+            r#"{"type":"headers","headers":[{"name":"CF-Access-Client-Id","value":"id"},{"name":"CF-Access-Client-Secret","value":"secret"}]}"#,
+        )
+        .unwrap();
+        credentials.check().unwrap();
+        let headers = credentials.headers().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[1].0, "cf-access-client-secret");
+        assert!(headers.iter().all(|(_, value)| value.is_sensitive()));
+    }
+
+    #[test]
+    fn bad_header_lists_are_refused() {
+        let empty = Credentials::Headers { headers: vec![] };
+        assert!(empty.check().is_err());
+        let invalid = Credentials::Headers {
+            headers: vec![NamedHeader {
+                name: "not a header".to_owned(),
+                value: "v".to_owned(),
+            }],
+        };
+        assert!(invalid.check().is_err());
+        let many = Credentials::Headers {
+            headers: (0..=MAX_HEADERS)
+                .map(|i| NamedHeader {
+                    name: format!("x-{i}"),
+                    value: "v".to_owned(),
+                })
+                .collect(),
+        };
+        assert!(many.check().is_err());
+    }
+
+    #[test]
+    fn newer_formats_are_refused() {
+        let index = |spec: &str| format!(r#"{{{spec}"extensions":[]}}"#);
+        assert!(parse_index(index("").as_bytes()).is_ok());
+        assert!(parse_index(index(r#""spec":1,"#).as_bytes()).is_ok());
+        assert!(parse_index(index(r#""spec":0,"#).as_bytes()).is_err());
+        assert!(matches!(
+            parse_index(index(r#""spec":2,"#).as_bytes()),
+            Err(RepositoryError::Invalid(_))
+        ));
+    }
 }

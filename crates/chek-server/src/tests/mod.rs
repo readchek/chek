@@ -7,6 +7,7 @@ mod accounts;
 mod files;
 mod kavita;
 mod progress;
+mod repositories;
 mod series;
 
 use std::io::Write;
