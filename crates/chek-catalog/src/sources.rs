@@ -37,6 +37,9 @@ pub struct RemoteChapter {
     pub published: Option<String>,
     /// The BCP 47 tag of the language the release is written in.
     pub language: Option<String>,
+    /// The publication's format: `remote` for pages fetched through the
+    /// extension, or `epub` or `pdf` for a file it downloads.
+    pub format: &'static str,
 }
 
 impl Catalog {
@@ -106,16 +109,23 @@ impl Catalog {
                         )?;
                     }
                     tx.execute(
-                        "UPDATE publication SET series_id = ?2, title = ?3, available = 1, cover = ?4
+                        "UPDATE publication SET series_id = ?2, title = ?3, available = 1, cover = ?4,
+                             format = ?5
                          WHERE id = ?1",
-                        params![publication_id, series_id, chapter.title, series.cover],
+                        params![
+                            publication_id,
+                            series_id,
+                            chapter.title,
+                            series.cover,
+                            chapter.format
+                        ],
                     )?;
                     (content_id, publication_id)
                 }
                 None => {
                     tx.execute(
-                        "INSERT INTO publication (series_id, title, format, cover) VALUES (?1, ?2, 'remote', ?3)",
-                        params![series_id, chapter.title, series.cover],
+                        "INSERT INTO publication (series_id, title, format, cover) VALUES (?1, ?2, ?3, ?4)",
+                        params![series_id, chapter.title, chapter.format, series.cover],
                     )?;
                     let publication_id = tx.last_insert_rowid();
                     tx.execute(

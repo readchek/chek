@@ -72,6 +72,17 @@ mod pages_bindings {
     });
 }
 
+mod content_bindings {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "chapter-contents",
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
+    });
+}
+
+pub use content_bindings::exports::chek::source::chapter_content::{
+    Asset, Content, ContentFormat, Reading, Rights,
+};
 pub use pages_bindings::exports::chek::source::chapter_pages::{ChapterOrder, ChapterPage};
 pub use pagination_bindings::exports::chek::source::chapter_pagination::Batch as ChapterBatch;
 
@@ -95,6 +106,11 @@ const MAX_REQUESTS: u32 = 100;
 const MAX_RESPONSE: u64 = 16 << 20;
 /// The largest image the host fetches for an extension.
 const MAX_IMAGE: u64 = 32 << 20;
+/// The largest file, such as a book, the host downloads for an extension.
+const MAX_ASSET: u64 = 128 << 20;
+/// How long downloading one file may take, longer than a request's 30
+/// seconds since books are larger than pages.
+const ASSET_TIMEOUT: Duration = Duration::from_secs(300);
 /// The longest key an extension may store a value under.
 const MAX_KEY: usize = 1024;
 /// Manifest text fields are cut off after this many bytes.
@@ -120,6 +136,10 @@ pub enum Error {
     Pagination(String),
     #[error("couldn't fetch the image: {0}")]
     Image(String),
+    #[error("the source returned invalid chapter content: {0}")]
+    Content(String),
+    #[error("couldn't fetch the file: {0}")]
+    Asset(String),
     #[error("the extension doesn't match its index entry: {0}")]
     Mismatch(String),
     #[error("couldn't store the extension: {0}")]
@@ -272,12 +292,30 @@ impl Host {
             .map(|_| pages_bindings::PagedChaptersPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter pages: {error:#}")))?;
+        let contents = component
+            .get_export_index(None, "chek:source/chapter-content@0.6.0")
+            .map(|_| content_bindings::ChapterContentsPre::new(instance.clone()))
+            .transpose()
+            .map_err(|error| Error::Invalid(format!("invalid chapter content: {error:#}")))?;
         let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
         let manifest = run(&pre, None, false, |bindings, store| {
             bindings.call_manifest(store)
         })?;
         let manifest = check_manifest(manifest)?;
+        // So are the formats, which belong with the manifest.
+        let formats = match &contents {
+            Some(pre) => {
+                let mut store = new_store(pre.engine(), None, false)?;
+                let bindings = pre.instantiate(&mut store).map_err(trap)?;
+                let formats = bindings
+                    .chek_source_chapter_content()
+                    .call_formats(&mut store)
+                    .map_err(trap)?;
+                check_formats(formats)?
+            }
+            None => vec![ContentFormat::Images],
+        };
         let sites = Sites::parse(&manifest.sites).map_err(Error::Manifest)?;
         // State belongs to the id and sites together, so a component from
         // another repository that reuses an id can't read what the original
@@ -347,6 +385,8 @@ impl Host {
             pre,
             pagination,
             pages,
+            contents,
+            formats,
             manifest,
             context,
             digest: repository::sha256_hex(wasm),
@@ -360,6 +400,11 @@ pub struct Source {
     pagination: Option<pagination_bindings::PaginatedChaptersPre<State>>,
     /// Set when the extension answers pages of chapters itself.
     pages: Option<pages_bindings::PagedChaptersPre<State>>,
+    /// Set when the extension says how each chapter is read.
+    contents: Option<content_bindings::ChapterContentsPre<State>>,
+    /// What the extension's chapters come in, sorted; only images without
+    /// `contents`.
+    formats: Vec<ContentFormat>,
     manifest: Manifest,
     context: Arc<Context>,
     digest: String,
@@ -497,6 +542,11 @@ impl Source {
     }
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    /// The formats the extension's chapters come in, never empty.
+    pub fn formats(&self) -> &[ContentFormat] {
+        &self.formats
     }
 
     /// A page of series matching `query`, counting pages from 1. An empty
@@ -707,6 +757,78 @@ impl Source {
         .map_err(Error::Source)
     }
 
+    /// How to read a chapter: its pages, or a file such as a book. Sources
+    /// without the chapter content export always answer their pages.
+    pub fn content(&self, chapter_id: &str) -> Result<Reading, Error> {
+        let Some(pre) = &self.contents else {
+            return Ok(Reading {
+                content: Content::Pages(self.pages(chapter_id)?),
+                rights: None,
+            });
+        };
+        let reading = {
+            let _call = self.context.calls.lock(true);
+            let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
+            let bindings = pre.instantiate(&mut store).map_err(trap)?;
+            bindings
+                .chek_source_chapter_content()
+                .call_read(&mut store, chapter_id)
+                .map_err(trap)?
+                .map_err(Error::Source)?
+        };
+        check_reading(reading, &self.formats)
+    }
+
+    /// Downloads a file the extension returned, held to the same sites, and
+    /// checks it's the format the extension named.
+    pub fn fetch_asset(&self, asset: &Asset) -> Result<Fetched, Error> {
+        if asset.format == ContentFormat::Images || !self.formats.contains(&asset.format) {
+            return Err(Error::Asset(format!(
+                "the extension doesn't declare {}",
+                format_name(asset.format)
+            )));
+        }
+        let (status, _, bytes) = self
+            .context
+            .net
+            .send(
+                Method::GET,
+                &asset.url,
+                &asset.headers,
+                None,
+                MAX_ASSET,
+                ASSET_TIMEOUT,
+            )
+            .map_err(|error| {
+                Error::Asset(match error {
+                    FetchError::NotAllowed(reason) => reason,
+                    FetchError::TooLarge => format!("larger than {MAX_ASSET} bytes"),
+                    FetchError::Timeout => "timed out".to_owned(),
+                    FetchError::Failed(reason) => reason,
+                })
+            })?;
+        if !(200..300).contains(&status) {
+            return Err(Error::Asset(format!("the site answered {status}")));
+        }
+        // Sites answer errors and sign-in pages with 200 too, so the bytes
+        // must start the way the format does before clients are told it's one.
+        let magic: &[u8] = match asset.format {
+            ContentFormat::Epub => b"PK\x03\x04",
+            ContentFormat::Pdf => b"%PDF-",
+            ContentFormat::Images => unreachable!("refused above"),
+        };
+        if !bytes.starts_with(magic) {
+            return Err(Error::Asset(format!(
+                "the site didn't answer with {}",
+                format_name(asset.format)
+            )));
+        }
+        Ok(Fetched {
+            content_type: Some(media_type(asset.format).to_owned()),
+            bytes,
+        })
+    }
+
     /// Fetches a cover or page the extension returned, held to the same sites.
     pub fn fetch_image(&self, image: &Image) -> Result<Fetched, Error> {
         if let Some(parameters) = &image.transform {
@@ -750,7 +872,14 @@ impl Source {
         let (status, headers, bytes) = self
             .context
             .net
-            .send(Method::GET, &image.url, &image.headers, None, max_bytes)
+            .send(
+                Method::GET,
+                &image.url,
+                &image.headers,
+                None,
+                max_bytes,
+                http::TIMEOUT,
+            )
             .map_err(|error| {
                 Error::Image(match error {
                     FetchError::NotAllowed(reason) => reason,
@@ -828,6 +957,84 @@ fn chapter_bytes(chapter: &Chapter) -> usize {
         + chapter.published.as_ref().map_or(0, String::len)
         + chapter.language.as_ref().map_or(0, String::len)
         + chapter.release_group.as_ref().map_or(0, String::len)
+}
+
+/// What a format is called in the API and in indexes.
+pub fn format_name(format: ContentFormat) -> &'static str {
+    match format {
+        ContentFormat::Images => "images",
+        ContentFormat::Epub => "epub",
+        ContentFormat::Pdf => "pdf",
+    }
+}
+
+/// The media type a file in `format` is served as.
+pub fn media_type(format: ContentFormat) -> &'static str {
+    match format {
+        ContentFormat::Images => "image/*",
+        ContentFormat::Epub => "application/epub+zip",
+        ContentFormat::Pdf => "application/pdf",
+    }
+}
+
+fn check_formats(mut formats: Vec<ContentFormat>) -> Result<Vec<ContentFormat>, Error> {
+    formats.sort_by_key(|format| format_name(*format));
+    formats.dedup();
+    if formats.is_empty() {
+        return Err(Error::Manifest("the extension lists no formats".to_owned()));
+    }
+    Ok(formats)
+}
+
+/// The longest file id, file name or rights text kept from an extension.
+const MAX_TEXT: usize = 2048;
+
+fn check_reading(mut reading: Reading, formats: &[ContentFormat]) -> Result<Reading, Error> {
+    match &mut reading.content {
+        Content::Pages(_) if !formats.contains(&ContentFormat::Images) => {
+            return Err(Error::Content(
+                "it returned pages but doesn't list images among its formats".to_owned(),
+            ));
+        }
+        Content::Pages(_) => {}
+        Content::File(asset) => {
+            if asset.format == ContentFormat::Images || !formats.contains(&asset.format) {
+                return Err(Error::Content(format!(
+                    "it returned a file in {}, which it doesn't list among its formats",
+                    format_name(asset.format)
+                )));
+            }
+            if asset.id.is_empty() || asset.id.len() > MAX_FIELD {
+                return Err(Error::Content(format!(
+                    "a file's id must be between 1 and {MAX_FIELD} bytes"
+                )));
+            }
+            if asset.headers.len() > 64 {
+                return Err(Error::Content("a file has more than 64 headers".to_owned()));
+            }
+            if let Some(name) = &mut asset.file_name {
+                truncate(name, MAX_FIELD);
+            }
+        }
+    }
+    if let Some(rights) = &mut reading.rights {
+        for text in [&mut rights.license, &mut rights.attribution]
+            .into_iter()
+            .flatten()
+        {
+            truncate(text, MAX_TEXT);
+        }
+        // Links go to readers, so only web pages are passed on.
+        for link in [&mut rights.license_url, &mut rights.source_url] {
+            if link
+                .as_deref()
+                .is_some_and(|url| url.len() > MAX_TEXT || !url.starts_with("https://"))
+            {
+                *link = None;
+            }
+        }
+    }
+    Ok(reading)
 }
 
 /// Runs one export in a fresh instance.

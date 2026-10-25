@@ -41,7 +41,11 @@ is its JSON Schema.
   below it, so a private repository's credentials reach them.
 - `sha256` is the component's digest in lowercase hex. Chek refuses a
   download that doesn't match, and checks that the component's own manifest
-  has the entry's id, version, sites and capabilities.
+  has the entry's id, version, sites and capabilities, and that it reads the
+  entry's formats.
+- `formats` lists what the extension's chapters come in: `images`, `epub`
+  or `pdf`. Leave it out for a source of images, as indexes from before
+  formats existed do; `chek ext index` writes it from the component.
 - Ids are reverse-DNS names. Ids, names and versions are at most 200 bytes. An index
   is at most 1 MiB and lists at most 1,000 extensions, and a component is at
   most 32 MiB.

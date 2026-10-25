@@ -1530,7 +1530,9 @@ paths:
         `If-Modified-Since` for revalidation. A publication from a source
         library is streamed from its source, which may send the whole file
         instead of a range, as Komga does. Kavita sends a folder of images as
-        a ZIP it makes.
+        a ZIP it makes. A chapter from an extension that's an EPUB or PDF is
+        downloaded through the extension and sent whole, with an `ETag`
+        naming the file; one that's pages has no file.
       parameters:
         - name: Range
           in: header
@@ -2591,6 +2593,94 @@ paths:
           $ref: "#/components/responses/SourceFailed"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/content:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteChapterContent
+      summary: Find how to read a chapter from a source
+      description: >-
+        A chapter's pages, the same as listRemotePages, or a link to its file
+        for a source of books, such as an EPUB or PDF, with the license and
+        source page the source gives. Use `format` to pick a reader, never
+        the URL. Sources from before formats existed always answer pages.
+      parameters:
+        - name: chapterId
+          in: query
+          required: true
+          description: The source's own chapter id.
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: How to read the chapter. Kept for ten minutes, since page links expire.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChapterContent"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/file:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteFile
+      summary: Download a chapter's file through a source
+      description: >-
+        Follow the `file.url` link getRemoteChapterContent returns rather
+        than building it. The server downloads the file whole from the
+        source's declared sites, up to 128 MiB, checks it starts as its
+        format does, and sends it with that format's media type. There are
+        no byte ranges; keep the download and revalidate with `ETag`.
+      parameters:
+        - name: ref
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The file.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/epub+zip:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: The client's copy is current.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/me/extensions/{extensionId}/image:
     parameters:
       - $ref: "#/components/parameters/ExtensionId"
@@ -3399,7 +3489,7 @@ components:
                     type: string
     AvailableExtension:
       type: object
-      required: [repositoryId, id, name, version, sites, languages, capabilities, installedVersion]
+      required: [repositoryId, id, name, version, sites, languages, capabilities, formats, installedVersion]
       properties:
         installedVersion:
           type: [string, "null"]
@@ -3435,6 +3525,95 @@ components:
             transform fetched images before they are cached and served.
           items:
             type: string
+        formats:
+          $ref: "#/components/schemas/ContentFormats"
+    ContentFormat:
+      type: string
+      enum: [images, epub, pdf]
+      description: >-
+        How a source's chapter is read: `images` are pages read like a comic,
+        `epub` and `pdf` are one file.
+    ContentFormats:
+      type: array
+      minItems: 1
+      description: >-
+        The formats the extension's chapters come in, so clients know which
+        readers it needs before opening a chapter. Sources from before
+        formats existed read `images`.
+      items:
+        $ref: "#/components/schemas/ContentFormat"
+    ChapterContent:
+      type: object
+      required: [format, pages, file, rights]
+      description: How to read a chapter. Exactly one of `pages` and `file` is set.
+      properties:
+        format:
+          $ref: "#/components/schemas/ContentFormat"
+        pages:
+          type: [array, "null"]
+          description: Set when `format` is `images`, as listRemotePages answers.
+          items:
+            type: object
+            required: [index, url]
+            properties:
+              index:
+                type: integer
+              url:
+                $ref: "#/components/schemas/RemoteImageUrl"
+        file:
+          oneOf:
+            - $ref: "#/components/schemas/RemoteFile"
+            - type: "null"
+        rights:
+          oneOf:
+            - $ref: "#/components/schemas/Rights"
+            - type: "null"
+    RemoteFile:
+      type: object
+      required: [id, mediaType, url, size, fileName]
+      description: A chapter that's one file, such as a book.
+      properties:
+        id:
+          type: string
+          description: >-
+            The source's own id for the file. A different file has a
+            different id, so a client may keep a download under it.
+        mediaType:
+          type: string
+          enum: [application/epub+zip, application/pdf]
+        url:
+          type: string
+          description: A path on this server, relative to its base URL, that serves the file.
+          example: /api/v1/me/extensions/org.example.books/file?ref=eyJpZCI6
+        size:
+          type: [integer, "null"]
+          format: int64
+          description: The file's size in bytes, when the source knows.
+        fileName:
+          type: [string, "null"]
+          description: A name to save it under.
+    Rights:
+      type: object
+      required: [license, licenseUrl, attribution, sourceUrl]
+      description: >-
+        What the source says about an openly licensed publication's terms.
+        Show them with the publication; null fields the source doesn't give.
+      properties:
+        license:
+          type: [string, "null"]
+          description: An SPDX identifier, such as `CC-BY-4.0`, or the license's name.
+          example: Public domain in the USA
+        licenseUrl:
+          type: [string, "null"]
+          format: uri
+          description: An HTTPS link to the license's text.
+        attribution:
+          type: [string, "null"]
+          description: The credit the license asks for, as the source words it.
+        sourceUrl:
+          type: [string, "null"]
+          format: uri
+          description: An HTTPS link to the publication's page on the source.
     RemoteImageUrl:
       type: string
       description: A path on this server, relative to its base URL, that serves the image.
@@ -3572,7 +3751,7 @@ components:
                 $ref: "#/components/schemas/RemoteRelease"
     InstalledExtension:
       type: object
-      required: [id, name, version, repositoryId, sites, languages, installedAt, usable, update]
+      required: [id, name, version, repositoryId, sites, languages, formats, installedAt, usable, update]
       properties:
         id:
           type: string
@@ -3591,6 +3770,8 @@ components:
           type: array
           items:
             type: string
+        formats:
+          $ref: "#/components/schemas/ContentFormats"
         installedAt:
           type: string
           format: date-time
@@ -3794,6 +3975,9 @@ components:
             `.cbr` is `cbz`. A FictionBook zipped as `.fb2.zip` or `.fbz` is
             `fb2` too; its file downloads as `application/x-zip-compressed-fb2`.
             `remote` is a chapter from an extension: it has pages but no file.
+            A chapter from an extension whose source reads only EPUBs or only
+            PDFs is `epub` or `pdf`, and its file is downloaded through the
+            source.
         pageCount:
           type: [integer, "null"]
           description: Number of pages for comic formats.

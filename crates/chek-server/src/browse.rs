@@ -1,9 +1,10 @@
 //! Browsing a source through an extension the user installed: search, a
-//! series and its chapters, a chapter's pages, and the images they name.
+//! series and its chapters, a chapter's pages or file, and the images and
+//! files they name.
 //!
-//! Covers and pages come back as links to the image route here, so the app
-//! never contacts the source's sites itself and the server fetches only
-//! from the sites the extension declares.
+//! Covers, pages and files come back as links to the image and file routes
+//! here, so the app never contacts the source's sites itself and the server
+//! fetches only from the sites the extension declares.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -12,17 +13,18 @@ use std::time::{Duration, Instant};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chek_catalog::ExtensionInstall;
 use chek_sources::{
-    Chapter, ChapterOrder as SiteChapterOrder, Image, ReadingDirection, Source, SourceError, Status,
+    Asset, Chapter, ChapterOrder as SiteChapterOrder, Content, ContentFormat, Fetched, Image,
+    ReadingDirection, Rights, Source, SourceError, Status,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::{ApiError, AppState, blocking};
+use crate::api::{ApiError, AppState, blocking, content_disposition, matches_etag, not_modified};
 use crate::auth::CurrentUser;
 use crate::content_ratings::{self, content_ratings};
 use crate::installs::{not_installed, not_usable};
@@ -42,6 +44,9 @@ const CHAPTERS_MAX_AGE: &str = "private, max-age=600";
 const PAGES_MAX_AGE: &str = "private, max-age=600";
 /// An image at a given address doesn't change.
 const IMAGE_MAX_AGE: &str = "private, max-age=86400";
+/// A file's id changes when the file does, so its bytes can be kept as
+/// long as an image's.
+const FILE_MAX_AGE: &str = "private, max-age=86400";
 
 /// A JSON answer with the `Cache-Control` it may be kept for.
 type Cached<T> = ([(header::HeaderName, HeaderValue); 1], Json<T>);
@@ -263,6 +268,49 @@ pub struct RemotePageDto {
     url: String,
 }
 
+/// How to read a chapter: its pages, or one file such as a book.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterContentDto {
+    /// `images`, `epub` or `pdf`.
+    format: &'static str,
+    /// Set for `images`.
+    pages: Option<Vec<RemotePageDto>>,
+    /// Set for a file.
+    file: Option<RemoteFileDto>,
+    rights: Option<RightsDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFileDto {
+    id: String,
+    media_type: &'static str,
+    url: String,
+    size: Option<u64>,
+    file_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RightsDto {
+    license: Option<String>,
+    license_url: Option<String>,
+    attribution: Option<String>,
+    source_url: Option<String>,
+}
+
+impl From<Rights> for RightsDto {
+    fn from(rights: Rights) -> Self {
+        Self {
+            license: rights.license,
+            license_url: rights.license_url,
+            attribution: rights.attribution,
+            source_url: rights.source_url,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct List<T> {
     items: Vec<T>,
@@ -299,6 +347,21 @@ struct ImageRef {
     headers: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     transform: Option<String>,
+}
+
+/// What a file link carries: the download the extension asked for.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetRef {
+    id: String,
+    format: String,
+    url: String,
+    #[serde(default)]
+    headers: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_name: Option<String>,
 }
 
 pub async fn search(
@@ -640,6 +703,108 @@ pub async fn image(
     Ok(response)
 }
 
+/// How to read a chapter: its pages, as the pages route lists them, or a
+/// link to the file route for a book or other file.
+pub async fn content(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<String>,
+    Query(query): Query<ChapterQuery>,
+) -> Result<Cached<ChapterContentDto>, ApiError> {
+    let (_, source) = usable_source(&state, &current, &id).await?;
+    let reading = run(source, move |s| s.content(&query.chapter_id)).await?;
+    let rights = reading.rights.map(RightsDto::from);
+    let dto = match reading.content {
+        Content::Pages(pages) => ChapterContentDto {
+            format: chek_sources::format_name(ContentFormat::Images),
+            pages: Some(
+                pages
+                    .iter()
+                    .enumerate()
+                    .map(|(index, page)| RemotePageDto {
+                        index,
+                        url: image_url(&id, page),
+                    })
+                    .collect(),
+            ),
+            file: None,
+            rights,
+        },
+        Content::File(asset) => ChapterContentDto {
+            format: chek_sources::format_name(asset.format),
+            pages: None,
+            file: Some(RemoteFileDto {
+                url: format!(
+                    "/api/v1/me/extensions/{id}/file?ref={}",
+                    URL_SAFE_NO_PAD.encode(asset_json(&asset))
+                ),
+                media_type: chek_sources::media_type(asset.format),
+                id: asset.id,
+                size: asset.size,
+                file_name: asset.file_name,
+            }),
+            rights,
+        },
+    };
+    // Page links expire; a file link is the same as long as the file is.
+    Ok(cached(PAGES_MAX_AGE, dto))
+}
+
+/// Downloads a file named by a link from the content route.
+pub async fn file(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(id): Path<String>,
+    Query(query): Query<ImageQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let asset = decode_asset(&query.r#ref)?;
+    let etag = file_etag(&asset);
+    if matches_etag(&headers, &etag) {
+        return Ok(not_modified(&etag));
+    }
+    let (_, source) = usable_source(&state, &current, &id).await?;
+    let response_asset = asset.clone();
+    let fetched = run(source, move |s| s.fetch_asset(&asset)).await?;
+    Ok(file_response(fetched, &response_asset, FILE_MAX_AGE))
+}
+
+/// A downloaded file as a response: the media type of the format the
+/// extension named, which the host checked the bytes against, its name,
+/// and an ETag from its id.
+pub(crate) fn file_response(fetched: Fetched, asset: &Asset, max_age: &'static str) -> Response {
+    let mut response = Response::new(Body::from(fetched.bytes));
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(chek_sources::media_type(asset.format)),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(max_age));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    if let Ok(etag) = HeaderValue::from_str(&file_etag(asset)) {
+        headers.insert(header::ETAG, etag);
+    }
+    let name = asset
+        .file_name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| format!("{}.{}", asset.id, chek_sources::format_name(asset.format)));
+    if let Ok(disposition) = HeaderValue::from_str(&content_disposition(&name)) {
+        headers.insert(header::CONTENT_DISPOSITION, disposition);
+    }
+    response
+}
+
+/// Names a file by the extension's id for it and where it's fetched from,
+/// so a client holding it can ask whether it changed without a download.
+fn file_etag(asset: &Asset) -> String {
+    let hash = blake3::hash(asset_json(asset).as_bytes());
+    format!("\"{}\"", &hash.to_hex()[..32])
+}
+
 /// The user's install of an extension and its loaded source, refused while
 /// the repository it came from isn't usable.
 pub(crate) async fn usable_source(
@@ -702,7 +867,12 @@ pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
         Error::Source(SourceError::NotFound) => {
             ApiError::not_found("the source has no such item".to_owned())
         }
-        Error::Source(_) | Error::Trap(_) | Error::Image(_) | Error::Pagination(_) => {
+        Error::Source(_)
+        | Error::Trap(_)
+        | Error::Image(_)
+        | Error::Pagination(_)
+        | Error::Content(_)
+        | Error::Asset(_) => {
             tracing::warn!(error = %error, "source request failed");
             ApiError {
                 status: StatusCode::BAD_GATEWAY,
@@ -745,6 +915,38 @@ pub(crate) fn image_from_json(json: &[u8]) -> Option<Image> {
         headers: reference.headers,
         transform: reference.transform,
     })
+}
+
+fn decode_asset(reference: &str) -> Result<Asset, ApiError> {
+    let invalid = || ApiError::bad_request("ref is not a valid file reference");
+    let json = URL_SAFE_NO_PAD.decode(reference).map_err(|_| invalid())?;
+    let reference: AssetRef = serde_json::from_slice(&json).map_err(|_| invalid())?;
+    let format = match reference.format.as_str() {
+        "epub" => ContentFormat::Epub,
+        "pdf" => ContentFormat::Pdf,
+        _ => return Err(invalid()),
+    };
+    Ok(Asset {
+        id: reference.id,
+        format,
+        url: reference.url,
+        headers: reference.headers,
+        size: reference.size,
+        file_name: reference.file_name,
+    })
+}
+
+/// A file request as JSON, the form file links carry it in.
+fn asset_json(asset: &Asset) -> String {
+    let reference = AssetRef {
+        id: asset.id.clone(),
+        format: chek_sources::format_name(asset.format).to_owned(),
+        url: asset.url.clone(),
+        headers: asset.headers.clone(),
+        size: asset.size,
+        file_name: asset.file_name.clone(),
+    };
+    serde_json::to_string(&reference).unwrap_or_default()
 }
 
 fn status(status: Status) -> &'static str {

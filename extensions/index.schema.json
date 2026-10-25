@@ -46,6 +46,12 @@
             "description": "What the extension needs beyond plain requests, such as browser.",
             "type": "array",
             "items": { "type": "string" }
+          },
+          "formats": {
+            "description": "What the extension's chapters come in. Absent means images.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "enum": ["images", "epub", "pdf"] }
           }
         }
       }

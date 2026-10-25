@@ -64,6 +64,10 @@ pub struct IndexEntry {
     /// What the extension needs beyond plain requests, such as `browser`.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// What the extension's chapters come in: `images`, `epub` or `pdf`.
+    /// Empty means images.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub formats: Vec<String>,
 }
 
 /// How to sign in to a private repository.

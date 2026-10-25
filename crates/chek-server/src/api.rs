@@ -231,6 +231,8 @@ pub fn router(state: AppState) -> Router {
             put(browse::set_release_group),
         )
         .route("/api/v1/me/extensions/{id}/pages", get(browse::pages))
+        .route("/api/v1/me/extensions/{id}/content", get(browse::content))
+        .route("/api/v1/me/extensions/{id}/file", get(browse::file))
         .route("/api/v1/me/extensions/{id}/image", get(browse::image))
         .route(
             "/api/v1/settings",
@@ -1015,9 +1017,7 @@ pub(crate) async fn get_file(
     check_publication(&state, &current, id).await?;
     if let Some(remote) = blocking(&state, move |c| c.publication_remote(id)).await? {
         if crate::source_libraries::is_extension(&remote) {
-            return Err(ApiError::not_found(format!(
-                "publication {id} is a chapter from an extension and has no file; read its pages instead"
-            )));
+            return crate::source_libraries::file(&state, remote).await;
         }
         return crate::remote::file(&state, remote, request.headers()).await;
     }

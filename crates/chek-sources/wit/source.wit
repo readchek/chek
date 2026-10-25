@@ -355,3 +355,81 @@ interface chapter-pages {
 world paged-chapters {
     export chapter-pages;
 }
+
+// Optional export alongside `source`, for sources whose chapters are books
+// or other files rather than pages of images, such as a novel as an EPUB or
+// a paper as a PDF. Older components need not implement it; the host then
+// reads every chapter as pages through `pages`.
+interface chapter-content {
+    use types.{header, image, error};
+
+    // How a chapter is read. The server tells clients which, so they pick
+    // a reader without guessing from URLs.
+    enum content-format {
+        // Pages of images, read like a comic.
+        images,
+        // An EPUB 2 or 3 publication, served as `application/epub+zip`.
+        epub,
+        // A PDF document, served as `application/pdf`.
+        pdf,
+    }
+
+    // A file the server downloads itself, such as a book. The server sends
+    // the headers as given and checks the URL against the manifest's sites
+    // like any other request, and checks the file is the format named.
+    record asset {
+        // The source's own id for this file, the same on every call, such
+        // as `1342.epub3.images`. A different file gets a different id, so
+        // clients and the server may keep a download under it.
+        id: string,
+        // `epub` or `pdf`; one the source's `formats` lists.
+        format: content-format,
+        url: string,
+        headers: list<header>,
+        // The file's size in bytes, when the source knows.
+        size: option<u64>,
+        // A name to save it under, such as `pride-and-prejudice.epub`.
+        file-name: option<string>,
+    }
+
+    // The terms an openly licensed publication is shared under, passed to
+    // readers with the chapter so they see who to credit and where it came
+    // from. Leave out what the source doesn't say.
+    record rights {
+        // An SPDX identifier, such as `CC-BY-4.0`, or the license's name as
+        // the source gives it, such as `Public domain in the USA`.
+        license: option<string>,
+        // An HTTPS link to the license's text.
+        license-url: option<string>,
+        // The credit the license asks for, as the source words it.
+        attribution: option<string>,
+        // An HTTPS link to the publication's own page on the source.
+        source-url: option<string>,
+    }
+
+    variant content {
+        // The chapter's pages in reading order, as `pages` returns them.
+        // The source's `formats` must list `images`.
+        pages(list<image>),
+        // The chapter as one file.
+        file(asset),
+    }
+
+    record reading {
+        content: content,
+        rights: option<rights>,
+    }
+
+    // The formats this source's chapters come in, never empty. Called
+    // without network access, like `manifest`; the repository's index must
+    // list the same.
+    formats: func() -> list<content-format>;
+    // How to read the chapter. Keep `pages` answering for chapters that are
+    // pages, for hosts that don't call this; for a file it may return
+    // `other` saying the chapter is a file.
+    read: func(chapter-id: string) -> result<reading, error>;
+}
+
+world chapter-contents {
+    export chapter-content;
+}

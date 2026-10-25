@@ -75,6 +75,26 @@ pub use pages_bindings::export_chapter_pages;
 pub use pages_bindings::exports::chek::source::chapter_pages::{
     ChapterOrder, ChapterPage, Guest as ChapterPages,
 };
+/// For sources whose chapters are books or other files, such as EPUBs or
+/// PDFs: implement [`ChapterContent`] and export it with
+/// [`export_chapter_content!`] beside [`export_source!`]. `formats` says
+/// what the source's chapters come in and `read` returns a chapter as a
+/// file, or as pages for a source that has both.
+#[doc(hidden)]
+pub mod content_bindings {
+    wit_bindgen::generate!({
+        path: "../../crates/chek-sources/wit",
+        world: "chapter-contents",
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
+        pub_export_macro: true,
+        export_macro_name: "export_chapter_content",
+        default_bindings_module: "chek_extension::content_bindings",
+    });
+}
+pub use content_bindings::export_chapter_content;
+pub use content_bindings::exports::chek::source::chapter_content::{
+    Asset, Content, ContentFormat, Guest as ChapterContent, Reading, Rights,
+};
 pub use serde_json::{self, Value};
 
 use bindings::chek::source::http::{HttpError, Method, Request, Response};
