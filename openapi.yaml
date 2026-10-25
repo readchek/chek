@@ -2146,6 +2146,70 @@ paths:
                       $ref: "#/components/schemas/InstalledExtension"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/users/{userId}/extensions/{extensionId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - $ref: "#/components/parameters/ExtensionId"
+    put:
+      tags: [Extensions]
+      operationId: installExtensionForUser
+      summary: Install or update an extension for a reader
+      description: >-
+        Admin only. Provisions an extension from a server-wide repository,
+        including for a shared demo account. Private repositories cannot be
+        used. The component undergoes the same validation as a self-install.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [repositoryId]
+              properties:
+                repositoryId:
+                  type: integer
+                  format: int64
+      responses:
+        "200":
+          description: The install was updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "201":
+          description: The extension was installed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledExtension"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requires an admin account that is not a shared demo account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid or incompatible extension component.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/RepositoryUnreadable"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/me/extensions/{extensionId}:
     parameters:
       - $ref: "#/components/parameters/ExtensionId"
