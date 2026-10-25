@@ -19,6 +19,7 @@ mod source_libraries;
 mod telemetry;
 mod upload;
 mod verification;
+mod web;
 
 #[cfg(test)]
 mod tests;
@@ -102,6 +103,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )),
         demo_users: Arc::new(config.demo_users),
         chapter_lists: Arc::default(),
+        web_origins: Arc::new(config.web_origins),
+        web_links: Arc::default(),
     };
     if let Some(callback) = state.oidc.callback_url() {
         info!(%callback, "sign-in providers send people back to this address; register it with each provider");

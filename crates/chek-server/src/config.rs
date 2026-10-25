@@ -70,6 +70,10 @@ pub struct Config {
     /// visitor can't lock the others out or see where they are. Default
     /// none.
     pub demo_users: Vec<String>,
+    /// `CHEK_WEB_ORIGINS`, comma-separated origins of the Chek web app,
+    /// which may call the API from a browser. Default
+    /// `https://app.chek.page`.
+    pub web_origins: Vec<String>,
 }
 
 /// Long enough that a chosen token can't be guessed like a password.
@@ -167,6 +171,7 @@ impl Config {
                 .collect::<Result<_, _>>()?,
             oidc_redirects: list("CHEK_OIDC_REDIRECTS", "chek://"),
             demo_users: list("CHEK_DEMO_USERS", ""),
+            web_origins: list("CHEK_WEB_ORIGINS", "https://app.chek.page"),
         })
         .and_then(|config| {
             if !config.oidc_providers.is_empty() && config.public_url.is_none() {

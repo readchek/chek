@@ -28,6 +28,7 @@ use crate::api::{self, AppState};
 use crate::{auth, oidc, remote};
 
 pub(crate) const SETUP_TOKEN: &str = "test-setup-token";
+pub(crate) const WEB_ORIGIN: &str = "https://app.chek.test";
 pub(crate) const PASSWORD: &str = "correct horse battery";
 /// Scans of a folder with a few files finish in milliseconds; this only
 /// bounds a test that would otherwise hang.
@@ -101,6 +102,8 @@ impl Server {
             oidc: Arc::new(oidc::Oidc::new(None, Vec::new(), Vec::new())),
             demo_users: Arc::new(demo_users),
             chapter_lists: Arc::default(),
+            web_origins: Arc::new(vec![WEB_ORIGIN.to_owned()]),
+            web_links: Arc::default(),
         };
         auth::prepare_setup(&state, Some(SETUP_TOKEN.to_owned()))
             .await

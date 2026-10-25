@@ -256,6 +256,23 @@ their own repositories, and `chek ext build` builds them into a repository folde
   restart cancels them. Provider discovery is fetched on first use, so a
   provider that's down doesn't stop the server.
 
+## The web app
+
+- The Chek web app, served from its own origin (app.chek.page), uses each
+  person's server from the browser. `CHEK_WEB_ORIGINS` lists the origins
+  allowed to (`https://app.chek.page` by default), and only those get CORS
+  headers. Requests carry a bearer token and never cookies, so another site
+  can't act for someone by sending them a link.
+- An app opens the web app signed in: it asks `POST /api/v1/me/web-link` for
+  a code, puts it in the link, and the web app trades it at
+  `POST /api/v1/auth/web-link` for a session of its own. Codes work once for
+  a minute and live in memory, so the session token never appears in a URL
+  and people who sign in with a provider don't need a password.
+- `/api/v1/me` says `demo: true` for a demo account, so the web app shows
+  its settings without offering changes.
+- A page served over https can't call a server on plain http, so the web
+  app reaches only servers with https addresses.
+
 ## OPDS
 
 - `/opds/v2/catalog` lists "Continue reading", "Recently added" and the
@@ -590,6 +607,10 @@ their own repositories, and `chek ext build` builds them into a repository folde
   Unrated results are kept. Until a user chooses, and always on a demo
   account, they see safe and suggestive. Only search filters; a series
   opened by id is answered with its rating whatever the choice.
+- The iOS app only narrows the choice. Erotica and pornographic are turned
+  on in the Chek web app at app.chek.page, after the person confirms they're
+  an adult, as App Review Guideline 1.2 asks of NSFW content from a web
+  service. See [The web app](#the-web-app).
 - Browsing stores nothing; following a series into an extension library
   does.
 - Reader page-list calls take priority over queued catalog work. Calls still

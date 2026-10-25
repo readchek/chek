@@ -109,7 +109,9 @@ OpenTelemetry collector over OTLP/HTTP, following the standard `OTEL_*`
 variables.
 
 `CHEK_DEMO_USERS` names shared accounts whose password is public, which
-can't be changed and keep no reading places.
+can't be changed and keep no reading places. `CHEK_WEB_ORIGINS` lists the
+origins of the Chek web app allowed to call the API from a browser
+(`https://app.chek.page` by default); see [The web app](docs/server.md#the-web-app).
 
 To run a demo instance with the reader test corpus loaded, on Dokploy or with
 Docker Compose, see [deploying a demo instance](docs/deploy.md).

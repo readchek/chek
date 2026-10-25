@@ -52,6 +52,10 @@ pub struct AppState {
     /// Complete chapter lists read from sources lately; see
     /// [`crate::browse::ChapterLists`].
     pub chapter_lists: Arc<crate::browse::ChapterLists>,
+    /// Origins of the Chek web app, which may call the API from a browser.
+    pub web_origins: Arc<Vec<String>>,
+    /// One-time codes that sign the web app in; see [`crate::web`].
+    pub web_links: Arc<crate::web::WebLinks>,
 }
 
 /// Starts a background scan of every library.
@@ -145,7 +149,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/auth/callback", get(oidc::callback))
         .route("/api/v1/auth/exchange", post(oidc::exchange))
+        .route("/api/v1/auth/web-link", post(crate::web::open_link))
         .route("/api/v1/me", get(auth::me))
+        .route("/api/v1/me/web-link", post(crate::web::create_link))
         .route("/api/v1/me/password", put(auth::change_password))
         .route("/api/v1/me/sessions", get(auth::list_sessions))
         .route("/api/v1/me/identities", get(oidc::list_identities))
@@ -243,6 +249,7 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             crate::telemetry::trace_request,
         ))
+        .layer(crate::web::cors(&state.web_origins))
         .with_state(state)
 }
 
