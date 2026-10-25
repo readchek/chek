@@ -28,6 +28,9 @@ pub struct InstalledDto {
     repository_id: i64,
     sites: Vec<String>,
     languages: Vec<String>,
+    /// What its chapters come in, `images`, `epub` or `pdf`, so clients
+    /// know which readers it needs.
+    formats: Vec<String>,
     installed_at: String,
     /// False while it came from the user's own repository and the admin
     /// allows only the allow list.
@@ -130,6 +133,14 @@ pub async fn install(
         sha256: digest,
         sites: serde_json::to_string(&manifest.sites).map_err(ApiError::internal)?,
         languages: serde_json::to_string(&manifest.languages).map_err(ApiError::internal)?,
+        formats: serde_json::to_string(
+            &source
+                .formats()
+                .iter()
+                .map(|f| chek_sources::format_name(*f))
+                .collect::<Vec<_>>(),
+        )
+        .map_err(ApiError::internal)?,
         installed_at: String::new(),
     };
     let user_id = install.user_id;
@@ -194,6 +205,7 @@ fn dto(
         update: listed.filter(|v| *v != install.version),
         sites: serde_json::from_str(&install.sites).map_err(ApiError::internal)?,
         languages: serde_json::from_str(&install.languages).map_err(ApiError::internal)?,
+        formats: serde_json::from_str(&install.formats).map_err(ApiError::internal)?,
         id: install.extension_id,
         name: install.name,
         version: install.version,

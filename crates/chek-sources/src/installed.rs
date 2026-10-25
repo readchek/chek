@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::repository::{IndexEntry, sha256_hex};
-use crate::{Capability, Error, Host, Options, Source};
+use crate::{Capability, Error, Host, Options, Source, format_name};
 
 pub struct Extensions {
     host: Host,
@@ -59,6 +59,21 @@ impl Extensions {
             return Err(Error::Mismatch(format!(
                 "the index lists the capabilities {:?}, but the component needs {capabilities:?}",
                 entry.capabilities
+            )));
+        }
+        // Users pick sources by what they read, so the index's formats must
+        // be the component's too. An index that lists none means images,
+        // as every source read before formats existed.
+        let formats: Vec<&str> = source.formats().iter().map(|f| format_name(*f)).collect();
+        let mut listed_formats: Vec<&str> = entry.formats.iter().map(String::as_str).collect();
+        if listed_formats.is_empty() {
+            listed_formats.push("images");
+        }
+        listed_formats.sort();
+        listed_formats.dedup();
+        if formats != listed_formats {
+            return Err(Error::Mismatch(format!(
+                "the index lists the formats {listed_formats:?}, but the component reads {formats:?}"
             )));
         }
         if manifest.id != entry.id || manifest.version != entry.version || declared != listed {

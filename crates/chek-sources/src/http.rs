@@ -16,7 +16,7 @@ use crate::cookies::Jar;
 use crate::resolve::PublicResolver;
 use crate::sites::Sites;
 
-const TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REDIRECTS: usize = 10;
 
 /// The network one extension may use.
@@ -172,7 +172,8 @@ impl Net {
         Ok(url)
     }
 
-    /// Sends a request and reads at most `max_body` bytes of the response.
+    /// Sends a request and reads at most `max_body` bytes of the response
+    /// within `timeout`.
     pub(crate) fn send(
         &self,
         method: Method,
@@ -180,6 +181,7 @@ impl Net {
         headers: &[(String, String)],
         body: Option<Vec<u8>>,
         max_body: u64,
+        timeout: Duration,
     ) -> Result<(u16, HeaderMap, Vec<u8>), FetchError> {
         let url = self.allowed_url(url).map_err(FetchError::NotAllowed)?;
         let mut header_map = HeaderMap::new();
@@ -191,7 +193,7 @@ impl Net {
             header_map.append(name, value);
         }
         let Some(browser) = self.solver() else {
-            return self.send_once(method, url, header_map, body, max_body);
+            return self.send_once(method, url, header_map, body, max_body, timeout);
         };
         let seen = browser.solves();
         let first = self.send_once(
@@ -200,6 +202,7 @@ impl Net {
             header_map.clone(),
             body.clone(),
             max_body,
+            timeout,
         )?;
         if !is_challenge(first.0, &first.1, &first.2) {
             return Ok(first);
@@ -208,7 +211,7 @@ impl Net {
         if browser.clear(&url, seen).is_err() {
             return Ok(first);
         }
-        self.send_once(method, url, header_map, body, max_body)
+        self.send_once(method, url, header_map, body, max_body, timeout)
     }
 
     fn send_once(
@@ -218,13 +221,18 @@ impl Net {
         mut headers: HeaderMap,
         body: Option<Vec<u8>>,
         max_body: u64,
+        timeout: Duration,
     ) -> Result<(u16, HeaderMap, Vec<u8>), FetchError> {
         if let Some(agent) = self.browser.as_ref().and_then(|b| b.user_agent())
             && let Ok(agent) = HeaderValue::try_from(agent)
         {
             headers.insert(USER_AGENT, agent);
         }
-        let mut request = self.client.request(method, url).headers(headers);
+        let mut request = self
+            .client
+            .request(method, url)
+            .headers(headers)
+            .timeout(timeout);
         if let Some(body) = body {
             request = request.body(body);
         }
@@ -260,6 +268,7 @@ impl Net {
                 &request.headers,
                 request.body,
                 max_body,
+                TIMEOUT,
             )
             .map_err(|error| match error {
                 FetchError::NotAllowed(reason) => HttpError::NotAllowed(reason),

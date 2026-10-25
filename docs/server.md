@@ -378,6 +378,23 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - The contract's version is in the package name, `chek:source@0.6.0`. A
   component built against another version doesn't link, so every change to
   a record or call bumps it, and every source is rebuilt and republished.
+  New abilities that older sources can do without come as optional exports
+  alongside `source` instead, so existing components keep working.
+- Sources of books and other files export `chapter-content` too. Its
+  `formats` lists what the source's chapters come in, `images`, `epub` or
+  `pdf`, and is read without network when the component loads, like the
+  manifest; a source without the export reads `images`. Its `read` returns
+  a chapter as pages, or as one file: a URL with headers, a format, an id
+  that changes when the file does, and optionally its size and a file
+  name. It may add the license, attribution and source page of an openly
+  licensed publication; links in them must be HTTPS. The host refuses
+  content in a format the source didn't list.
+- The host downloads a file itself, held to the manifest's sites like an
+  image, up to 128 MiB within five minutes, and checks it starts as the
+  format does (`PK` for EPUB's ZIP, `%PDF-` for PDF) before sending it with
+  that format's media type, so a site's error page never reaches a reader
+  as a book. Files aren't kept on the server; clients keep their download
+  and revalidate it by `ETag`.
 - Each call runs in a fresh instance, so nothing in memory carries over
   between calls. WASI is linked with nothing in it: no files, environment,
   sockets or name lookups. The only ways out are the host's imports: `http`,
@@ -526,8 +543,10 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - Each user installs extensions for themselves from the repositories they
   can use. Installing downloads the component the index lists, at most
   32 MiB, checks its SHA-256 digest, and checks that its manifest has the
-  index's id, version, sites and capabilities, so a repository can't show
-  one set and ship another.
+  index's id, version, sites and capabilities, and that it reads the
+  index's formats, so a repository can't show one set and ship another.
+  The API lists each extension's formats, from the index before install
+  and from the component after, so clients know which readers it needs.
 - Components are stored in the data folder as `extensions/<sha256>.wasm`,
   shared by everyone on the same version, and deleted when no install uses
   them. Compiled sources stay in memory once loaded.
@@ -544,6 +563,13 @@ their own repositories, and `chek ext build` builds them into a repository folde
   which carry the image request the extension made. The server fetches the
   image, held to the extension's sites, and sends its bytes unchanged with
   `nosniff`, so the app never contacts a source's sites itself.
+- `/api/v1/me/extensions/{id}/content` says how to read a chapter: its
+  `format`, and either its pages or a link to `/api/v1/me/extensions/{id}/file`
+  for an EPUB or PDF, with any rights the source gave. Clients pick a reader
+  from `format`, never from a URL. The file route downloads the file
+  through the host as above and answers a matching `If-None-Match` with 304
+  without downloading. Sources without `chapter-content` answer pages, so
+  clients can use this route for every source.
 - Covers and pages fetched through extensions, for browsing and for
   extension libraries alike, are kept on disk in `extensions/images` and
   served from there the next time anyone asks for the same image from the
@@ -585,6 +611,12 @@ their own repositories, and `chek ext build` builds them into a repository folde
   each chapter as a publication with format `remote`, backed by remote
   content keyed by the chapter's id. Chapters sort like files: by number,
   then by title. The series' cover becomes every chapter's cover thumbnail.
+- A source that reads only EPUBs, or only PDFs, records its chapters as
+  `epub` or `pdf` publications instead, so clients open them like any book.
+  Their file route downloads the file through the extension on every read;
+  they have no pages. A source that mixes pages and files has its chapters
+  recorded as `remote` for now, since telling them apart would mean opening
+  every chapter at each sync.
 - A sync follows each series again. Chapters the source no longer lists are
   marked unavailable, not deleted, so progress survives; a chapter whose
   version changed has its page list dropped. Edits survive syncs, as for

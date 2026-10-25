@@ -73,6 +73,32 @@ stands, and implement `Guest`:
 Bump the crate's version for every change: installs update when the index
 lists a new version.
 
+## Books and other files
+
+A source whose chapters are books, such as EPUBs or PDFs, also implements
+`chek_extension::ChapterContent` and invokes
+`chek_extension::export_chapter_content!(YourSource)` beside
+`export_source!`:
+
+- `formats` lists what its chapters come in: `ContentFormat::Images`,
+  `Epub` or `Pdf`. It's read without network, like `manifest`, and
+  `chek ext index` copies it into the index, which must list the same.
+- `read(chapter_id)` returns a `Reading`: `Content::File(Asset { .. })` for
+  a book, or `Content::Pages(..)` for a source that also has image
+  chapters. An `Asset` has the URL and headers Chek downloads it with, its
+  format, an `id` that's the same on every call and changes when the file
+  does, and its size and a file name when the site gives them.
+- Fill `rights` for openly licensed publications: the license (an SPDX id
+  or its name), an HTTPS link to it, the credit it asks for, and an HTTPS
+  link to the publication's page. Readers see them with the chapter.
+- Keep `pages` for image chapters, since hosts without this export call it;
+  for a book it can return `Error::Other` saying the chapter is a file.
+
+Chek downloads files from the manifest's sites like images, up to 128 MiB
+within five minutes, and refuses one that doesn't start as its format does,
+such as a sign-in page served with a 200. Respect each site's terms for
+automated downloads, and prefer the catalogs and mirrors it offers for them.
+
 ## Interactive pages
 
 Declare `Capability::BrowserSession` to use `browser_session`. The admin must
@@ -171,6 +197,10 @@ that sort by number do: Chek groups them a page at a time. `after` is a chapter 
 in the complete list instead. Pages allow at most 500 chapters, no more than
 `limit`, and 4 MiB of text. Keep `chapters` (and batches, if the site has
 them) for library sync, which still reads the complete list.
+
+Chapter content, for sources of books and other files, is another optional
+export; see [Books and other files](#books-and-other-files). Existing image
+sources need no change: without it, every chapter is read as pages.
 
 The current contract is `chek:source@0.6.0`. Components built against 0.5
 must be rebuilt with the current SDK: `search` takes a third argument, the

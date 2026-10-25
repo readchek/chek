@@ -69,6 +69,8 @@ pub struct ExtensionDto {
     sites: Vec<String>,
     languages: Vec<String>,
     capabilities: Vec<String>,
+    /// What its chapters come in, `images`, `epub` or `pdf`.
+    formats: Vec<String>,
     /// The version the user installed from this repository, if any.
     installed_version: Option<String>,
 }
@@ -329,6 +331,13 @@ pub async fn list_extensions(
                 sites: e.sites,
                 languages: e.languages,
                 capabilities: e.capabilities,
+                // An index that lists no formats predates them, when every
+                // source read images.
+                formats: if e.formats.is_empty() {
+                    vec!["images".to_owned()]
+                } else {
+                    e.formats
+                },
             })
         })
         .collect();

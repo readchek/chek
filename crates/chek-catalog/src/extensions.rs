@@ -36,11 +36,13 @@ pub struct ExtensionInstall {
     pub sites: String,
     /// JSON array of BCP 47 tags.
     pub languages: String,
+    /// JSON array of the formats its chapters come in, such as `images`.
+    pub formats: String,
     pub installed_at: String,
 }
 
 const SELECT_INSTALL: &str = "SELECT user_id, extension_id, repository_id, name, version, sha256,
-            sites, languages, installed_at
+            sites, languages, installed_at, formats
      FROM extension_install";
 
 const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fetch_error, created_at,
@@ -227,12 +229,14 @@ impl Catalog {
             .optional()?;
         tx.execute(
             "INSERT INTO extension_install
-                 (user_id, extension_id, repository_id, name, version, sha256, sites, languages, installed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                 (user_id, extension_id, repository_id, name, version, sha256, sites, languages,
+                  formats, installed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
              ON CONFLICT (user_id, extension_id) DO UPDATE SET
                  repository_id = excluded.repository_id, name = excluded.name,
                  version = excluded.version, sha256 = excluded.sha256, sites = excluded.sites,
-                 languages = excluded.languages, installed_at = excluded.installed_at",
+                 languages = excluded.languages, formats = excluded.formats,
+                 installed_at = excluded.installed_at",
             params![
                 install.user_id,
                 install.extension_id,
@@ -241,7 +245,8 @@ impl Catalog {
                 install.version,
                 install.sha256,
                 install.sites,
-                install.languages
+                install.languages,
+                install.formats
             ],
         )?;
         let unused = match previous {
@@ -396,6 +401,7 @@ fn install_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionInstal
         sites: row.get(6)?,
         languages: row.get(7)?,
         installed_at: row.get(8)?,
+        formats: row.get(9)?,
     })
 }
 

@@ -1,7 +1,7 @@
 //! Libraries that run on an extension: an admin makes one from an extension
 //! they installed and follows series into it. Each chapter becomes a publication that readers
-//! granted the library open like any other; its pages are fetched through
-//! the extension when read.
+//! granted the library open like any other; its pages, or its file for a
+//! source of books, are fetched through the extension when read.
 //!
 //! The library runs on the install of the admin who made it, so readers
 //! don't need the extension themselves. If that admin uninstalls it, or its
@@ -18,13 +18,13 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::Response;
 use chek_catalog::{ContributorRecord, RemoteChapter, RemoteContent, RemoteSeries};
 use chek_library::{ExtensionSource, SourceConfig};
-use chek_sources::{Image, ReadingDirection, Source};
+use chek_sources::{Content, ContentFormat, Image, ReadingDirection, Source};
 use serde::Deserialize;
 use tracing::{error, warn};
 
 use crate::api::{ApiError, AppState, LibraryDto, SeriesDto, blocking, readable_series};
 use crate::auth::CurrentUser;
-use crate::browse::{image_from_json, image_json, run, usable_source};
+use crate::browse::{file_response, image_from_json, image_json, run, usable_source};
 use crate::installs::not_usable;
 
 /// The `extension` field of a new library.
@@ -189,6 +189,29 @@ pub(crate) async fn get_page(
     Ok(response)
 }
 
+/// A chapter's file, such as a book, downloaded through the source each
+/// time it's read. A chapter the source reads as pages has none.
+pub(crate) async fn file(state: &AppState, remote: RemoteContent) -> Result<Response, ApiError> {
+    let id = remote.publication_id;
+    let no_file = || {
+        ApiError::not_found(format!(
+            "publication {id} is a chapter from an extension and has no file; read its pages instead"
+        ))
+    };
+    if remote.format == "remote" {
+        return Err(no_file());
+    }
+    let source = library_source(state, remote.library_id).await?;
+    let chapter_id = remote.remote_id.clone();
+    let reading = run(Arc::clone(&source), move |s| s.content(&chapter_id)).await?;
+    let Content::File(asset) = reading.content else {
+        return Err(no_file());
+    };
+    let response_asset = asset.clone();
+    let fetched = run(source, move |s| s.fetch_asset(&asset)).await?;
+    Ok(file_response(fetched, &response_asset, "private, no-cache"))
+}
+
 /// The stored page list, or a fresh one from the source when there is none
 /// or `refresh` is set.
 async fn pages(
@@ -203,6 +226,11 @@ async fn pages(
             code: "unavailable",
             message: format!("publication {id}'s chapter is no longer listed by its source"),
         });
+    }
+    if remote.format != "remote" {
+        return Err(ApiError::not_found(format!(
+            "publication {id} is a file from an extension and has no pages; read its file instead"
+        )));
     }
     if !refresh {
         let stored = blocking(state, move |c| c.remote_pages(id)).await?;
@@ -232,6 +260,14 @@ async fn record_series(
     let series = run(Arc::clone(&source), move |s| s.series(&lookup)).await?;
     let lookup = remote_id.clone();
     let chapters = run(Arc::clone(&source), move |s| s.chapters(&lookup)).await?;
+    // A source that reads only one kind of file says what every chapter
+    // is without opening each; the rest are read as pages, and a source
+    // that mixes files with pages isn't told apart chapter by chapter yet.
+    let format = match source.formats() {
+        [ContentFormat::Epub] => "epub",
+        [ContentFormat::Pdf] => "pdf",
+        _ => "remote",
+    };
     let cover = match &series.cover {
         Some(image) => save_cover(state, source, image.clone()).await,
         None => None,
@@ -276,6 +312,7 @@ async fn record_series(
                 remote_id: c.id,
                 version: c.version,
                 published: c.published,
+                format,
             }
         })
         .collect();

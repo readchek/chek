@@ -29,6 +29,10 @@ pub struct Entry {
     pub sites: Vec<String>,
     pub languages: Vec<String>,
     pub capabilities: Vec<String>,
+    /// Left out for sources that read only images, as indexes written
+    /// before formats existed are.
+    #[serde(skip_serializing_if = "is_images")]
+    pub formats: Vec<String>,
 }
 
 /// Writes `index.json` in `dir` for every `.wasm` file there.
@@ -139,7 +143,31 @@ impl ManifestReader {
         let [Val::Record(fields)] = results else {
             return Err("its manifest isn't a record".to_owned());
         };
-        Entry::from_manifest(fields)
+        let mut entry = Entry::from_manifest(fields)?;
+        // Formats come from the optional chapter content export; a source
+        // without it reads images.
+        let formats = instance
+            .get_export_index(&mut store, None, "chek:source/chapter-content@0.6.0")
+            .and_then(|interface| {
+                instance.get_export_index(&mut store, Some(&interface), "formats")
+            })
+            .and_then(|index| instance.get_func(&mut store, index));
+        if let Some(formats) = formats {
+            let mut results = [Val::Bool(false)];
+            formats
+                .call(&mut store, &[], &mut results)
+                .map_err(|e| format!("its formats failed: {e}"))?;
+            let [Val::List(items)] = results else {
+                return Err("its formats aren't a list".to_owned());
+            };
+            entry.formats = strings(items)?;
+            entry.formats.sort();
+            entry.formats.dedup();
+            if entry.formats.is_empty() {
+                return Err("it lists no formats".to_owned());
+            }
+        }
+        Ok(entry)
     }
 }
 
@@ -154,6 +182,7 @@ impl Entry {
             sites: Vec::new(),
             languages: Vec::new(),
             capabilities: Vec::new(),
+            formats: vec!["images".to_owned()],
         };
         for (name, value) in fields {
             match (name.as_str(), value) {
@@ -173,6 +202,10 @@ impl Entry {
         }
         Ok(entry)
     }
+}
+
+fn is_images(formats: &[String]) -> bool {
+    formats == ["images"]
 }
 
 fn strings(items: Vec<Val>) -> Result<Vec<String>, String> {
@@ -204,12 +237,14 @@ mod tests {
                 sites: vec!["example.com".to_owned()],
                 languages: vec!["en".to_owned()],
                 capabilities: vec!["browser".to_owned()],
+                formats: vec!["epub".to_owned()],
             }],
         };
         let json = serde_json::to_vec(&index).unwrap();
         let read = chek_sources::repository::parse_index(&json).unwrap();
         assert_eq!(read.spec, Some(chek_sources::repository::SPEC_VERSION));
         assert_eq!(read.extensions[0].capabilities, ["browser"]);
+        assert_eq!(read.extensions[0].formats, ["epub"]);
     }
 
     #[test]
