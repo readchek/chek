@@ -1,8 +1,8 @@
 #!/bin/sh
 # Fills a demo server with the reader test corpus: downloads the pinned
-# snapshot, lays out Comics and Books libraries beside the full corpus, and
-# creates an admin and a demo reader. Safe to run on every deploy; finished
-# steps are skipped.
+# snapshot, lays out the Comics and Books libraries in library.list beside
+# the full corpus, and creates an admin and a demo reader. Safe to run on
+# every deploy; finished steps are skipped.
 # Runs in the seed image's BusyBox shell, which has pipefail.
 set -eu -o pipefail
 
@@ -10,6 +10,10 @@ CHEK_URL=${CHEK_URL:-http://chek:8080}
 CORPUS_URL=${CORPUS_URL:-https://assets.chek.page}
 LIBRARY=${LIBRARY:-/library}
 PARTS=${PARTS:-$(dirname "$0")/corpus.parts}
+MANIFEST=${MANIFEST:-$(dirname "$0")/library.list}
+DOWNLOADS=$LIBRARY/downloads
+FONT=${FONT:-/usr/share/fonts/dejavu/DejaVuSans.ttf}
+LAID_OUT=no
 ADMIN_NAME=${DEMO_ADMIN_NAME:-admin}
 READER_NAME=${DEMO_READER_NAME:-demo}
 : "${CHEK_SETUP_TOKEN:?set CHEK_SETUP_TOKEN}"
@@ -59,51 +63,146 @@ fetch_corpus() {
     log "corpus ready"
 }
 
-# Hard links into the corpus, so the curated libraries take no extra space.
-# Folders become series, and files at a library's root stand alone.
-link() {
-    mkdir -p "$(dirname "$LIBRARY/.layout/$2")"
-    ln "$LIBRARY/corpus/$1" "$LIBRARY/.layout/$2"
-}
-
-lay_out() {
-    if [ -d "$LIBRARY/comics" ] && [ -d "$LIBRARY/books" ]; then
+# Prints the path of the verified download with the given SHA-256, fetching
+# it first from the mirror and then from the upstream URL. Fails without
+# exiting, so one missing file doesn't stop the rest of the demo.
+download() {
+    file=$DOWNLOADS/$1
+    if matches "$file" "$1"; then
+        printf '%s\n' "$file"
         return
     fi
-    rm -rf "$LIBRARY/.layout" "$LIBRARY/comics" "$LIBRARY/books"
-    for n in 01 02 08 10; do
-        link "edge-cases/cbz-rooted-paths/peppercarrot_episode$n.cbz" \
-            "comics/Pepper & Carrot/peppercarrot_episode$n.cbz"
+    mkdir -p "$DOWNLOADS"
+    # The mirror may not hold the file, so its misses are quiet.
+    if curl -fsL -o "$file.partial" "$CORPUS_URL/demo-library/$1" && matches "$file.partial" "$1" ||
+        curl -fsSL --retry 3 -o "$file.partial" "$2" && matches "$file.partial" "$1"; then
+        mv "$file.partial" "$file"
+        printf '%s\n' "$file"
+        return
+    fi
+    rm -f "$file.partial"
+    log "couldn't download $2 with SHA-256 $1"
+    return 1
+}
+
+xml() {
+    printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+# Binds a Book Dash picture book's pages into a CBZ, adding the credits page
+# and ComicInfo.xml that its license and Book Dash's guidelines call for.
+# It's called where set -e doesn't apply, so each step checks its own result.
+bind_picture_book() {
+    id=$1 title=$2 writer=$3 illustrator=$4 designer=$5 editor=$6 web=$7
+    # Named by its manifest lines, so changing them binds the book again.
+    key=$(grep -E "^(picturebook|page)\|$id\||^logo\|" "$MANIFEST" | sha256sum | cut -c 1-12)
+    book=$DOWNLOADS/books/$id-$key.cbz
+    if [ -f "$book" ]; then
+        printf '%s\n' "$book"
+        return
+    fi
+    work=$DOWNLOADS/books/$id.work
+    rm -rf "$work"
+    mkdir -p "$work" || return 1
+    n=0
+    while IFS='|' read -r kind page sha url; do
+        [ "$kind" = page ] && [ "$page" = "$id" ] || continue
+        n=$((n + 1))
+        file=$(download "$sha" "$url") || return 1
+        ln "$file" "$work/$(printf '%03d' "$n").jpg" || return 1
+    done < "$MANIFEST"
+    # ImageMagick reads \n in -annotate text as a line break.
+    credits="Written by $writer\nIllustrated by $illustrator\nDesigned by $designer"
+    summary="A picture book written by $writer, illustrated by $illustrator and designed by $designer"
+    if [ -n "$editor" ]; then
+        credits="$credits\nEdited by $editor"
+        summary="A picture book written by $writer, illustrated by $illustrator, designed by $designer and edited by $editor"
+    fi
+    license="Originally published by Book Dash under a Creative Commons CC BY 4.0 license."
+    adapted="Adapted for the Chek demo: the page images from bookdash.org, bound into a comic archive with a credits page."
+    logo=$(download "$LOGO_SHA" "$LOGO_URL") || return 1
+    magick -size 2048x1024 xc:white \
+        \( "$logo" -resize 560x \) -gravity north -geometry +0+70 -composite \
+        -font "$FONT" -fill '#1d1d1f' \
+        -pointsize 60 -annotate +0+400 "$title" \
+        -pointsize 38 -interline-spacing 12 -annotate +0+510 "$credits" \
+        -fill '#55555a' -pointsize 30 -annotate +0+800 "$license\n${web#https://}\n$adapted" \
+        -quality 90 "$work/$(printf '%03d' $((n + 1))).jpg" || return 1
+    cat > "$work/ComicInfo.xml" <<XML || return 1
+<?xml version="1.0" encoding="utf-8"?>
+<ComicInfo>
+  <Title>$(xml "$title")</Title>
+  <Summary>$(xml "$summary"). $(xml "$license")</Summary>
+  <Writer>$(xml "$writer")</Writer>
+  <Penciller>$(xml "$illustrator")</Penciller>
+  <Editor>$(xml "$editor")</Editor>
+  <Publisher>Book Dash</Publisher>
+  <Web>$(xml "$web")</Web>
+  <LanguageISO>en</LanguageISO>
+  <Notes>CC BY 4.0, https://creativecommons.org/licenses/by/4.0/. $(xml "$adapted")</Notes>
+</ComicInfo>
+XML
+    # Stored, not deflated: the pages are already JPEG.
+    rm -f "$book.partial"
+    (cd "$work" && zip -q -0 -X "$book.partial" ./*.jpg ComicInfo.xml) || return 1
+    mv "$book.partial" "$book" || return 1
+    rm -rf "$work"
+    printf '%s\n' "$book"
+}
+
+# Lays out the Comics and Books libraries from the manifest, as hard links so
+# they take no extra space. Each version of the manifest gets folders of its
+# own, and so libraries of its own: the server keeps files that disappear as
+# unavailable rather than dropping them, so reusing a library would leave the
+# old layout's books listed beside the new ones. A layout missing a file is
+# laid out again on the next run.
+lay_out() {
+    version=$(sha256sum "$MANIFEST" | cut -c 1-12)
+    LAYOUT=$LIBRARY/demo/$version
+    if [ -f "$LAYOUT/.complete" ]; then
+        return
+    fi
+    LOGO_SHA=$(grep '^logo|' "$MANIFEST" | cut -d '|' -f 2)
+    LOGO_URL=$(grep '^logo|' "$MANIFEST" | cut -d '|' -f 3-)
+    rm -rf "$LAYOUT.new"
+    mkdir -p "$LAYOUT.new/comics" "$LAYOUT.new/books"
+    complete=yes
+    # The loop reads from a descriptor of its own, since the commands in it
+    # read standard input.
+    while IFS='|' read -r kind a b c d e f g <&3; do
+        source='' to=''
+        case $kind in
+            corpus) source=$LIBRARY/corpus/$a to=$b ;;
+            file)
+                to=$b
+                source=$(download "$a" "$c") || source='' ;;
+            picturebook)
+                # A file at the library's root is a series named after it.
+                to=comics/$b.cbz
+                source=$(bind_picture_book "$a" "$b" "$c" "$d" "$e" "$f" "$g") || source='' ;;
+            *) continue ;;
+        esac
+        if [ -z "$source" ] || [ ! -f "$source" ]; then
+            log "leaving out $to"
+            complete=no
+            continue
+        fi
+        mkdir -p "$(dirname "$LAYOUT.new/$to")"
+        ln "$source" "$LAYOUT.new/$to"
+    done 3< "$MANIFEST"
+    if [ "$complete" = yes ]; then
+        touch "$LAYOUT.new/.complete"
+    fi
+    rm -rf "$LAYOUT"
+    mv "$LAYOUT.new" "$LAYOUT"
+    # Earlier layouts, including the one before layouts were versioned.
+    for old in "$LIBRARY"/demo/* "$LIBRARY/comics" "$LIBRARY/books"; do
+        if [ -e "$old" ] && [ "$old" != "$LAYOUT" ]; then
+            rm -rf "$old"
+        fi
     done
-    link comics/cbz-albums/peppercarrot-book1.cbz "comics/Pepper & Carrot Books/peppercarrot-book1.cbz"
-    link pdf/comics/2020-08-02_B01_inside_72pages_8.5x11_final.pdf "comics/Pepper & Carrot Books/peppercarrot-book1.pdf"
-    link pdf/comics/2020-08-02_B02_inside_72pages_8.5x11_final.pdf "comics/Pepper & Carrot Books/peppercarrot-book2.pdf"
-    link comics/cbz-albums/little-nemo-1905-1914.cbz "comics/Little Nemo/little-nemo-1905-1914.cbz"
-    for path in \
-        epub/epub3-illustrated/alice.epub \
-        epub/epub3-illustrated/pride-and-prejudice.epub \
-        epub/embedded-fonts/moby-dick.epub \
-        epub/modern-fiction/gorilla.epub \
-        epub/modern-fiction/troll.epub \
-        epub/reflowable-reference/accessible_epub_3.epub \
-        epub/reflowable-reference/childrens-literature.epub \
-        epub/vertical-japanese/kusamakura-japanese-vertical-writing.epub \
-        epub/rtl/israelsailing.epub \
-        epub/rtl/regime-anticancer-arabic.epub \
-        epub/technical-reference/jlreq-in-english.epub \
-        epub/fixed-layout-manga/haruko-html-jpeg.epub \
-        epub/fixed-layout-bitmap/page-blanche.epub \
-        epub/fixed-layout-svg/sous-le-vent.epub \
-        epub/mixed-layout/cole-voyage-of-life.epub \
-        pdf/modern-fiction/sugar.pdf \
-        pdf/text-books/capitaine-hatteras.pdf \
-        pdf/text-books/le-comte-de-chanteleine.pdf
-    do
-        link "$path" "books/$(basename "$path")"
-    done
-    mv "$LIBRARY/.layout/comics" "$LIBRARY/.layout/books" "$LIBRARY/"
-    rmdir "$LIBRARY/.layout"
-    log "comics and books laid out"
+    LAID_OUT=yes
+    log "comics and books laid out in $LAYOUT"
 }
 
 wait_for_server() {
@@ -152,13 +251,39 @@ library() {
     printf '%s\n' "$id"
 }
 
+# Rescans a library after the layout changed. The server scans every library
+# when it starts, which may still be reading the old layout, so a scan that's
+# already running is waited out rather than skipped.
+scan() {
+    tries=0
+    while :; do
+        status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "authorization: Bearer $TOKEN" "$CHEK_URL/api/v1/libraries/$1/scan")
+        case $status in
+            2??) return ;;
+            409) ;;
+            *) log "scan of library $1 answered $status"; exit 1 ;;
+        esac
+        tries=$((tries + 1))
+        if [ "$tries" -ge 150 ]; then
+            log "library $1 is still scanning"
+            return
+        fi
+        sleep 2
+    done
+}
+
 fetch_corpus
 lay_out
 wait_for_server
 sign_in
-comics=$(library Comics "$LIBRARY/comics")
-books=$(library Books "$LIBRARY/books")
+comics=$(library Comics "$LAYOUT/comics")
+books=$(library Books "$LAYOUT/books")
 library "Test corpus" "$LIBRARY/corpus" > /dev/null
+if [ "$LAID_OUT" = yes ]; then
+    scan "$comics"
+    scan "$books"
+fi
 
 # The demo reader sees the curated libraries only: the Test corpus holds
 # files made to fail, which a visitor would take for bugs. An existing reader

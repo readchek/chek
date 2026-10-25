@@ -20,13 +20,28 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
   the pinned corpus snapshot (about 600 MB) from `assets.chek.page`, checks
   every part's SHA-256, and unpacks it into the `library` volume. It then
   creates the admin and three libraries:
-  - **Comics**: Pepper & Carrot episodes and books, and Little Nemo.
-  - **Books**: one copy of each EPUB title plus the text PDFs.
+  - **Comics**: Pepper & Carrot episodes and books, Little Nemo, and ten
+    Book Dash picture books.
+  - **Books**: classics from Standard Ebooks with their painted covers,
+    illustrated Project Gutenberg editions such as Peter Rabbit and
+    Rackham's Alice, and a few corpus EPUBs that show fixed layout,
+    vertical Japanese and right-to-left text.
   - **Test corpus**: the whole corpus as it is, with every variant and
     format, including files the server can't read yet.
 
-  Comics and Books are hard links into the corpus, so they take no extra
-  space. Later runs skip what's already done, so redeploying is quick.
+  [`library.list`](../deploy/demo/library.list) says what Comics and Books
+  hold. Corpus files are hard links, so they take no extra space. The rest
+  are downloaded once by SHA-256, first from `assets.chek.page/demo-library/`
+  and otherwise from their source, and each Book Dash book is bound into a
+  CBZ with a credits page. A file that can't be fetched is left out and
+  tried again on the next deploy. Later runs skip what's already done, so
+  redeploying is quick.
+
+  Changing `library.list` lays the libraries out in new folders and adds
+  new Comics and Books libraries for them, which `demo` is switched to. The
+  server keeps files that disappear as unavailable instead of dropping them,
+  so reusing the old libraries would list the old layout beside the new one.
+  The old libraries stay, emptied, for the admin.
 - A reader account named `demo` that can open Comics and Books, for handing
   to testers and App Review. It's listed in `CHEK_DEMO_USERS`, so nobody
   signed in as `demo` can change its password, sessions or extensions, and
@@ -37,7 +52,13 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
   Creative Commons like the corpus.
 
 The corpus is public-domain and Creative Commons material; its sources and
-licenses are in the `provenance` folder of the Test corpus library.
+licenses are in the `provenance` folder of the Test corpus library. The
+downloaded books are credited in
+[`deploy/demo/CREDITS.md`](../deploy/demo/CREDITS.md).
+
+To keep a downloaded file available after its source changes it, upload the
+file as it was to `assets.chek.page/demo-library/<sha256>`, named by the
+checksum in `library.list`.
 
 ## Dokploy
 
