@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
 
 # `chek` is the command people install for extensions (chek-cli); the
 # server's image still puts this at /usr/local/bin/chek.

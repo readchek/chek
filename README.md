@@ -196,3 +196,13 @@ git tag 0.3.0 && git push origin 0.3.0
 ```
 
 To build the image locally, run `docker build -t chek .`.
+
+## License
+
+Chek server is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+If you run a changed copy as a service for other people, you share your
+changes with them under the same license.
+
+The extension SDK in [`extensions`](extensions) and the contract in
+[`crates/chek-sources/wit`](crates/chek-sources/wit) are [MIT](extensions/LICENSE),
+so source extensions can use any license.
