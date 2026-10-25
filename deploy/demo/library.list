@@ -1,0 +1,211 @@
+# What the demo's Comics and Books libraries hold. Fields are separated by
+# `|`. Lines are read in order; the seed lays everything out again whenever
+# this file changes.
+#
+#   corpus|<path in the corpus>|<path in the libraries>
+#   file|<sha256>|<path in the libraries>|<url>
+#   picturebook|<id>|<title>|<writer>|<illustrator>|<designer>|<editor>|<web page>
+#   page|<id>|<sha256>|<url>     a picture book's pages, in reading order
+#   logo|<sha256>|<url>          the Book Dash logo for the credits pages
+#
+# Downloads are checked against their SHA-256 and kept by it, first from
+# $CORPUS_URL/demo-library/<sha256> and otherwise from the upstream URL, so
+# a file that changes upstream is still found once it's mirrored there. A
+# folder becomes a series, and a file at a library's root is a series named
+# after the file, so those files are named by title.
+# Sources and licenses are in CREDITS.md beside this file.
+
+# From the reader test corpus.
+corpus|edge-cases/cbz-rooted-paths/peppercarrot_episode01.cbz|comics/Pepper & Carrot/peppercarrot_episode01.cbz
+corpus|edge-cases/cbz-rooted-paths/peppercarrot_episode02.cbz|comics/Pepper & Carrot/peppercarrot_episode02.cbz
+corpus|edge-cases/cbz-rooted-paths/peppercarrot_episode08.cbz|comics/Pepper & Carrot/peppercarrot_episode08.cbz
+corpus|edge-cases/cbz-rooted-paths/peppercarrot_episode10.cbz|comics/Pepper & Carrot/peppercarrot_episode10.cbz
+corpus|comics/cbz-albums/peppercarrot-book1.cbz|comics/Pepper & Carrot Books/peppercarrot-book1.cbz
+corpus|pdf/comics/2020-08-02_B01_inside_72pages_8.5x11_final.pdf|comics/Pepper & Carrot Books/peppercarrot-book1.pdf
+corpus|pdf/comics/2020-08-02_B02_inside_72pages_8.5x11_final.pdf|comics/Pepper & Carrot Books/peppercarrot-book2.pdf
+corpus|comics/cbz-albums/little-nemo-1905-1914.cbz|comics/Little Nemo/little-nemo-1905-1914.cbz
+corpus|epub/epub3-illustrated/pride-and-prejudice.epub|books/Pride and Prejudice.epub
+corpus|epub/embedded-fonts/moby-dick.epub|books/Moby-Dick.epub
+corpus|epub/mixed-layout/cole-voyage-of-life.epub|books/The Voyage of Life.epub
+corpus|epub/fixed-layout-svg/sous-le-vent.epub|books/Sous le vent.epub
+corpus|epub/fixed-layout-bitmap/page-blanche.epub|books/Page blanche.epub
+corpus|epub/fixed-layout-manga/haruko-html-jpeg.epub|books/Haruko.epub
+corpus|epub/vertical-japanese/kusamakura-japanese-vertical-writing.epub|books/Kusamakura.epub
+corpus|epub/rtl/israelsailing.epub|books/Israel Sailing.epub
+
+# Standard Ebooks editions: CC0, with public-domain texts and cover paintings.
+file|0b5c070e2cde4d8bb36ef707f9d024465b00d0c49c078f0a148270f55b8c8780|books/Frankenstein.epub|https://standardebooks.org/ebooks/mary-shelley/frankenstein/downloads/mary-shelley_frankenstein.epub?source=download
+file|568ee9d37b2cc12dfd5e24ebf7b16ae71a805e269af159dc836647751739340a|books/Dracula.epub|https://standardebooks.org/ebooks/bram-stoker/dracula/downloads/bram-stoker_dracula.epub?source=download
+file|278f21286176a26993ad5b545480650a71c4b32d2aee56ff671d226b8363f8f4|books/Jane Eyre.epub|https://standardebooks.org/ebooks/charlotte-bronte/jane-eyre/downloads/charlotte-bronte_jane-eyre.epub?source=download
+file|fe179654358144aca4b8732f5e1a9ecfabaa058b840339dcd6bef46501845fdd|books/Wuthering Heights.epub|https://standardebooks.org/ebooks/emily-bronte/wuthering-heights/downloads/emily-bronte_wuthering-heights.epub?source=download
+file|97c1233f43d21ef98d2791b40df3eaa1cf799bfa4b11c23b38e22d8646ed51ef|books/Emma.epub|https://standardebooks.org/ebooks/jane-austen/emma/downloads/jane-austen_emma.epub?source=download
+file|095392183d24a7cf84a7333f55a861f79642df2fb52114462c4d35cf73873d3e|books/Little Women.epub|https://standardebooks.org/ebooks/louisa-may-alcott/little-women/downloads/louisa-may-alcott_little-women.epub?source=download
+file|abc45c1389f2d3c3450aa2fc8e031d14dd6028eb9f594ac54a89dd6575fd3310|books/Anne of Green Gables.epub|https://standardebooks.org/ebooks/l-m-montgomery/anne-of-green-gables/downloads/l-m-montgomery_anne-of-green-gables.epub?source=download
+file|7ec06b87caff764e298733a0c38821d3838666082bddbfffe1a3cdacd1f36c12|books/The Secret Garden.epub|https://standardebooks.org/ebooks/frances-hodgson-burnett/the-secret-garden/downloads/frances-hodgson-burnett_the-secret-garden.epub?source=download
+file|8613aa7fd5874c4b9fce62245220545711bff0cc128cc914648ff0e20241ec78|books/The Picture of Dorian Gray.epub|https://standardebooks.org/ebooks/oscar-wilde/the-picture-of-dorian-gray/downloads/oscar-wilde_the-picture-of-dorian-gray.epub?source=download
+file|65d43fffa8f37d0998f26f1370e6832063720db4af75e45f73a437b848523885|books/The Hound of the Baskervilles.epub|https://standardebooks.org/ebooks/arthur-conan-doyle/the-hound-of-the-baskervilles/downloads/arthur-conan-doyle_the-hound-of-the-baskervilles.epub?source=download
+file|3931b56fecfb0b0d00737f5fabcd00a46a96c26a6b1c9b8a60751d154057d9a6|books/The Time Machine.epub|https://standardebooks.org/ebooks/h-g-wells/the-time-machine/downloads/h-g-wells_the-time-machine.epub?source=download
+file|115e6bd0317d98f86fe3f74571beeadbbb345ee7b04bccbf139db858610cc7bf|books/Around the World in Eighty Days.epub|https://standardebooks.org/ebooks/jules-verne/around-the-world-in-eighty-days/george-makepeace-towle/downloads/jules-verne_around-the-world-in-eighty-days.epub?source=download
+file|9f0ef86c74f01b40c68399034b839f7048f98d1ceeb1cd0d1f1f2fbee2f485d0|books/Mrs Dalloway.epub|https://standardebooks.org/ebooks/virginia-woolf/mrs-dalloway/downloads/virginia-woolf_mrs-dalloway.epub?source=download
+
+# Illustrated Project Gutenberg editions, public domain.
+file|fa91774a0e841557f4d33e63f13aab7f7dcfb8cf05ca4eb8733308eeb40e69c5|books/The Tale of Peter Rabbit.epub|https://www.gutenberg.org/cache/epub/14838/pg14838-images-3.epub
+file|69c757719102f175303e7e8b8e508f1466e9aa78ddd9afb05609d00150699b3d|books/Alice's Adventures in Wonderland.epub|https://www.gutenberg.org/cache/epub/28885/pg28885-images-3.epub
+file|353c48670f2caa45b5dad1cab007514f7eef921a109b057c855c8cba5e23ad6d|books/The Wonderful Wizard of Oz.epub|https://www.gutenberg.org/cache/epub/43936/pg43936-images-3.epub
+file|418ba697a64385960fe9f7e570dd4590bed23046405b3767afaec3329d073699|books/A Child's Garden of Verses.epub|https://www.gutenberg.org/cache/epub/25609/pg25609-images-3.epub
+file|66485abb722485252d67dabe9f56214272b923d1a093485e3b16ecb9a85cccee|books/The Brownies, Their Book.epub|https://www.gutenberg.org/cache/epub/32210/pg32210-images-3.epub
+
+# Book Dash picture books, CC BY 4.0. The seed binds each one's page images
+# into a CBZ, with a credits page carrying the Book Dash logo, as Book Dash's
+# crediting guidelines ask.
+logo|fd2c3de3b5b75e4fdcd0f2417ea82e6004b4d0f8a65b7d55096fe9cf20f46c77|https://www.dropbox.com/scl/fi/y56g9y92ck1522x740fib/book-dash-logo_1000px.jpg?rlkey=bpapi4x7b1m27o3n0qtbgra9e&dl=1
+picturebook|a-very-important-tree|A Very Important Tree|Elana Bregin|Liam Longland|Heni Andrag|Carla Lever|https://bookdash.org/books/a-very-important-tree/
+page|a-very-important-tree|1726a66b4b6a5c2d8c5262e68be0cd4c3aeba887692b18d163a27bede26c6156|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_cover-2048x2048.jpg
+page|a-very-important-tree|0879f77ed320fc4471a0644fdcf6587180b48a3bc439aff6e33cc29571ab297f|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page4-2048x1024.jpg
+page|a-very-important-tree|ae109b4d6c67f521d8f9add19b5ea20aa59d85f4d80104a865068ba7c12debd9|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page5-2048x1024.jpg
+page|a-very-important-tree|5d71ea22b15eaadc378bd78cbde155eb1d6f77777c0e7268db975b75b3287250|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page6-2048x1024.jpg
+page|a-very-important-tree|0e30d0e9ed90f02a5561f73315650b7d7f82a4080ab7da9d35536c5479d3a82e|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page7-2048x1024.jpg
+page|a-very-important-tree|e50d9678d628ee19230b5cf30ac32dcd79dde9764cc67e0fa38c5d0c60899d64|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page8-2048x1024.jpg
+page|a-very-important-tree|4cd4661f9929a6cf78120065a4fc7c807596d00d50886931125f3b5cd299abea|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page9-2048x1024.jpg
+page|a-very-important-tree|7ae0c39f9dabc4dae9bafe3c65ffb6ad7dfa5f62f013cb831961466511f858c9|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page10-2048x1024.jpg
+page|a-very-important-tree|c3aa46e32cc4607ef0ee2dbba38f82081ee2f7f88c54e9f945ed7af4b0b62716|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page11-2048x1024.jpg
+page|a-very-important-tree|2e4e56cd492901ce437b3ee3cdc47a0101240a15fc608660cec8fb66ddc46199|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page12-2048x1024.jpg
+page|a-very-important-tree|56f81cbdf5e22dbcc78fa3068851ed99b5689c3ca18a6dc695f54bfd5a6cf307|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page13-2048x1024.jpg
+page|a-very-important-tree|bb868b87523621f6bf30ccf1338d4def9b89e04595d04d128d6e9949d36f6c90|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page14-2048x1024.jpg
+page|a-very-important-tree|1bd57f6ec1c2526166e4f6c8a7207f08d5252545b4e871b9cdadeb3d4b6d3308|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page15-2048x1024.jpg
+page|a-very-important-tree|923a99fb47967bf2898981ffa18753742ccebab4020a55fdc119c8f883496e42|https://bookdash.org/wp-content/uploads/2021/10/a-very-important-tree_en_20211005_page17-2048x2048.jpg
+picturebook|and-also|And Also!|Lauren Beukes|Anja Venter|Nkosingiphile Mazibuko|Helen Moffett|https://bookdash.org/books/and-also/
+page|and-also|00781d495e23c234e56fa06e5f0705793f20bbbbff33aad7b15cf21818def5dd|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_cover-2048x2048.jpg
+page|and-also|2ef93ab4e537062ce14314e9f9adb0cf91b8cf386b6570d79c346559331341c9|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page4-2048x1024.jpg
+page|and-also|6bb848321bf68764cf5ebc414226e51c71fe3242e20dc2e611eeb0a43c1a956a|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page5-2048x1024.jpg
+page|and-also|71b14ad59a0d33576691b2b0689e1615da0270214e60d37ec548df487defaf60|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page6-2048x1024.jpg
+page|and-also|27ff4166241e141428a1a31c5352e05f121a8585714771670eb147119286f8c8|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page7-2048x1024.jpg
+page|and-also|ad5f346998304eb99cc8b96525bcc864cb0ab88d1b706c9e25b548c93c8de6a0|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page8-2048x1024.jpg
+page|and-also|9d43f9e8034c6f28fcc49aca6775d214dfaa4c621d35a844265e910bb103c95a|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page9-2048x1024.jpg
+page|and-also|a7a5856281d1cb831e13b4e251f0d983b661ab6bfd78931444b67112705152e2|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page10-2048x1024.jpg
+page|and-also|1da73e92ac68e16d22e53e2c43ba24ea3d2a4308721a3129bd626e0682c86e73|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page11-2048x1024.jpg
+page|and-also|b05fbe2ff4db170bbb777662eb58467a3d0d5d1ea8cf301b590902724c386a67|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page12-2048x1024.jpg
+page|and-also|3631bcbdf8f02ac50b15aa813560eafab3aa9182df757dd0e4c4096c58449dfc|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page13-2048x1024.jpg
+page|and-also|cc5c19f61c3e1df8d606601f292ba2ea35c8c0836bd8031f9438cbecaa258365|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page14-2048x1024.jpg
+page|and-also|e037600582dcc00ffdba951884ee69e158a4b2831ef4109db7d0de45c4d0085e|https://bookdash.org/wp-content/uploads/2018/01/and-also_20221130_page15-2048x1024.jpg
+picturebook|auntie-bois-gift|Auntie Boi's Gift|Baeletsi Tsatsi|Ndumiso Nyoni|Bianca Wiesner|Margot Bertelsmann|https://bookdash.org/books/auntie-bois-gift/
+page|auntie-bois-gift|c9fb93f810f4e6ccb4b65a9e87528fe6716c22f3115027fce052a673ae804657|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_cover-2.jpg
+page|auntie-bois-gift|f38c226240662576453923af02f69a4f60e460cab37e6d7f330abdce56e3f4ce|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page4-2-2048x1024.jpg
+page|auntie-bois-gift|9868b8f2ee7644395525549c99f1f1b61fce43210f5b01a5f116b2ca1f9b6be9|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page5-2-2048x1024.jpg
+page|auntie-bois-gift|d8307701e17b0ea7cb252bdfdcc7ae9bbd3f0219cc9e7bd296d6cdb653ab54e8|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page6-2-2048x1024.jpg
+page|auntie-bois-gift|ba3b83871546027d118a1e9ce82f372c3f633bda5f3acc3f71793a350e8955c0|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page7-2-2048x1024.jpg
+page|auntie-bois-gift|a90efbd3c0f77169590ac0bff459ffa25711e6e11563b5f212d6fba4da941d72|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page8-2-2048x1024.jpg
+page|auntie-bois-gift|c70e6cbbe4c5a741d71427204ffd428ddae9046d71e76bbf4d5e6a54974b9c3d|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page9-2-2048x1024.jpg
+page|auntie-bois-gift|2652313d3013b592571c0d5309443573514d3a5a4ed55ceb0e8212517e432f4d|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page10-2-2048x1024.jpg
+page|auntie-bois-gift|3c39ef1bd6cb8a8c0121a6cfd73901dc8a1dfefd5e68e818a01c9d259ef6e7ac|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page11-2-2048x1024.jpg
+page|auntie-bois-gift|8ebcb8d9d688271b5c763b2bbdf6b879a7678cbf62c9e9930c3eceabec44076b|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page12-2-2048x1024.jpg
+page|auntie-bois-gift|2cdb20a697d10042095e11a847a4829cbea79099f01e3624b5e13343f8b7390c|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page13-2-2048x1024.jpg
+page|auntie-bois-gift|35c0bebe2124dfbbe63a11fb0cf767871ba42fb86f7801026fde1496e0f2652b|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page14-2-2048x1024.jpg
+page|auntie-bois-gift|a0c30a5acdf062bc49a77741e8d605d2f8b280806a25a8d883ce4f5f787e8e5f|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page15-2-2048x1024.jpg
+page|auntie-bois-gift|59b68ee1da1f3dbd0773a90a8c1663baa3dc1685a6b8659915aa0b087ec95967|https://bookdash.org/wp-content/uploads/2019/02/auntie-bois-gift_en_20190114_page17-2.jpg
+picturebook|brave-bora|Brave Bora|Edna Gicovi|Ellen Heydenrych|Raeesah Vawda|David Mann|https://bookdash.org/books/brave-bora/
+page|brave-bora|28449f03f7833484eb2b65b011d1dc03dff8c858ac453ab3316b941169b43843|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_cover-2048x2048.jpg
+page|brave-bora|1affa96ea0094fe199b0aed4792c43ef5d2c5ed9d65c5cf53c505ad5e8810362|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page4-2048x1024.jpg
+page|brave-bora|65100beb605a0eeaf55cbd5989e2079b080e6b7e77a572cdc1778b17420929ac|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page5-2048x1024.jpg
+page|brave-bora|417a2c34cee9432c979fda43363ec0e3dcc1514f811c23ab8c987c8be405c02f|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page6-2048x1024.jpg
+page|brave-bora|11c32af414c5c706dedddf0ba338ef640fe0083069e62c3a16aaf15d4c7b1520|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page7-2048x1024.jpg
+page|brave-bora|9a2143cbbe86c5ea491d21ad19643816f2d4db18de1a7689ef064944bd90c79b|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page8-2048x1024.jpg
+page|brave-bora|4f00823690186cbd58a8b0e9505da9d05b0599854af0be33221de8b3e8277ddf|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page9-2048x1024.jpg
+page|brave-bora|7f2f34bae49c75f64886a7948757c9413e1b1e30474c920ae32697f00ca0acb8|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page10-2048x1024.jpg
+page|brave-bora|61d315d0c9124c0210188157d034b9b358b5ffcdf86901fcb721a447437339c1|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page11-2048x1024.jpg
+page|brave-bora|3baa6e8e63a02dae7316a6fddd73d7f8a8eefa56776754b76ece13ce4e7faa3c|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page12-2048x1024.jpg
+page|brave-bora|1145a803f706f90a1676b573d96db5081e0697d86062f78956ee5869a177587f|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page13-2048x1024.jpg
+page|brave-bora|2bc7fe06201318599807320ee9a8e7a2ad33ea1dc9b260b898d03955354860e9|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page14-2048x1024.jpg
+page|brave-bora|1f9d34b23647a630c1ba3bb4136142d6feb94d9b93fb15ce291f82898dddf269|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page15-2048x1024.jpg
+page|brave-bora|cb190c9db1ab17ff2fc167552c4f1c8452f2d48e364551becc47fe722aa2ecd1|https://bookdash.org/wp-content/uploads/2021/10/brave-bora_en_20211005_page17-2048x2048.jpg
+picturebook|can-we-eat-a-rainbow|Can we eat a rainbow?|Marion Drew|Kelly Brown|Katlego Modubu|Ester Levinrad|https://bookdash.org/books/can-we-eat-a-rainbow/
+page|can-we-eat-a-rainbow|bf00a57b9f68d2931b2021ee3d1221f4b79ec516d8f61705dacd7a70a910fee7|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_cover-1-2048x2048.jpg
+page|can-we-eat-a-rainbow|bd1b9c9de7300b24a509b500f13628419dcb329b400fc3cf868be29a58f7b43e|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page4-2048x1024.jpg
+page|can-we-eat-a-rainbow|1950f5bd1aa160f712322d747a0ab4a9b64b9dee9bd46259fc875322a0958d4f|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page5-2048x1024.jpg
+page|can-we-eat-a-rainbow|7ea627b1e7f0cc3b2d9755e1a207bb9333a129093ebd06b35c8a22ca1041293c|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page6-2048x1024.jpg
+page|can-we-eat-a-rainbow|01d3c4680d84e1a823bd25295721f38c1fa55e1732d3d43c25fe19b9ee05e204|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page7-2048x1024.jpg
+page|can-we-eat-a-rainbow|562808d084956c798d863a6c4c9b0f5ae524d6da94434be175ef143a8da3b302|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page8-2048x1024.jpg
+page|can-we-eat-a-rainbow|3848648de77ce2ae8fee98cf36c8404751ea93965dd9f8be8d36523ad25012bc|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page9-2048x1024.jpg
+page|can-we-eat-a-rainbow|c344f3b0c4529822d5a92fa68c0447ac15beec68ee489ee483584a592e7a8b98|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page10-2048x1024.jpg
+page|can-we-eat-a-rainbow|a557c4b3e1ee5b35ae4f3863362410bfba9ec9620cad9a533b5dc46c359e2ed7|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page11-2048x1024.jpg
+page|can-we-eat-a-rainbow|a744e4669be88a1f7df07a1ac0ea5af24b239daf4587883bf54867a67aac4ce7|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page12-2048x1024.jpg
+page|can-we-eat-a-rainbow|5ff5e28d112f052650118a4db3788be45c1106995dfb55ca71f5613559948dc1|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page13-2048x1024.jpg
+page|can-we-eat-a-rainbow|f05a517b7bc722d8ffb2525e5be352a90ca471e5db94ee73acecfd263e574b60|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page14-2048x1024.jpg
+page|can-we-eat-a-rainbow|856b4ce44e52445492e63c2b9d855f4d3f8e7e2d1f745a420d13662c3050ded3|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page15-2048x1024.jpg
+page|can-we-eat-a-rainbow|e1f8199e3cef06307cc1057f65f36a68e2fea13d5e846be7d4e03a11b3b1b193|https://bookdash.org/wp-content/uploads/2026/10/can-we-eat-a-rainbow_en_page17-2048x2048.jpg
+picturebook|catch-that-cat|Catch That Cat!|Megan Pirie|Lindy Pelzl|Jessica Bailing|Sarah Heron|https://bookdash.org/books/catch-that-cat/
+page|catch-that-cat|6938a928d4f60d563f5750a3975e42b8958642b6f40c37e8e33d865ea3af3fb6|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_cover-2048x2048.jpg
+page|catch-that-cat|73670c143481ee58929c117d83d4a7d1b54dc9e55ffe9de439bfb133ab51e502|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page4-2048x1024.jpg
+page|catch-that-cat|106455f57783434d2626994b0f44884e77a58a872c72aacb1a3f8332f931173e|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page5-2048x1024.jpg
+page|catch-that-cat|c10aa7f802dcd1962db77907f7f801dce941637c8050b855e88e80a425f9e1f0|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page6-2048x1024.jpg
+page|catch-that-cat|430993e00c6244fcfcdcb26b598274a81044e7ea2420e35c3271647fb90f3e26|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page7-2048x1024.jpg
+page|catch-that-cat|530b839f5a2b2b86cc50430183f08abdd4c2f9659997f5892a1699572c0ba8ba|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page8-2048x1024.jpg
+page|catch-that-cat|9e754379ccf65ddad6619c548d75cbfa41d4c2ad9b78d329413a975eca30e116|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page9-2048x1024.jpg
+page|catch-that-cat|641fe45e7732cf08254e4ba9eaa5fcf665092dab75b71764cf1de8ae21ac2e83|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page10-2048x1024.jpg
+page|catch-that-cat|ba85572db4ae8f773b092a51b4a3466c4f856956daf73b9811a893f31673ed9a|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page11-2048x1024.jpg
+page|catch-that-cat|bc238c182777fd023e111a877aa322f379d681641333eefa78b0708fbbd5a60c|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page12-2048x1024.jpg
+page|catch-that-cat|7ec6f4a83efe655648ddf94df52f8b4cb0cb1da82a71bf30e32073afbe0afdcd|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page13-2048x1024.jpg
+page|catch-that-cat|e22843bed293917bf1c7506df3560f4617d3aea86ca27acfb0b71812391a3604|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page14-2048x1024.jpg
+page|catch-that-cat|c84fdb794eade5dc3205ce02558543269eed78fc7af6eadd724afa9e8a5a4e94|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page15-2048x1024.jpg
+page|catch-that-cat|8c50e483f7705bc41379d149195422db6731e9fcdb4de2a9614ff9acc1c64316|https://bookdash.org/wp-content/uploads/2022/11/catch-that-cat_en_20221116_page17-2048x2048.jpg
+picturebook|im-the-colour-of-honey|I'm the Colour of Honey|Maimouna Jallow|Caroline Faysse|Charné Casey|Alison Ziki|https://bookdash.org/books/im-the-colour-of-honey/
+page|im-the-colour-of-honey|263b6866cfe2673f61bf62eb7db15e83c5d1dbb0f256a6be7d84ec85e07f4613|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_cover-1.jpg
+page|im-the-colour-of-honey|724cf80f351e11dd81fa6e32029cb565026eb79459944b9c7a0b317b9e743658|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page4-2048x1024.jpg
+page|im-the-colour-of-honey|c93aab5de595c696ecf9c6770804735f02cc6234e4b38bd8bc1cb22d2e4c131c|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page5-2048x1024.jpg
+page|im-the-colour-of-honey|b828488effc7464ecdc6053e522fa68e4d7444f168d009112d63bdaf20554618|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page6-2048x1024.jpg
+page|im-the-colour-of-honey|976428656dc9bb0f9643c6c64d31d2fd31cab26602e95826553a9129b38c7079|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page7-2048x1024.jpg
+page|im-the-colour-of-honey|990ea5620c4cc1a82785688af84f61c4a8b769202a5ffe934f312df2976bcbcf|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page8-2048x1024.jpg
+page|im-the-colour-of-honey|6f4a3c99743df82acf93d1b0b3fdbb980115534a7aea26950dc3071735a70741|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page9-2048x1024.jpg
+page|im-the-colour-of-honey|80158b046115348c84ea7d6995fcca7cbf68fe2a33e5a9d5cace3557ad69386d|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page10-2048x1024.jpg
+page|im-the-colour-of-honey|900c6987004b82456c51fbb40214b2dd0dffe2cd886782c8b07817a17b7a4a65|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page11-2048x1024.jpg
+page|im-the-colour-of-honey|c67910d2f9ff8a5d4a1c7d8f72a298013a985e31710efa7ef5ce4c2c510dad5c|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page12-2048x1024.jpg
+page|im-the-colour-of-honey|89bfc2cb39bcea9c5924cccc62a41cea38f200d8286c2e6a2decbf39c887078f|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page13-2048x1024.jpg
+page|im-the-colour-of-honey|87708b85c39de090170a0f91c8834d35543bc117ca058b4904ed481f41bbafc2|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page14-2048x1024.jpg
+page|im-the-colour-of-honey|6eae34ec11af4668289fe01ddb65012b796bc8430f26f2c21eb67d71493b8df8|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page15-2048x1024.jpg
+page|im-the-colour-of-honey|afa67824dc73cc0e274e64561a79b5da896cd74f2d6790de64f1742a92b5a0c4|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page16-2048x1024.jpg
+page|im-the-colour-of-honey|8e937e8cda4ff6d2e207f6299e2c1baeac0bb09c76216ffbdf6e83765d4b6cd1|https://bookdash.org/wp-content/uploads/2019/11/im-the-colour-of-honey_en_20191124_page17.jpg
+picturebook|julia-loves-books|Julia Loves Books|Diane Awerbuck|Jess Jardim-Wedepohl|Thokozani Mkhize||https://bookdash.org/books/julia-loves-books/
+page|julia-loves-books|9fac14a7642ccb17f55b2a1a04c6af62f57531eb2ad152042203e1f279eac1d9|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_cover-2048x2048.jpg
+page|julia-loves-books|4001109f79d9e214f58e4c158f027b30e1d0df673a9502919a7dfb6e8a48f405|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page4-2048x1024.jpg
+page|julia-loves-books|40383be41747fbe1070b88013ef0f23c3d0b212db03e1827af7a2dcc9051e22f|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page5-2048x1024.jpg
+page|julia-loves-books|bb2b732a1726073fe88d471022232f0829085533fcc98b20808fc6b57fdcef71|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page6-2048x1024.jpg
+page|julia-loves-books|e71c552088db5b3f562d24dfb1f84a03451c08930311811d6ac7ad3768ecb32b|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page7-2048x1024.jpg
+page|julia-loves-books|a833ca595a6aecff41226c409f18294fa03ab1d62312343af8e6f64f6ea71dec|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page8-2048x1024.jpg
+page|julia-loves-books|b9aac80dcebbf2958a1663e81704aea99e3a7c73a8f60b0cec1127a775094b95|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page9-2048x1024.jpg
+page|julia-loves-books|0e3943c4a6f226b8c5f999d8112e14fc87667e1c5ea6f685c98b2bbae32a268f|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page10-2048x1024.jpg
+page|julia-loves-books|412294292712f8ae85ae34f664c65b498c45e96bdd105ce404a4ae8f266de03f|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page11-2048x1024.jpg
+page|julia-loves-books|df9ce1acb677f38c154d64b6a365cde392f487fef1ed1aa1a030ed97ede11056|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page12-2048x1024.jpg
+page|julia-loves-books|de87d28907b46a20997785aab0d398f69e5c8cac7a6e0b19412f59c2b35eb9cf|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page13-2048x1024.jpg
+page|julia-loves-books|3f58db0c55ea4751339a9902b0472194107a66f3d413b684329bb0cfd68167a5|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page14-2048x1024.jpg
+page|julia-loves-books|4d3d70ce953c2f393725dd4b5a10bcc25b5d7c11a225fcee2410d83173010d76|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page15-2048x1024.jpg
+page|julia-loves-books|bac837fdee51c660d3a6247aa153db2d9bafa42e991b1831960b5f6d337e7cc3|https://bookdash.org/wp-content/uploads/2024/09/julia-loves-books_en_page17-2048x2048.jpg
+picturebook|lets-party|Let's Party!|Liora Friedland|Karen Vermeulen|Sharleen Hollick|Ester Levinrad|https://bookdash.org/books/lets-party/
+page|lets-party|78083835daf1507907037b60965e5cef20a25567bd3209ab9b98c608da09086c|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_cover-2048x2048.jpg
+page|lets-party|929208d56f15a8275bd3e0bbfda773669bb722710b569c15e36e8ef1864fb020|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page4-2048x1024.jpg
+page|lets-party|c393b055e54c57f5d81d48d588d5364b79df75e7e060945cbfc6664c18afed41|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page5-2048x1024.jpg
+page|lets-party|2ebb37df81b0c685cd5a6af2798ebc5755d9aa5830d4f4eb68d15d98c41ca7bd|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page6-2048x1024.jpg
+page|lets-party|b7c817deff85f22ce1517cbddb88ef3c66e60002c0f295b05150f0d0f8ade671|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page7-2048x1024.jpg
+page|lets-party|bde48e923727d00ab994083114587c15612db5a2f46bdc6d2245d818d3a7850a|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page8-2048x1024.jpg
+page|lets-party|b14e49e0861727eff4dc103e2f5d64b8fdd46fe5917966e5bafdd704bde19b7d|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page9-2048x1024.jpg
+page|lets-party|38b4105d91f7d156cb7ba609fdc8b7df7aefb92e936f9496307713e786c03107|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page10-2048x1024.jpg
+page|lets-party|478a81d316a9b094969acf0e8b291691af25896b80d7539bb651c651392175ed|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page11-2048x1024.jpg
+page|lets-party|55077fd1f3172c161d32c6a7630296c38e521a92f4d638340f5d7de7825149d2|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page12-2048x1024.jpg
+page|lets-party|ddcb1b020799dfc5feb2132a37888ffc9b1ecd3da6c1140fcfccde40c99b0814|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page13-2048x1024.jpg
+page|lets-party|7492e95eb004b739f038383de6805702ec1af2631090dcc7de72070c9eb66342|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page14-2048x1024.jpg
+page|lets-party|68ab6518058be7f90ec40077c2f8aedee8b93929d3b45b1bd2ef6742f3e72a59|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page15-2048x1024.jpg
+page|lets-party|3227d47b3551cc38558da0a2719f8afb582587397d5058c3da22774986c3af3b|https://bookdash.org/wp-content/uploads/2023/10/lets-party_en_20231025_page17-2048x2048.jpg
+picturebook|play-with-me|Play with me|Sabina Mutangadura Seldon|Heleen Steyn van der Merwe|Jamie Calf|David Mann|https://bookdash.org/books/play-with-me/
+page|play-with-me|a0a5d8006adeac7e4b30f04ff0075f77dc2fd805e2dc8c804eab12897db92ac5|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_cover-2048x2048.jpg
+page|play-with-me|0e72af38f2d43e71e2bcd840c1c357269918551d42f2a824261cce7c01796543|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page4-2048x1024.jpg
+page|play-with-me|fc33e48b6fb019d6321e375001d8d3a0d46d6588ae5c42988da802f166f72ad6|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page5-2048x1024.jpg
+page|play-with-me|6374cf794a133247844a0ce083bbd1e6e31463c20ef3fad52ee56fe28ce10ab8|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page6-2048x1024.jpg
+page|play-with-me|22f974a88e0808ad56a57070c33aef0fbe1320df0e264616d1c1f7472f92416d|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page7-2-2048x1024.jpg
+page|play-with-me|11b0a07471d937372713bb7d5f39fa89de4405ec12040e265c243613a96e3449|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page8-2048x1024.jpg
+page|play-with-me|79a7f6b192b99549ff86a57c27fbe757dee4996d4ae759d96a6fd2b02d61d57b|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page9-2048x1024.jpg
+page|play-with-me|cecd4acafa7e1cd7c2e0632785bed001671080a62dd25fa071bc4628bf6184b3|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page10-2048x1024.jpg
+page|play-with-me|32ee665bccf9497df920cf0fbc94c58c01c76d393678d63e75b1dbdc675f0fd6|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page11-2048x1024.jpg
+page|play-with-me|ac5df1b51418ed74eca2675144600e0e2924629f2b381a1fd5315b0e93bd3bf4|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page12-2048x1024.jpg
+page|play-with-me|8af05d1bb765b1bb1c26960283a98993139468c0ba44c77f24c7713f8b2b4abe|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page13-2048x1024.jpg
+page|play-with-me|0ff43909e0b8a7655ddb8a27963ee4233ae0b18e6f5e06c6921f93c5173054fc|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page14-2048x1024.jpg
+page|play-with-me|acf88915c83cfad7e327d213df2d355a34f2fc89a87d1912879056b76fd45f8c|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page15-2048x1024.jpg
+page|play-with-me|4bdfeaa50aa6f9d91e4e7af8af4eb034842c2b28b121910bdb48ba98c88e2cdc|https://bookdash.org/wp-content/uploads/2026/10/play-with-me_en_page17-2048x2048.jpg
