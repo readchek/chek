@@ -13,7 +13,7 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
 
 - **`chek`** is the server, from the `ghcr.io/readchek/chek:edge` image
   that CI publishes on every push to `main`. Set `CHEK_IMAGE` to pin a
-  release, such as `ghcr.io/readchek/chek:0.2.0`, and pin one while a build
+  release, such as `ghcr.io/readchek/chek:0.3.0`, and pin one while a build
   is in App Review, so the server it's tested against doesn't change. Its
   database and covers live in the `chek-data` volume.
 - **`seed`** runs once per deploy and exits. On the first run it downloads

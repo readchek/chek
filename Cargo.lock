@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "chek-catalog"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rusqlite",
  "thiserror",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "chek-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chek-sources",
  "getrandom 0.4.3",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "chek-formats"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "compress-tools",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "chek-kavita"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "chek-komga"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "chek-library"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "chek-catalog",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "chek-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "axum",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "chek-sources"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "command-group",

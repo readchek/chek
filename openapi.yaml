@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Chek server API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     The contract between the Chek server and its clients. This file is written
     by hand and is the source of truth: change it in the same pull request as
@@ -11,6 +11,8 @@ info:
     session token from sign-in, sent as `Authorization: Bearer <token>`.
     HTTP Basic credentials (name and password) work too, for OPDS reader apps
     that can't hold a token.
+    Browsers may call the API from the Chek web app's origins
+    (`CHEK_WEB_ORIGINS`, `https://app.chek.page` by default) and no others.
     Admins see every library; readers see only the libraries they were granted,
     and other libraries and their publications answer as not found.
 servers:
@@ -475,6 +477,40 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/auth/web-link:
+    post:
+      tags: [Accounts]
+      operationId: openWebLink
+      summary: Sign the web app in with a link code
+      description: >-
+        Trades a code from `POST /api/v1/me/web-link` for a session of its
+        own. Each code works once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code:
+                  type: string
+                device:
+                  type: string
+                  description: A label for this session, such as "Chek on the web".
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/me:
     get:
       tags: [Accounts]
@@ -489,6 +525,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+  /api/v1/me/web-link:
+    post:
+      tags: [Accounts]
+      operationId: createWebLink
+      summary: Make a code that signs the web app in
+      description: >-
+        An app opens the Chek web app with this code in its link, so the
+        person is signed in there without typing a password and the session
+        token never appears in a URL. The code works once, for a minute.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The code.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, expiresIn]
+                properties:
+                  code:
+                    type: string
+                  expiresIn:
+                    type: integer
+                    description: Seconds until the code stops working.
+        "503":
+          description: Too many codes and sign-ins are waiting (`too_many_sign_ins`); try again in a few minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/me/password:
     put:
       tags: [Accounts]
@@ -3301,6 +3368,11 @@ components:
         createdAt:
           type: string
           format: date-time
+        demo:
+          type: boolean
+          description: >-
+            True on `/api/v1/me` for a shared demo account, which can't change
+            its settings. Absent otherwise.
     Session:
       type: object
       required: [token, user]

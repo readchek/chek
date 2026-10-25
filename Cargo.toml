@@ -5,7 +5,7 @@ members = ["crates/*"]
 exclude = ["extensions"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97"
 repository = "https://github.com/readchek/chek"
@@ -46,7 +46,7 @@ thiserror = "2.0.21"
 tempfile = "3.27.0"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7.1", features = ["fs"] }
+tower-http = { version = "0.7.1", features = ["cors", "fs"] }
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "fs"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.34.0"

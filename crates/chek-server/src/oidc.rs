@@ -782,7 +782,7 @@ pub async fn unlink(
 }
 
 /// Values kept for a short while under a random key, taken at most once.
-struct Expiring<T> {
+pub(crate) struct Expiring<T> {
     items: Mutex<HashMap<String, (Instant, T)>>,
 }
 
@@ -795,7 +795,7 @@ impl<T> Default for Expiring<T> {
 }
 
 impl<T> Expiring<T> {
-    fn insert(&self, ttl: Duration, value: T) -> Result<String, ApiError> {
+    pub(crate) fn insert(&self, ttl: Duration, value: T) -> Result<String, ApiError> {
         let now = Instant::now();
         let mut items = self.items.lock().unwrap_or_else(|e| e.into_inner());
         if items.len() >= MAX_IN_PROGRESS {
@@ -814,7 +814,7 @@ impl<T> Expiring<T> {
         Ok(key)
     }
 
-    fn take(&self, key: &str) -> Option<T> {
+    pub(crate) fn take(&self, key: &str) -> Option<T> {
         let mut items = self.items.lock().unwrap_or_else(|e| e.into_inner());
         let (expires, value) = items.remove(key)?;
         (expires > Instant::now()).then_some(value)

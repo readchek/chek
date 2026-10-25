@@ -3,7 +3,7 @@
 use reqwest::StatusCode;
 use serde_json::json;
 
-use super::{PASSWORD, RED_PNG, SETUP_TOKEN, Server, assert_error, body, cbz, locator};
+use super::{PASSWORD, RED_PNG, SETUP_TOKEN, Server, WEB_ORIGIN, assert_error, body, cbz, locator};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn setup_claims_the_server_once() {
@@ -252,4 +252,99 @@ async fn content_ratings_are_chosen_per_account() {
     let response = set(&demo, json!(["safe"])).await.unwrap();
     assert_error(response, StatusCode::FORBIDDEN, "demo_account").await;
     assert_eq!(ratings(&demo).await, default);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn web_links_sign_the_web_app_in_once() {
+    let server = Server::start_with(vec!["demo".to_owned()]).await;
+    let admin = server.admin().await;
+    let reader = server.reader(&admin, "reader", &[]).await;
+    let demo = server.reader(&admin, "demo", &[]).await;
+    let link = |token: &str| {
+        let request = server.post("/api/v1/me/web-link").bearer_auth(token);
+        async move { body(request.send().await.unwrap()).await }
+    };
+    let open = |code: &str| {
+        server
+            .post("/api/v1/auth/web-link")
+            .json(&json!({ "code": code, "device": "Chek on the web" }))
+            .send()
+    };
+
+    let made = link(&reader).await;
+    assert_eq!(made["expiresIn"], 60);
+    let code = made["code"].as_str().unwrap();
+    let response = open(code).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session = body(response).await;
+    assert_eq!(session["user"]["name"], "reader");
+    let web = session["token"].as_str().unwrap();
+    let me = body(
+        server
+            .get("/api/v1/me")
+            .bearer_auth(web)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(me["name"], "reader");
+    assert!(me.get("demo").is_none(), "{me}");
+
+    // A code works once, so one left in browser history signs nobody in.
+    assert_error(
+        open(code).await.unwrap(),
+        StatusCode::BAD_REQUEST,
+        "bad_request",
+    )
+    .await;
+    assert_error(
+        open("guess").await.unwrap(),
+        StatusCode::BAD_REQUEST,
+        "bad_request",
+    )
+    .await;
+    let response = server.post("/api/v1/me/web-link").send().await.unwrap();
+    assert_error(response, StatusCode::UNAUTHORIZED, "unauthorized").await;
+
+    // A demo visitor can open the web app, which then knows not to offer
+    // changes.
+    let code = link(&demo).await["code"].as_str().unwrap().to_owned();
+    let session = body(open(&code).await.unwrap()).await;
+    let token = session["token"].as_str().unwrap();
+    let me = body(
+        server
+            .get("/api/v1/me")
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(me["demo"], true);
+
+    // Browsers may call the API from the web app's origin, and no other.
+    let preflight = |origin: &str| {
+        server
+            .http
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("{}/api/v1/me/content-ratings", server.base),
+            )
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "PUT")
+            .header(
+                "Access-Control-Request-Headers",
+                "authorization,content-type",
+            )
+            .send()
+    };
+    let allowed = preflight(WEB_ORIGIN).await.unwrap();
+    assert_eq!(allowed.headers()["access-control-allow-origin"], WEB_ORIGIN);
+    let refused = preflight("https://elsewhere.test").await.unwrap();
+    assert!(
+        !refused
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
 }

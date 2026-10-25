@@ -31,7 +31,7 @@ const SESSION_SECONDS: i64 = 90 * 24 * 60 * 60;
 const SESSION_REFRESH_SECONDS: i64 = 60 * 60;
 const MIN_PASSWORD_CHARS: usize = 8;
 const MAX_PASSWORD_BYTES: usize = 1024;
-const MAX_NAME_CHARS: usize = 64;
+pub(crate) const MAX_NAME_CHARS: usize = 64;
 /// Basic auth checks remembered at once; the set is emptied when full.
 const MAX_BASIC_AUTH_CACHE: usize = 10_000;
 
@@ -237,6 +237,9 @@ pub struct UserDto {
     role: &'static str,
     library_ids: Vec<i64>,
     created_at: String,
+    /// Only `/me` says so, since it's about who is asking.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    demo: bool,
 }
 
 impl From<User> for UserDto {
@@ -247,14 +250,15 @@ impl From<User> for UserDto {
             role: u.role.as_str(),
             library_ids: u.library_ids,
             created_at: u.created_at,
+            demo: false,
         }
     }
 }
 
 #[derive(Serialize)]
 pub struct SessionDto {
-    token: String,
-    user: UserDto,
+    pub(crate) token: String,
+    pub(crate) user: UserDto,
 }
 
 #[derive(Deserialize)]
@@ -378,7 +382,10 @@ pub async fn sign_out(
 }
 
 pub async fn me(current: CurrentUser) -> Json<UserDto> {
-    Json(current.user.into())
+    Json(UserDto {
+        demo: current.demo,
+        ..current.user.into()
+    })
 }
 
 #[derive(Serialize)]
