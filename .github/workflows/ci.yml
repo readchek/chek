@@ -117,7 +117,11 @@ jobs:
         run: |
           docker run -d --name chek -p 8080:8080 chek:ci
           for _ in $(seq 30); do
-            curl -fsS localhost:8080/health && exit 0
+            if curl -fsS localhost:8080/health; then
+              # The admin panel is bundled and its screens get its page.
+              curl -fsS localhost:8080/admin/libraries | grep -q 'id="root"' && exit 0
+              break
+            fi
             sleep 1
           done
           docker logs chek
@@ -152,7 +156,11 @@ jobs:
         run: |
           docker run -d --name chek -p 8080:8080 chek:ci
           for _ in $(seq 30); do
-            curl -fsS localhost:8080/health && exit 0
+            if curl -fsS localhost:8080/health; then
+              # The admin panel is bundled and its screens get its page.
+              curl -fsS localhost:8080/admin/libraries | grep -q 'id="root"' && exit 0
+              break
+            fi
             sleep 1
           done
           docker logs chek

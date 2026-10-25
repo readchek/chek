@@ -273,6 +273,27 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - A page served over https can't call a server on plain http, so the web
   app reaches only servers with https addresses.
 
+## The admin panel
+
+- Admins manage the server in a browser at `/admin`: the setup wizard,
+  libraries and their scans, people and their library access, extension
+  repositories and settings. It's the Chek web app's `/admin` screens,
+  built with `bun run build:server` in readchek/app's `web/` and copied
+  into the image, which sets `CHEK_ADMIN_DIR`. The same screens run at
+  app.chek.page/admin for servers with https addresses.
+- Serving it from the server matters because a page on https can't call a
+  server on plain http, which is how most home servers start out. The
+  bundled panel calls its own origin, so it needs no CORS, and its content
+  security policy allows nothing else.
+- `GET /api/v1/server` answers before sign-in with the version and whether
+  setup is still needed, so the panel knows to ask for the setup token.
+- `GET /api/v1/server/folders` lists an admin's choice of folder on the
+  server, so a library's path is picked rather than typed. It follows links
+  and leaves out hidden folders and those past the first thousand.
+- Deleting a library deletes its series, publications, progress, edits and
+  grants, and leaves its files or source alone. A library being scanned
+  can't be deleted, since the scan would go on writing to it.
+
 ## OPDS
 
 - `/opds/v2/catalog` lists "Continue reading", "Recently added" and the

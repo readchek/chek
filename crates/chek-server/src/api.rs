@@ -56,6 +56,8 @@ pub struct AppState {
     pub web_origins: Arc<Vec<String>>,
     /// One-time codes that sign the web app in; see [`crate::web`].
     pub web_links: Arc<crate::web::WebLinks>,
+    /// The admin panel's build, served at `/admin`; see [`crate::admin`].
+    pub admin_dir: Option<PathBuf>,
 }
 
 /// Starts a background scan of every library.
@@ -92,8 +94,14 @@ pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
 }
 
 pub fn router(state: AppState) -> Router {
+    let panel = match &state.admin_dir {
+        Some(dir) => crate::admin::panel(dir),
+        None => Router::new(),
+    };
     Router::new()
         .route("/health", get(health))
+        .route("/api/v1/server", get(crate::admin::server_info))
+        .route("/api/v1/server/folders", get(crate::admin::list_folders))
         .route("/verify", get(crate::verification::page))
         .route(
             "/api/v1/me/extensions/{id}/browser/resume",
@@ -112,7 +120,12 @@ pub fn router(state: AppState) -> Router {
             post(crate::verification::click),
         )
         .route("/api/v1/libraries", get(list_libraries).post(add_library))
-        .route("/api/v1/libraries/{id}", get(get_library))
+        .route(
+            "/api/v1/libraries/{id}",
+            get(get_library)
+                .patch(crate::admin::update_library)
+                .delete(crate::admin::delete_library),
+        )
         .route("/api/v1/libraries/{id}/scan", post(scan_library))
         .route(
             "/api/v1/libraries/{id}/files/{*path}",
@@ -245,6 +258,7 @@ pub fn router(state: AppState) -> Router {
             get(extensions::get_settings).put(extensions::update_settings),
         )
         .merge(crate::opds::router())
+        .merge(panel)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::telemetry::trace_request,

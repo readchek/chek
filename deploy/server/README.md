@@ -2,8 +2,9 @@
 
 In Dokploy, create a Compose application from `readchek/chek` and select
 `deploy/server/compose.yaml`. Route your domain to service `chek`, port `8080`.
-Set `CHEK_SETUP_TOKEN` to at least 32 random characters, then deploy. Create the
-first admin through `/api/v1/setup` as described in the root README.
+Set `CHEK_SETUP_TOKEN` to at least 32 random characters, then deploy. Open
+`/admin` on your domain and create the first admin with that token, or use
+`/api/v1/setup` as described in the root README.
 
 This runs `ghcr.io/readchek/chek:edge-browser`, which CI publishes from main
 and is built from the Dockerfile's `browser` target: Chromium, Xvfb, fonts and process

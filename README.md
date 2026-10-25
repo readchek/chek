@@ -110,6 +110,16 @@ cargo run --bin chek
 
 ### First steps
 
+Open `http://<server>:8080/admin` in a browser. The admin panel asks for the
+setup token from the log, creates your admin account, and helps you add a
+library and the people who read it. It's bundled in the Docker image; from a
+source build, set `CHEK_ADMIN_DIR` to a build of the
+[web app](https://github.com/readchek/app/tree/main/web)'s
+`bun run build:server`. If the server has an https address,
+[app.chek.page/admin](https://app.chek.page/admin) manages it too.
+
+To set up without a browser, use the API:
+
 1. **Find the setup token.** On first start the server has no accounts and
    logs a one-time token. With Docker, read it from `docker logs chek`.
 2. **Create the admin.** You get a session token back.
@@ -148,6 +158,7 @@ Everything is set with environment variables. All of them are optional.
 | `CHEK_DATA_DIR` | `./data` | Where the database and covers live |
 | `CHEK_SCAN_WORKERS` | cores − 1 | How many files to scan at once |
 | `CHEK_SETUP_TOKEN` | logged at start | Your own setup token, 32 characters or more, so you don't need the log |
+| `CHEK_ADMIN_DIR` | none; the image sets it | The admin panel's build, served at `/admin`, with `/` sending visitors there |
 | `CHEK_MAX_UPLOAD_BYTES` | 2 GiB | Largest file an admin can [upload](docs/server.md#uploads) with `PUT /api/v1/libraries/{id}/files/{path}`; the folder must be mounted read-write |
 
 **Reaching it from outside**
