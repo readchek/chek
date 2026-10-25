@@ -2,7 +2,7 @@
 
 For a normal server with browser-backed extensions, use
 [`deploy/server`](../deploy/server/README.md). This guide is for the separate
-App Store demo and its extension-free corpus setup.
+App Store demo and its corpus setup.
 
 [`deploy/demo`](../deploy/demo) runs the server with the reader test corpus
 already loaded, for trying apps against a real server. It's a Docker Compose
@@ -13,8 +13,9 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
 
 - **`chek`** is the server, from the `ghcr.io/readchek/chek:edge` image
   that CI publishes on every push to `main`. Set `CHEK_IMAGE` to pin a
-  release, such as `ghcr.io/readchek/chek:0.1.0`. Its database and covers
-  live in the `chek-data` volume.
+  release, such as `ghcr.io/readchek/chek:0.2.0`, and pin one while a build
+  is in App Review, so the server it's tested against doesn't change. Its
+  database and covers live in the `chek-data` volume.
 - **`seed`** runs once per deploy and exits. On the first run it downloads
   the pinned corpus snapshot (about 600 MB) from `assets.chek.page`, checks
   every part's SHA-256, and unpacks it into the `library` volume. It then
@@ -30,8 +31,10 @@ file written for [Dokploy](https://dokploy.com), and it works with plain
   to testers and App Review. It's listed in `CHEK_DEMO_USERS`, so nobody
   signed in as `demo` can change its password, sessions or extensions, and
   its reading places aren't kept. The Test corpus is for the admin.
-- No extension repositories. The seed removes the official one the server
-  starts with, and every install from it, so the demo shows only the corpus.
+- Only the official public catalog at `extensions.chek.page`. The seed
+  removes every other repository and its installs, and installs
+  Pepper&Carrot for `demo`, so the sources it shows are public-domain or
+  Creative Commons like the corpus.
 
 The corpus is public-domain and Creative Commons material; its sources and
 licenses are in the `provenance` folder of the Test corpus library.
