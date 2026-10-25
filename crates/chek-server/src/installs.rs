@@ -92,7 +92,39 @@ pub async fn install(
     current.refuse_demo()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
     let repository = visible_repository(&state, &current, body.repository_id).await?;
-    let allow_any = blocking(&state, |c| c.allow_any_repository()).await?;
+    install_for(&state, current.user.id, id, repository).await
+}
+
+/// Lets an admin provision a reader from a server-wide repository, including
+/// a shared demo reader whose own requests cannot change its extensions.
+pub async fn install_for_user(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path((user_id, id)): Path<(i64, String)>,
+    body: Result<Json<InstallRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<InstalledDto>), ApiError> {
+    current.require_admin()?;
+    current.refuse_demo()?;
+    let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
+    let repository = blocking(&state, move |c| {
+        if c.user(user_id)?.is_none() {
+            return Ok(None);
+        }
+        Ok(c.extension_repository(body.repository_id)?
+            .filter(|r| r.owner_id.is_none()))
+    })
+    .await?
+    .ok_or_else(|| ApiError::not_found("user or server-wide repository not found".into()))?;
+    install_for(&state, user_id, id, repository).await
+}
+
+async fn install_for(
+    state: &AppState,
+    user_id: i64,
+    id: String,
+    repository: chek_catalog::ExtensionRepository,
+) -> Result<(StatusCode, Json<InstalledDto>), ApiError> {
+    let allow_any = blocking(state, |c| c.allow_any_repository()).await?;
     if repository.owner_id.is_some() && !allow_any {
         return Err(not_usable());
     }
@@ -122,7 +154,7 @@ pub async fn install(
 
     let manifest = source.manifest();
     let install = ExtensionInstall {
-        user_id: current.user.id,
+        user_id,
         extension_id: manifest.id.clone(),
         repository_id: repository.id,
         name: manifest.name.clone(),
@@ -134,7 +166,7 @@ pub async fn install(
     };
     let user_id = install.user_id;
     let extension_id = install.extension_id.clone();
-    let (existed, unused, saved) = blocking(&state, move |c| {
+    let (existed, unused, saved) = blocking(state, move |c| {
         let existed = c.extension_install(user_id, &extension_id)?.is_some();
         let unused = c.save_extension_install(&install)?;
         Ok((
@@ -145,7 +177,7 @@ pub async fn install(
     })
     .await?;
     if let Some(digest) = unused {
-        remove_file(&state, digest).await;
+        remove_file(state, digest).await;
     }
     let saved = saved.ok_or_else(|| ApiError::internal("the install was just saved"))?;
     let status = if existed {
