@@ -11,7 +11,7 @@
   ·
   <a href="https://chek.page">Website</a>
   ·
-  <a href="docs/README.md">Documentation</a>
+  <a href="https://docs.chek.page">Docs</a>
   ·
   <a href="https://github.com/readchek/chek/issues">Issues</a>
 </p>
@@ -56,8 +56,10 @@ in Rust. It's optional: the app reads your own files without it.
 - Speaks [OPDS 2](docs/server.md#opds), so apps like Thorium and KOReader can
   browse it too.
 
-[Server design](docs/server.md) covers what's settled and what comes next.
-The API is described in [openapi.yaml](openapi.yaml).
+The [Chek docs](https://docs.chek.page) cover installing and running the
+server, its API, and writing source extensions. [Server design](docs/server.md)
+covers what's settled and what comes next, and the API contract lives in
+[openapi.yaml](openapi.yaml).
 
 ### Other repositories
 
@@ -68,6 +70,9 @@ The API is described in [openapi.yaml](openapi.yaml).
 | [chek.page](https://github.com/readchek/chek.page) | The website |
 
 ## Run the server
+
+The [install guide](https://docs.chek.page/self-hosting/install/) walks
+through a full setup. The short version:
 
 ### With Docker
 
