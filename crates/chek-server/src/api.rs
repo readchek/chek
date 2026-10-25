@@ -216,6 +216,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/me/extensions", get(installs::list_installed))
         .route(
+            "/api/v1/users/{userId}/extensions/{id}",
+            put(installs::install_for_user),
+        )
+        .route(
             "/api/v1/me/extensions/{id}",
             put(installs::install).delete(installs::uninstall),
         )
