@@ -3,6 +3,7 @@ name = "chek-extension"
 description = "Writes Chek source extensions: the contract's bindings and helpers for requests."
 version = "0.6.0"
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true
