@@ -171,17 +171,26 @@ if [ -z "$reader" ]; then
     api POST /api/v1/users "$(jq -n --arg name "$READER_NAME" \
         --arg password "$DEMO_READER_PASSWORD" --argjson grants "$grants" \
         '{name: $name, password: $password, role: "reader", libraryIds: $grants}')" > /dev/null
+    reader=$(api GET /api/v1/users | jq -r --arg name "$READER_NAME" '.items[] | select(.name == $name) | .id')
 else
     api PATCH "/api/v1/users/$reader" "$(jq -n --argjson grants "$grants" \
         '{libraryIds: $grants}')" > /dev/null
 fi
 
-# The demo offers no sources: the publications are all ours to show, and
-# third-party sites aren't. Removing a repository removes every install from
-# it.
-api GET /api/v1/extension-repositories | jq -r '.items[].id' | while read -r repository; do
+# Only the curated public catalog belongs on the demo. Removing other
+# repositories also removes their installs; private sources stay private.
+catalog=https://extensions.chek.page/index.json
+api GET /api/v1/extension-repositories | jq -r --arg url "$catalog" '.items[] | select(.url != $url) | .id' | while read -r repository; do
     log "removing extension repository $repository"
     api DELETE "/api/v1/extension-repositories/$repository" > /dev/null
 done
+repository=$(api GET /api/v1/extension-repositories | jq -r --arg url "$catalog" '.items[] | select(.url == $url) | .id')
+if [ -z "$repository" ]; then
+    repository=$(api POST /api/v1/extension-repositories "$(jq -n --arg url "$catalog" '{url: $url}')" | jq -r .id)
+else
+    api POST "/api/v1/extension-repositories/$repository/refresh" > /dev/null
+fi
+api PUT "/api/v1/users/$reader/extensions/page.chek.peppercarrot" \
+    "$(jq -n --argjson repository "$repository" '{repositoryId: $repository}')" > /dev/null
 api POST /api/v1/auth/sign-out > /dev/null
 log "done"

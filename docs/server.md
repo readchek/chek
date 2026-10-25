@@ -523,6 +523,11 @@ their own repositories, and `chek ext build` builds them into a repository folde
 
 ## Installing extensions
 
+- An admin can provision a reader, including a shared demo account, with
+  `PUT /api/v1/users/{userId}/extensions/{extensionId}` and a `repositoryId`.
+  This accepts only server-wide repositories and applies the same component
+  validation as a self-install. Demo readers still cannot change their installs.
+
 - Each user installs extensions for themselves from the repositories they
   can use. Installing downloads the component the index lists, at most
   32 MiB, checks its SHA-256 digest, and checks that its manifest has the
