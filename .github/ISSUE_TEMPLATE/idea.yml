@@ -1,0 +1,29 @@
+name: Suggest an idea
+description: Something Chek could do, or do better.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Chek?
+      options:
+        - iPhone or iPad app
+        - Web app
+        - Admin panel
+        - Chek server
+        - Extensions and sources
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The reading or library task that's hard today. Starting from the problem helps more than starting from a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you picture it working, if you have an idea.

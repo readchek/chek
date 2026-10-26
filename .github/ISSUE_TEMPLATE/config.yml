@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/readchek/chek/discussions
+    about: Setting up a server, connecting the app, or anything you're not sure is a bug.
+  - name: Write to us instead
+    url: https://chek.page/support
+    about: No GitHub account? Email support, or read the answers to common questions.
+  - name: A problem in Chek Reader, the reading package
+    url: https://github.com/readchek/chek-reader/issues/new/choose
+    about: Only if you're building your own app on the Chek Reader Swift or web package.
