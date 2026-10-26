@@ -1,0 +1,66 @@
+name: Report a problem
+description: Something in Chek isn't working the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. This is the one place for problems with any part of Chek: the iPhone and iPad app, the web app, the server, the admin panel and extensions.
+
+        Remove tokens, passwords and private addresses from anything you paste. If you'd rather not use GitHub, write to support@chek.page.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it happen?
+      options:
+        - iPhone or iPad app
+        - Web app (app.chek.page or your server's address)
+        - Admin panel
+        - Chek server
+        - An extension or source
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected to see instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we see it too?
+      description: The steps that lead to the problem, one per line.
+      placeholder: |
+        1. Open a CBZ from the Files app
+        2. Turn to the last page
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: Chek version
+      description: The app's version is in Settings, under About. The server's is in the admin panel, under Settings.
+      placeholder: "App 2.0 (14), server 0.4.0"
+  - type: input
+    id: device
+    attributes:
+      label: Device and system
+      description: For example iPhone 17 on iOS 26.1, or Safari 26 on macOS.
+  - type: input
+    id: server
+    attributes:
+      label: How you run the server
+      description: Only if a server is involved. For example Docker Compose on a Synology NAS, behind Caddy.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The server log lines around the problem, if you have them.
+      render: shell
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, a sample file you're allowed to share, or anything that might help.
