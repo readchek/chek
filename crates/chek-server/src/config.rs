@@ -74,9 +74,10 @@ pub struct Config {
     /// which may call the API from a browser. Default
     /// `https://app.chek.page`.
     pub web_origins: Vec<String>,
-    /// `CHEK_ADMIN_DIR`, the admin panel's build, served at `/admin`.
-    /// Default none; the image sets it.
-    pub admin_dir: Option<PathBuf>,
+    /// `CHEK_WEB_DIR`, the web app's build, served at the root with the
+    /// admin panel at `/admin`. `CHEK_ADMIN_DIR` is its old name. Default
+    /// none; the image sets it.
+    pub web_dir: Option<PathBuf>,
 }
 
 /// Long enough that a chosen token can't be guessed like a password.
@@ -175,7 +176,8 @@ impl Config {
             oidc_redirects: list("CHEK_OIDC_REDIRECTS", "chek://"),
             demo_users: list("CHEK_DEMO_USERS", ""),
             web_origins: list("CHEK_WEB_ORIGINS", "https://app.chek.page"),
-            admin_dir: env::var_os("CHEK_ADMIN_DIR")
+            web_dir: env::var_os("CHEK_WEB_DIR")
+                .or_else(|| env::var_os("CHEK_ADMIN_DIR"))
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
         })

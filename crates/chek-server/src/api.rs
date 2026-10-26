@@ -56,8 +56,8 @@ pub struct AppState {
     pub web_origins: Arc<Vec<String>>,
     /// One-time codes that sign the web app in; see [`crate::web`].
     pub web_links: Arc<crate::web::WebLinks>,
-    /// The admin panel's build, served at `/admin`; see [`crate::admin`].
-    pub admin_dir: Option<PathBuf>,
+    /// The web app's build, served at the root; see [`crate::app`].
+    pub web_dir: Option<PathBuf>,
 }
 
 /// Starts a background scan of every library.
@@ -94,8 +94,8 @@ pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
 }
 
 pub fn router(state: AppState) -> Router {
-    let panel = match &state.admin_dir {
-        Some(dir) => crate::admin::panel(dir),
+    let app = match &state.web_dir {
+        Some(dir) => crate::app::router(dir),
         None => Router::new(),
     };
     Router::new()
@@ -258,7 +258,7 @@ pub fn router(state: AppState) -> Router {
             get(extensions::get_settings).put(extensions::update_settings),
         )
         .merge(crate::opds::router())
-        .merge(panel)
+        .merge(app)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::telemetry::trace_request,

@@ -3,6 +3,7 @@
 mod admin;
 mod annotations;
 mod api;
+mod app;
 mod auth;
 mod browse;
 mod config;
@@ -106,7 +107,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         chapter_lists: Arc::default(),
         web_origins: Arc::new(config.web_origins),
         web_links: Arc::default(),
-        admin_dir: config.admin_dir,
+        web_dir: config.web_dir,
     };
     if let Some(callback) = state.oidc.callback_url() {
         info!(%callback, "sign-in providers send people back to this address; register it with each provider");
