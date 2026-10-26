@@ -1,20 +1,16 @@
 //! What the Chek admin panel needs beyond the rest of the API: whether the
 //! server still needs setting up, the server's folders to pick a library
-//! from, renaming and deleting libraries, and the panel itself, served at
-//! `/admin` when `CHEK_ADMIN_DIR` points at its build.
+//! from, and renaming and deleting libraries. The panel itself is the web
+//! app's `/admin` screens; see [`crate::app`].
 
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::Json;
-use axum::Router;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, Query, Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
-use axum::middleware::Next;
-use axum::response::{Redirect, Response};
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use chek_catalog::LibraryDeletion;
 use serde::{Deserialize, Serialize};
-use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{ApiError, AppState, LibraryDto, blocking};
 use crate::auth::CurrentUser;
@@ -160,56 +156,4 @@ pub async fn delete_library(
             message: format!("library {id} is being scanned; delete it once the scan finishes"),
         }),
     }
-}
-
-/// Serves the admin panel's build from `dir` at `/admin`, and sends visitors
-/// to the server's address there. Paths that aren't files are the panel's
-/// own screens, so they get its page.
-pub fn panel(dir: &FsPath) -> Router<AppState> {
-    let files = ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html")));
-    Router::new()
-        .route(
-            "/",
-            axum::routing::get(|| async { Redirect::temporary("/admin/") }),
-        )
-        .nest_service("/admin", files)
-        .layer(axum::middleware::from_fn(panel_headers))
-}
-
-// Built files are named by their content, so they never change; the page
-// itself must be fetched fresh to pick up a new build. The panel only talks
-// to this server.
-async fn panel_headers(request: Request, next: Next) -> Response {
-    let built = request.uri().path().starts_with("/admin/assets/");
-    let mut response = next.run(request).await;
-    let headers = response.headers_mut();
-    let html = headers
-        .get(header::CONTENT_TYPE)
-        .is_some_and(|t| t.as_bytes().starts_with(b"text/html"));
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(if built && !html {
-            "public, max-age=31536000, immutable"
-        } else {
-            "no-cache"
-        }),
-    );
-    if html {
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(
-                "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-            ),
-        );
-        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-        headers.insert(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("no-referrer"),
-        );
-    }
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    response
 }

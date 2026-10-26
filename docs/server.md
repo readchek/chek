@@ -273,18 +273,26 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - A page served over https can't call a server on plain http, so the web
   app reaches only servers with https addresses.
 
-## The admin panel
+## The web app and admin panel
 
-- Admins manage the server in a browser at `/admin`: the setup wizard,
-  libraries and their scans, people and their library access, extension
-  repositories and settings. It's the Chek web app's `/admin` screens,
-  built with `bun run build:server` in readchek/app's `web/` and copied
-  into the image, which sets `CHEK_ADMIN_DIR`. The same screens run at
-  app.chek.page/admin for servers with https addresses.
+- The server serves the whole Chek web app at its root: reading at `/`,
+  and the admin panel at `/admin`, where admins run the setup wizard and
+  manage libraries and their scans, people and their library access,
+  extension repositories and settings. It's built with
+  `bun run build:server` in readchek/app's `web/` and copied into the
+  image, which sets `CHEK_WEB_DIR` (`CHEK_ADMIN_DIR` is its old name). The
+  same app runs at app.chek.page for servers with https addresses.
 - Serving it from the server matters because a page on https can't call a
   server on plain http, which is how most home servers start out. The
-  bundled panel calls its own origin, so it needs no CORS, and its content
-  security policy allows nothing else.
+  bundled app calls its own origin, so it needs no CORS. Its content
+  security policy allows scripts only from the server and connections to
+  https servers the reader also signs in to.
+- Any address that isn't a file gets the app's page, so its screens work
+  when opened directly. Addresses under `/api` and `/opds` never do: a
+  missing endpoint answers 404.
+- The book reader shows each part of a book in a sandboxed frame from
+  `/reader-frame/`, which gets its own policy: no network, only the
+  reader's scripts, and only the app may frame it.
 - `GET /api/v1/server` answers before sign-in with the version and whether
   setup is still needed, so the panel knows to ask for the setup token.
 - `GET /api/v1/server/folders` lists an admin's choice of folder on the

@@ -5,6 +5,7 @@
 
 mod accounts;
 mod admin;
+mod app;
 mod files;
 mod kavita;
 mod progress;
@@ -13,7 +14,7 @@ mod series;
 
 use std::io::Write;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -68,6 +69,15 @@ impl Server {
 
     /// Starts a server whose `demo_users` are shared demo accounts.
     pub(crate) async fn start_with(demo_users: Vec<String>) -> Self {
+        Self::start_configured(demo_users, None).await
+    }
+
+    /// Starts a server that serves the web app's build from `web_dir`.
+    pub(crate) async fn start_with_app(web_dir: PathBuf) -> Self {
+        Self::start_configured(Vec::new(), Some(web_dir)).await
+    }
+
+    async fn start_configured(demo_users: Vec<String>, web_dir: Option<PathBuf>) -> Self {
         let data = tempfile::tempdir().expect("a temporary folder");
         let catalog = Catalog::open(&data.path().join("chek.db")).expect("an empty catalog");
         let extensions = chek_sources::Extensions::new(
@@ -105,7 +115,7 @@ impl Server {
             chapter_lists: Arc::default(),
             web_origins: Arc::new(vec![WEB_ORIGIN.to_owned()]),
             web_links: Arc::default(),
-            admin_dir: None,
+            web_dir,
         };
         auth::prepare_setup(&state, Some(SETUP_TOKEN.to_owned()))
             .await
