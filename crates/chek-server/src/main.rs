@@ -1,5 +1,6 @@
 //! The Chek library server.
 
+mod admin;
 mod annotations;
 mod api;
 mod auth;
@@ -105,6 +106,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         chapter_lists: Arc::default(),
         web_origins: Arc::new(config.web_origins),
         web_links: Arc::default(),
+        admin_dir: config.admin_dir,
     };
     if let Some(callback) = state.oidc.callback_url() {
         info!(%callback, "sign-in providers send people back to this address; register it with each provider");

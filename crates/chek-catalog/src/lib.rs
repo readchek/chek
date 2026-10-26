@@ -92,6 +92,14 @@ impl ScanStatus {
     }
 }
 
+/// What [`Catalog::delete_library`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryDeletion {
+    Deleted,
+    NotFound,
+    Scanning,
+}
+
 #[derive(Debug, Clone)]
 pub struct Library {
     pub id: i64,
@@ -285,6 +293,46 @@ impl Catalog {
 
     pub fn library(&self, id: i64) -> Result<Option<Library>> {
         library_by_id(&self.conn(), id)
+    }
+
+    /// Renames a library. Returns `None` when it doesn't exist.
+    pub fn rename_library(&self, id: i64, name: &str) -> Result<Option<Library>> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE library SET name = ?2 WHERE id = ?1",
+            params![id, name],
+        )?;
+        library_by_id(&conn, id)
+    }
+
+    /// Deletes a library with its series, publications, progress, edits and
+    /// grants. Files on disk and in the source are left alone. Refuses a
+    /// library being scanned, since the scan would go on writing to it.
+    pub fn delete_library(&self, id: i64) -> Result<LibraryDeletion> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let status: Option<String> = tx
+            .query_row(
+                "SELECT scan_status FROM library WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match status.as_deref() {
+            None => return Ok(LibraryDeletion::NotFound),
+            Some("scanning") => return Ok(LibraryDeletion::Scanning),
+            Some(_) => {}
+        }
+        // The search index is a virtual table, which foreign keys don't reach.
+        tx.execute(
+            "DELETE FROM publication_search WHERE rowid IN
+                 (SELECT p.id FROM publication p JOIN series s ON s.id = p.series_id
+                  WHERE s.library_id = ?1)",
+            [id],
+        )?;
+        tx.execute("DELETE FROM library WHERE id = ?1", [id])?;
+        tx.commit()?;
+        Ok(LibraryDeletion::Deleted)
     }
 
     /// Marks a library as scanning. Returns false when a scan is already

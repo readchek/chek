@@ -341,6 +341,11 @@ async fn web_links_sign_the_web_app_in_once() {
     };
     let allowed = preflight(WEB_ORIGIN).await.unwrap();
     assert_eq!(allowed.headers()["access-control-allow-origin"], WEB_ORIGIN);
+    // The admin panel there edits users and libraries with PATCH.
+    let methods = allowed.headers()["access-control-allow-methods"]
+        .to_str()
+        .unwrap();
+    assert!(methods.contains("PATCH"), "{methods}");
     let refused = preflight("https://elsewhere.test").await.unwrap();
     assert!(
         !refused

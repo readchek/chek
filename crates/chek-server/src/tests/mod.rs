@@ -4,6 +4,7 @@
 //! `openapi.yaml` promises, not how handlers are written.
 
 mod accounts;
+mod admin;
 mod files;
 mod kavita;
 mod progress;
@@ -104,6 +105,7 @@ impl Server {
             chapter_lists: Arc::default(),
             web_origins: Arc::new(vec![WEB_ORIGIN.to_owned()]),
             web_links: Arc::default(),
+            admin_dir: None,
         };
         auth::prepare_setup(&state, Some(SETUP_TOKEN.to_owned()))
             .await

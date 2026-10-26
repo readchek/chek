@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Chek server API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     The contract between the Chek server and its clients. This file is written
     by hand and is the source of truth: change it in the same pull request as
@@ -224,6 +224,85 @@ paths:
                   status:
                     type: string
                     const: ok
+  /api/v1/server:
+    get:
+      tags: [Health]
+      operationId: getServerInfo
+      summary: Say which server this is and whether it needs setting up
+      description: |
+        Answers before anyone signs in, so the admin panel knows to offer
+        setup with the token from the server's log.
+      security: []
+      responses:
+        "200":
+          description: The server's version and whether it has an admin yet.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, setupRequired]
+                properties:
+                  version:
+                    type: string
+                    example: 0.4.0
+                  setupRequired:
+                    type: boolean
+                    description: True until the first admin is created with `/api/v1/setup`.
+  /api/v1/server/folders:
+    get:
+      tags: [Libraries]
+      operationId: listServerFolders
+      summary: List the server's folders
+      description: |
+        Lists the folders inside one folder on the server, so an admin can
+        pick a folder library's path. Links are followed, hidden folders are
+        left out, and at most 1,000 folders are listed. Admin only.
+      parameters:
+        - name: path
+          in: query
+          description: An absolute path on the server. Default `/`.
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The folder and the folders in it, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, parent, folders, truncated]
+                properties:
+                  path:
+                    type: string
+                    description: The folder listed, with links resolved.
+                  parent:
+                    type: [string, "null"]
+                    description: The folder above, or null at the top.
+                  folders:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, path]
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                  truncated:
+                    type: boolean
+                    description: Whether folders past the first 1,000 were left out.
+        "400":
+          description: The path isn't absolute, or it can't be opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/setup:
     post:
       tags: [Accounts]
@@ -891,6 +970,66 @@ paths:
                 $ref: "#/components/schemas/Library"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    patch:
+      tags: [Libraries]
+      operationId: updateLibrary
+      summary: Rename a library
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "200":
+          description: The library as saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Library"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [Libraries]
+      operationId: deleteLibrary
+      summary: Delete a library
+      description: |
+        Removes the library from Chek, with its series, publications, reading
+        progress, bookmarks, edits and grants. Files in its folder, and books
+        in its source, are left alone, so adding the library again finds
+        them, though not the progress kept for them. Admin only.
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "204":
+          description: The library was deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The library is being scanned (`scan_in_progress`). Try again when the scan finishes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/libraries/{libraryId}/files/{path}:
