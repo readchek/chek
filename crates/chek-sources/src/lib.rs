@@ -1034,6 +1034,15 @@ impl Source {
             return Err(Error::Image(format!("the site answered {status}")));
         }
         let mut content_type = http::content_type(&headers);
+        // Some image hosts answer `application/octet-stream`, which clients
+        // then refuse to show; the bytes say what the image is.
+        if !content_type
+            .as_deref()
+            .is_some_and(|t| t.starts_with("image/"))
+            && let Some(sniffed) = sniff(&bytes)
+        {
+            content_type = Some(sniffed.to_owned());
+        }
         let mut bytes = bytes;
         if image.transform.is_some() {
             let response = bindings::chek::source::http::Response {
@@ -1094,7 +1103,7 @@ impl Source {
     }
 }
 
-/// An image's type from its first bytes, for the formats `rearrange` writes.
+/// An image's type from its first bytes, for the common page formats.
 fn sniff(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\xff\xd8\xff") {
         Some("image/jpeg")
