@@ -19,10 +19,23 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # same app; raise it to ship a newer one. It's plain files, so it builds once
 # on the build machine's platform for every image.
 FROM --platform=$BUILDPLATFORM oven/bun:1.4.3-slim AS web
-ARG CHEK_WEB_REF=685a275113e334f5e9f4f0723b0d5f3034610b10
+ARG CHEK_WEB_REF=ef2ce635598595823600bddff9e048ec21e0f5d2
 ADD https://github.com/readchek/app.git#${CHEK_WEB_REF}:web /web
 WORKDIR /web
 RUN bun install --frozen-lockfile && bun run build:server
+# A brotli and a gzip copy beside each file the browser can take compressed,
+# which the server picks by Accept-Encoding. Nothing in front of a home server
+# compresses for it, and the app's script is about 480 KB before compression.
+RUN bun -e 'import { Glob } from "bun"; \
+    import { brotliCompressSync, gzipSync } from "node:zlib"; \
+    for (const path of new Glob("**/*.{html,js,mjs,css,svg,ico,webmanifest,bcmap,pfb,ttf}").scanSync("dist-server")) { \
+        const file = `dist-server/${path}`; \
+        const data = await Bun.file(file).bytes(); \
+        const br = brotliCompressSync(data); \
+        const gz = gzipSync(data, { level: 9 }); \
+        if (br.length < data.length) await Bun.write(`${file}.br`, br); \
+        if (gz.length < data.length) await Bun.write(`${file}.gz`, gz); \
+    }'
 
 FROM debian:trixie-slim AS runtime
 # libvips makes cover thumbnails; its poppler module renders PDF covers.

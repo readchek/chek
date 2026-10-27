@@ -83,3 +83,46 @@ async fn api_addresses_stay_the_apis() {
             .is_success()
     );
 }
+
+#[tokio::test]
+async fn built_files_are_sent_compressed_when_the_browser_takes_it() {
+    let (server, build) = server().await;
+    std::fs::write(build.path().join("assets/index-abc.js.br"), "brotli").unwrap();
+    std::fs::write(build.path().join("index.html.gz"), "gzip").unwrap();
+
+    let script = server
+        .get("/assets/index-abc.js")
+        .header("accept-encoding", "gzip, br")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(script.headers()["content-encoding"], "br");
+    assert!(
+        script.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .contains("javascript")
+    );
+    // Caches in front of the server keep one copy per encoding.
+    assert!(
+        script.headers()["vary"]
+            .to_str()
+            .unwrap()
+            .contains("accept-encoding")
+    );
+    assert_eq!(script.text().await.unwrap(), "brotli");
+
+    // A screen's address gets the app's page, compressed the same way.
+    let screen = server
+        .get("/admin")
+        .header("accept-encoding", "gzip")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(screen.headers()["content-encoding"], "gzip");
+    assert_eq!(screen.text().await.unwrap(), "gzip");
+
+    let plain = server.get("/assets/index-abc.js").send().await.unwrap();
+    assert!(!plain.headers().contains_key("content-encoding"));
+    assert_eq!(plain.text().await.unwrap(), "console.log(1)");
+}
