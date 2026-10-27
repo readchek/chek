@@ -77,6 +77,20 @@ fn validate(body: &[u8], columns: u32, rows: u32, order: &[u32]) -> Result<(), S
     Ok(())
 }
 
+/// Saves in the format the site sent. Lossless PNG of a photographic page is
+/// four to eleven times the size of the JPEG or WebP it came from, which
+/// readers then wait for; quality 90 stays close to the original at about
+/// its size.
+fn output_format(input: &[u8]) -> &'static str {
+    if input.starts_with(b"\xff\xd8\xff") {
+        ".jpg[Q=90,strip]"
+    } else if input.starts_with(b"RIFF") {
+        ".webp[Q=90,strip]"
+    } else {
+        ".png[strip]"
+    }
+}
+
 /// Internal worker entry point, called by the server before it reads config
 /// or starts serving. It accepts one bounded JSON line and then exits.
 pub fn image_worker() -> Result<(), String> {
@@ -147,7 +161,7 @@ fn render(tiles: Tiles) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?;
     }
     let bytes = output
-        .image_write_to_buffer(".png[strip]")
+        .image_write_to_buffer(output_format(&body))
         .map_err(|e| e.to_string())?;
     if bytes.len() > MAX_BYTES {
         return Err("transformed image exceeds 8 MiB".to_owned());

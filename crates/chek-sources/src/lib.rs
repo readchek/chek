@@ -31,14 +31,14 @@ mod worker;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use reqwest::Method;
 use serde_json::json;
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
-use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 pub use crate::cdp::browser_worker;
@@ -100,6 +100,8 @@ const MAX_MEMORY: usize = 64 << 20;
 /// Instructions, roughly, that one call may run. Time spent waiting on the
 /// network doesn't count.
 const MAX_FUEL: u64 = 5_000_000_000;
+/// Pages one read-ahead fetches at once, on top of what the reader asks for.
+const READ_AHEAD: usize = 3;
 /// Requests one call may make.
 const MAX_REQUESTS: u32 = 100;
 /// The largest response body an extension may read.
@@ -171,6 +173,9 @@ pub struct Host {
     /// One jar and browser per extension, so every loaded version shares
     /// them.
     scopes: Mutex<HashMap<String, Scope>>,
+    /// Compiled components by the digest of their bytes, so every user of
+    /// an extension shares one compile.
+    components: Mutex<HashMap<String, Component>>,
 }
 
 #[derive(Clone)]
@@ -228,6 +233,11 @@ impl Host {
         let mut config = Config::new();
         config.consume_fuel(true);
         config.epoch_interruption(true);
+        // Compiling a source takes most of a second; keeping the machine
+        // code on disk lets a restart load it in milliseconds.
+        let mut cache = CacheConfig::new();
+        cache.with_directory(dir.join("compiled"));
+        config.cache(Some(Cache::new(cache).map_err(trap)?));
         let engine = Engine::new(&config).map_err(trap)?;
         let (clock, stopped) = std::sync::mpsc::channel();
         let ticking = engine.clone();
@@ -256,6 +266,7 @@ impl Host {
             worker_executable: options.worker_executable.clone(),
             clock: Arc::new(clock),
             scopes: Mutex::default(),
+            components: Mutex::default(),
         })
     }
 
@@ -265,9 +276,34 @@ impl Host {
         self.load_for_user(wasm, None)
     }
 
+    /// Drops the compiled component with this digest, once nothing uses it.
+    pub(crate) fn forget(&self, digest: &str) {
+        self.components
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(digest);
+    }
+
     pub(crate) fn load_for_user(&self, wasm: &[u8], user: Option<i64>) -> Result<Source, Error> {
-        let component = Component::new(&self.engine, wasm)
-            .map_err(|error| Error::Invalid(format!("{error:#}")))?;
+        let digest = repository::sha256_hex(wasm);
+        let compiled = self
+            .components
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&digest)
+            .cloned();
+        let component = match compiled {
+            Some(component) => component,
+            None => {
+                let component = Component::new(&self.engine, wasm)
+                    .map_err(|error| Error::Invalid(format!("{error:#}")))?;
+                self.components
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(digest.clone(), component.clone());
+                component
+            }
+        };
         // A component that names the contract but not this version was
         // built for another Chek, which is worth saying apart from junk.
         let link_error = |error: wasmtime::Error| {
@@ -322,9 +358,10 @@ impl Host {
         // kept unless it could reach the same sites anyway.
         let mut declared = manifest.sites.clone();
         declared.sort();
+        let shared_scope = format!("{} {}", manifest.id, declared.join(" "));
         let scope = match user {
-            Some(user) => format!("user:{user} {} {}", manifest.id, declared.join(" ")),
-            None => format!("{} {}", manifest.id, declared.join(" ")),
+            Some(user) => format!("user:{user} {shared_scope}"),
+            None => shared_scope.clone(),
         };
         let Scope { jar, browser } = self
             .scopes
@@ -355,6 +392,11 @@ impl Host {
             browser_args: self.browser_args.clone(),
             native_sites: self.browser_native.then(|| manifest.sites.clone()),
             scope,
+            // Another user's component with this id and sites must not
+            // answer this one's requests, so shared responses are this
+            // build's alone.
+            shared_responses: format!("{digest} {shared_scope}"),
+            shared_scope,
             net: Net::new(
                 self.outbound_proxy.clone(),
                 sites,
@@ -375,8 +417,10 @@ impl Host {
                 .clone()
                 .filter(|_| manifest.capabilities.contains(&Capability::ImageTransform)),
             handoff: Mutex::new(None),
+            fetching: Mutex::default(),
+            warming: AtomicUsize::new(0),
             verification_pending: AtomicBool::new(false),
-            calls: calls::Calls::default(),
+            calls: calls::Calls::new(manifest.capabilities.contains(&Capability::BrowserSession)),
             user,
             _clock: Arc::clone(&self.clock),
             worker_executable: self.worker_executable.clone(),
@@ -389,7 +433,7 @@ impl Host {
             formats,
             manifest,
             context,
-            digest: repository::sha256_hex(wasm),
+            digest,
         })
     }
 }
@@ -416,10 +460,19 @@ struct Context {
     browser_args: Vec<String>,
     verification_pending: AtomicBool,
     handoff: Mutex<Option<session::Session>>,
+    /// A gate per image being fetched, so a page asked for while it's
+    /// already on its way waits for that fetch instead of starting another.
+    fetching: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Counts read-aheads; one ends once a newer one starts.
+    warming: AtomicUsize,
     calls: calls::Calls,
     user: Option<i64>,
     /// Names the extension's state: its id and sites.
     scope: String,
+    /// The scope without the user, for images and responses fetched
+    /// without the user's cookies, which every user may share.
+    shared_scope: String,
+    shared_responses: String,
     net: Net,
     store: Arc<store::Store>,
     images: Arc<ImageCache>,
@@ -428,6 +481,32 @@ struct Context {
     worker_executable: Option<PathBuf>,
     image_worker: Option<PathBuf>,
     _clock: Arc<std::sync::mpsc::Sender<()>>,
+}
+
+impl Context {
+    /// Whether a request to `url` carries the user's cookies, which can
+    /// make the site answer differently for them than for anyone else.
+    fn personal(&self, url: &str) -> bool {
+        reqwest::Url::parse(url).is_ok_and(|url| !self.jar.get(&url).is_empty())
+    }
+
+    /// Images fetched without the user's cookies are the same for every
+    /// user, so two people reading one chapter fetch it once.
+    fn image_scope(&self, url: &str) -> &str {
+        if self.personal(url) {
+            &self.scope
+        } else {
+            &self.shared_scope
+        }
+    }
+
+    fn response_scope(&self, url: &str) -> &str {
+        if self.personal(url) {
+            &self.scope
+        } else {
+            &self.shared_responses
+        }
+    }
 }
 
 /// An image's final bytes, after any source transform.
@@ -847,9 +926,75 @@ impl Source {
                 ));
             }
         }
-        let key = repository::sha256_hex(
+        let key = self.image_key(image);
+        if let Some((content_type, bytes)) = self.context.images.get(&key) {
+            return Ok(Fetched {
+                content_type,
+                bytes,
+            });
+        }
+        let gate = Arc::clone(
+            self.context
+                .fetching
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(key.clone())
+                .or_default(),
+        );
+        let fetched = {
+            let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+            match self.context.images.get(&key) {
+                // Another request fetched it while this one waited.
+                Some((content_type, bytes)) => Ok(Fetched {
+                    content_type,
+                    bytes,
+                }),
+                None => self.fetch_uncached(image, &key),
+            }
+        };
+        self.context
+            .fetching
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
+        fetched
+    }
+
+    /// Fetches the pages ahead of a reader into the image cache, a few at a
+    /// time, so turning a page finds it already on the server. Starting
+    /// another read-ahead, such as for the next chapter, ends this one.
+    pub fn read_ahead(self: &Arc<Self>, images: Vec<Image>) {
+        if !self.context.images.enabled() || images.is_empty() {
+            return;
+        }
+        let generation = self.context.warming.fetch_add(1, Ordering::SeqCst) + 1;
+        let queue = Arc::new(Mutex::new(images.into_iter()));
+        for _ in 0..READ_AHEAD {
+            let source = Arc::clone(self);
+            let queue = Arc::clone(&queue);
+            std::thread::spawn(move || {
+                while source.context.warming.load(Ordering::SeqCst) == generation {
+                    let Some(image) = queue.lock().unwrap_or_else(|e| e.into_inner()).next() else {
+                        break;
+                    };
+                    if source.context.images.contains(&source.image_key(&image)) {
+                        continue;
+                    }
+                    // A page that fails here fails for the reader too, and
+                    // they'll see why when they reach it.
+                    if source.fetch_image(&image).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    /// Names a fetched image in the cache by everything its bytes depend on.
+    fn image_key(&self, image: &Image) -> String {
+        repository::sha256_hex(
             json!([
-                self.context.scope,
+                self.context.image_scope(&image.url),
                 self.manifest.version,
                 self.digest,
                 request_key(&image.url, &image.headers),
@@ -857,13 +1002,10 @@ impl Source {
             ])
             .to_string()
             .as_bytes(),
-        );
-        if let Some((content_type, bytes)) = self.context.images.get(&key) {
-            return Ok(Fetched {
-                content_type,
-                bytes,
-            });
-        }
+        )
+    }
+
+    fn fetch_uncached(&self, image: &Image, key: &str) -> Result<Fetched, Error> {
         let max_bytes = if image.transform.is_some() {
             transform::MAX_BYTES as u64
         } else {
@@ -922,13 +1064,16 @@ impl Source {
                             .to_owned(),
                     ));
                 }
-                content_type = Some(transformed.content_type);
+                // Older transforms label `rearrange` output as PNG, which
+                // it no longer always is.
+                content_type =
+                    Some(sniff(&transformed.body).map_or(transformed.content_type, str::to_owned));
                 bytes = transformed.body;
             }
         }
         self.context
             .images
-            .put(&key, content_type.as_deref(), &bytes);
+            .put(key, content_type.as_deref(), &bytes);
         Ok(Fetched {
             content_type,
             bytes,
@@ -946,6 +1091,19 @@ impl Source {
             "catalog source call started"
         );
         run(&self.pre, Some(Arc::clone(&self.context)), false, export)
+    }
+}
+
+/// An image's type from its first bytes, for the formats `rearrange` writes.
+fn sniff(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -1121,9 +1279,9 @@ impl bindings::chek::source::http::Host for State {
             .cache
             .filter(|ttl| *ttl > 0 && matches!(request.method, Method::Get))
             .map(|ttl| (ttl, request_key(&request.url, &request.headers)));
+        let scope = context.response_scope(&request.url);
         if let Some((_, key)) = &cache
-            && let Some((Some(meta), body)) =
-                context.store.get(&context.scope, Namespace::Response, key)
+            && let Some((Some(meta), body)) = context.store.get(scope, Namespace::Response, key)
             && let Ok((status, headers)) =
                 serde_json::from_str::<(u16, Vec<(String, String)>)>(&meta)
         {
@@ -1146,7 +1304,7 @@ impl bindings::chek::source::http::Host for State {
             let meta = json!([response.status, response.headers]).to_string();
             // A response that can't be kept is still returned.
             let _ = context.store.set(
-                &context.scope,
+                scope,
                 Namespace::Response,
                 &key,
                 Some(&meta),

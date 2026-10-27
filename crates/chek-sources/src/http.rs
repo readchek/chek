@@ -82,7 +82,13 @@ impl Net {
             }))
             .build()
             .map_err(|error| error.to_string())?;
+        // Chromium asked for these bytes itself, so they pass through as the
+        // site encoded them.
         let browser_client = proxied()?
+            .no_brotli()
+            .no_deflate()
+            .no_gzip()
+            .no_zstd()
             .timeout(TIMEOUT)
             .https_only(true)
             .redirect(Policy::none())

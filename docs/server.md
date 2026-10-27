@@ -455,6 +455,8 @@ their own repositories, and `chek ext build` builds them into a repository folde
   between calls. `cookies` reads and sets it directly, held to the
   extension's sites. A jar keeps up to 1,000 cookies, session cookies
   included.
+- Requests ask for compressed responses and use HTTP/2 where the site
+  offers it, so a chapter's pages share one connection.
 - Caches and cookie jars are kept per user, extension id and sites in
   `extensions/state.db` in the data folder, so they survive restarts and
   updates. Existing shared state is not imported into a user's namespace. A
@@ -533,7 +535,9 @@ their own repositories, and `chek ext build` builds them into a repository folde
   fetching and caches the result by extension scope, version, component
   digest, URL, headers and parameters. The hook has no network or mutable
   state access and must depend only on its inputs and code. Input/output
-  bodies are capped at 8 MiB. `images.rearrange` moves tiles using libvips in
+  bodies are capped at 8 MiB. `images.rearrange` moves tiles using libvips and
+  saves in the input's format, JPEG and WebP at quality 90 and PNG lossless,
+  in
   a supervised ten-second worker: at most 256 tiles, 8 million pixels, four
   8-bit channels and one operation per hook. See the
   [extension guide](../extensions/README.md) for setup, limits and the required
@@ -600,7 +604,9 @@ their own repositories, and `chek ext build` builds them into a repository folde
   and from the component after, so clients know which readers it needs.
 - Components are stored in the data folder as `extensions/<sha256>.wasm`,
   shared by everyone on the same version, and deleted when no install uses
-  them. Compiled sources stay in memory once loaded.
+  them. Each component is compiled once and shared by every user of it, and
+  the machine code is kept in `extensions/compiled` so a restart loads it
+  without compiling again.
 - Installing again updates to the version the index lists now; the API
   reports when the index lists a different version. Removing a repository
   removes every install from it.
@@ -624,7 +630,13 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - Covers and pages fetched through extensions, for browsing and for
   extension libraries alike, are kept on disk in `extensions/images` and
   served from there the next time anyone asks for the same image from the
-  same extension. `CHEK_EXTENSION_IMAGE_CACHE_MB` caps the folder, 2048 by
+  same extension. An image fetched without the user's cookies is shared by
+  every user; one that carried them is kept for that user alone. Cached
+  responses follow the same rule, shared only within one component build.
+  When a reader lists a chapter's pages or reads one, the server fetches the
+  pages after it three at a time into the cache, until a newer read-ahead
+  starts, and a page asked for while it's being fetched waits for that
+  fetch. `CHEK_EXTENSION_IMAGE_CACHE_MB` caps the folder, 2048 by
   default; past it, the least recently read images are deleted, and an
   image larger than a tenth of the cap isn't kept. 0 turns the cache off and
   empties the folder at startup.
@@ -642,9 +654,11 @@ their own repositories, and `chek ext build` builds them into a repository folde
   service. See [The web app](#the-web-app).
 - Browsing stores nothing; following a series into an extension library
   does.
-- Reader page-list calls take priority over queued catalog work. Calls still
-  run one at a time per source to protect verification sessions; an active call
-  is not interrupted. After three reader calls, waiting catalog work gets a turn.
+- Reader page-list calls take priority over queued catalog work. A source
+  runs up to four calls at once, or one at a time when it has the
+  `browser-session` capability, to protect verification sessions; an active
+  call is not interrupted. After three reader calls, waiting catalog work
+  gets a turn.
   Debug logs report queue time, browser startup and browser operation durations.
 
 ## Extension libraries

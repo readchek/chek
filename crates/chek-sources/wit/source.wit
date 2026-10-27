@@ -268,7 +268,8 @@ interface browser-session {
 // Native raster operations run in an isolated, time-limited worker. Only
 // 8-bit JPEG, PNG and WebP inputs, up to 8 MiB and 8 million pixels, are accepted.
 interface images {
-    // Output is lossless PNG. `order[destination]` names the source tile;
+    // Output is in the input's format: JPEG and WebP at quality 90, PNG
+    // lossless. `order[destination]` names the source tile;
     // it must be a permutation of rows * columns, at most 256 tiles.
     // Partial pixels along the right and bottom edges stay in place.
     rearrange: func(body: list<u8>, columns: u32, rows: u32, order: list<u32>) -> result<list<u8>, string>;

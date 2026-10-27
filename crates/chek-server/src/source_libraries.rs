@@ -162,6 +162,7 @@ pub(crate) async fn get_page(
     let missing = || ApiError::not_found(format!("publication {id} has no page {index}"));
     let stored = pages(state, &remote, false).await?;
     let page = stored.get(index as usize).cloned().ok_or_else(missing)?;
+    source.read_ahead(stored.into_iter().skip(index as usize + 1).collect());
     let fetched = match run(Arc::clone(&source), move |s| s.fetch_image(&page)).await {
         Ok(fetched) => fetched,
         Err(_) => {

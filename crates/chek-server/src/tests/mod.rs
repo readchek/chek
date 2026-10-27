@@ -130,7 +130,15 @@ impl Server {
         });
         Self {
             base: format!("http://{address}"),
-            http: Client::new(),
+            // Tests check the bytes and encodings the server sends, so the
+            // client leaves compressed bodies as they arrive.
+            http: Client::builder()
+                .no_brotli()
+                .no_deflate()
+                .no_gzip()
+                .no_zstd()
+                .build()
+                .expect("a test client"),
             data,
         }
     }

@@ -656,7 +656,8 @@ pub async fn pages(
     Query(query): Query<ChapterQuery>,
 ) -> Result<Cached<List<RemotePageDto>>, ApiError> {
     let (_, source) = usable_source(&state, &current, &id).await?;
-    let pages = run(source, move |s| s.pages(&query.chapter_id)).await?;
+    let pages = run(Arc::clone(&source), move |s| s.pages(&query.chapter_id)).await?;
+    source.read_ahead(pages.clone());
     Ok(cached(
         PAGES_MAX_AGE,
         List {

@@ -12,8 +12,11 @@ use crate::{Capability, Error, Host, Options, Source, format_name};
 pub struct Extensions {
     host: Host,
     dir: PathBuf,
-    loaded: Mutex<HashMap<String, Arc<Source>>>,
+    loaded: Mutex<HashMap<String, Arc<Slot>>>,
 }
+
+/// One user's source, filled by whichever request asks for it first.
+type Slot = Mutex<Option<Arc<Source>>>;
 
 impl Extensions {
     /// Keeps component files in `dir`, along with `state.db`, which holds
@@ -98,19 +101,21 @@ impl Extensions {
     /// The installed component with this digest, compiled the first time
     /// it's asked for.
     pub fn source(&self, digest: &str, user_id: i64) -> Result<Arc<Source>, Error> {
-        let key = format!("{digest}:{user_id}");
-        // Keep lookup and insertion together: two simultaneous requests
-        // must not create separate browser sessions for the same owner.
-        let mut cache = self.cache();
-        if let Some(source) = cache.get(&key) {
-            return Ok(Arc::clone(source));
-        }
         if !is_digest(digest) {
             return Err(Error::Storage(format!("`{digest}` isn't a digest")));
         }
+        let key = format!("{digest}:{user_id}");
+        // Two simultaneous requests must not create separate browser
+        // sessions for the same owner, so they share a slot. Loading holds
+        // only that slot, leaving other users and extensions unblocked.
+        let slot = Arc::clone(self.cache().entry(key).or_default());
+        let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(source) = slot.as_ref() {
+            return Ok(Arc::clone(source));
+        }
         let bytes = std::fs::read(self.path(digest)).map_err(storage)?;
         let source = Arc::new(self.host.load_for_user(&bytes, Some(user_id))?);
-        cache.insert(key, Arc::clone(&source));
+        *slot = Some(Arc::clone(&source));
         Ok(source)
     }
 
@@ -118,6 +123,7 @@ impl Extensions {
     pub fn remove(&self, digest: &str) -> Result<(), Error> {
         self.cache()
             .retain(|key, _| !key.starts_with(&format!("{digest}:")));
+        self.host.forget(digest);
         if !is_digest(digest) {
             return Ok(());
         }
@@ -132,7 +138,7 @@ impl Extensions {
         self.dir.join(format!("{digest}.wasm"))
     }
 
-    fn cache(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<Source>>> {
+    fn cache(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<Slot>>> {
         // The map is only ever inserted into or removed from whole, so a
         // panic elsewhere can't leave it inconsistent.
         self.loaded.lock().unwrap_or_else(|e| e.into_inner())

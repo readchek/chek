@@ -44,6 +44,16 @@ impl ImageCache {
         cache
     }
 
+    /// Whether images are kept at all.
+    pub(crate) fn enabled(&self) -> bool {
+        self.max_bytes > 0
+    }
+
+    /// Whether an image is cached, without reading it.
+    pub(crate) fn contains(&self, key: &str) -> bool {
+        self.enabled() && self.path(key).is_file()
+    }
+
     /// A cached image's content type and bytes.
     pub(crate) fn get(&self, key: &str) -> Option<(Option<String>, Vec<u8>)> {
         if self.max_bytes == 0 {
