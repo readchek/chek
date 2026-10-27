@@ -153,7 +153,10 @@ cache and cookies are unavailable during it. Include all parameters in
 `image.transform`: the final-image cache key includes them, the URL/headers,
 extension scope, version and component digest.
 
-`images::rearrange` moves a grid of tiles and returns lossless PNG bytes.
+`images::rearrange` moves a grid of tiles and returns the image in the format
+it came in: JPEG and WebP at quality 90, PNG lossless. Label the result with
+the type its bytes start with, not a fixed `image/png`; Chek corrects a
+mislabelled one.
 `order[destination]` is the source tile index, counting across each row. The
 order must be a permutation of the grid, with at most 256 tiles. Right/bottom
 remainders stay unchanged. It accepts 8-bit JPEG, PNG or WebP, up to 8 MiB,
