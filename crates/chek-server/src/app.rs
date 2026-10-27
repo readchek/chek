@@ -28,7 +28,16 @@ const FRAME_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'un
 
 /// Serves the app's build from `dir`.
 pub fn router(dir: &Path) -> Router<AppState> {
-    let files = ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html")));
+    // The image keeps a brotli and a gzip copy beside each built file (see
+    // the Dockerfile), so browsers download a fraction of the app's bytes.
+    let files = ServeDir::new(dir)
+        .precompressed_br()
+        .precompressed_gzip()
+        .fallback(
+            ServeFile::new(dir.join("index.html"))
+                .precompressed_br()
+                .precompressed_gzip(),
+        );
     Router::new()
         .route("/api/{*rest}", axum::routing::any(missing))
         .route("/opds/{*rest}", axum::routing::any(missing))
