@@ -658,7 +658,8 @@ their own repositories, and `chek ext build` builds them into a repository folde
   does.
 - Reader page-list calls take priority over queued catalog work. A source
   runs up to four calls at once, or one at a time while a verification browser
-  is open, to protect the cookies that browser earns; an active call is not
+  is open (at most its ten minutes, even if nobody closes it), to protect the
+  cookies that browser earns; an active call is not
   interrupted. After three reader calls, waiting catalog work gets a turn.
   Debug logs report queue time, browser startup and browser operation durations.
 
