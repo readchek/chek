@@ -41,7 +41,12 @@ install_cloak() {
     return $result
 }
 
-if [ ! -x "$cloak_bin" ] && mkdir -p "$cloak_dir"; then
+# CI only checks that the image starts; downloading 200 MB per run would make
+# that slow, so it sets CHEK_CLOAK_DOWNLOAD=0. Admins can too, to keep stock
+# Chromium without the download.
+if [ "${CHEK_CLOAK_DOWNLOAD:-1}" != "0" ] \
+    && [ ! -x "$cloak_bin" ] \
+    && mkdir -p "$cloak_dir"; then
     install_cloak || echo "couldn't install CloakBrowser; using stock Chromium" >&2
 fi
 

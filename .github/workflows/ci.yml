@@ -115,7 +115,7 @@ jobs:
       - name: Start the image
         if: steps.changes.outputs.build == 'true'
         run: |
-          docker run -d --name chek -p 8080:8080 chek:ci
+          docker run -d --name chek -p 8080:8080 -e CHEK_CLOAK_DOWNLOAD=0 chek:ci
           for _ in $(seq 30); do
             if curl -fsS localhost:8080/health; then
               # The admin panel is bundled and its screens get its page.
@@ -154,7 +154,7 @@ jobs:
           cache-to: type=gha,scope=arm64-${{ matrix.target }},mode=max
       - name: Start the image
         run: |
-          docker run -d --name chek -p 8080:8080 chek:ci
+          docker run -d --name chek -p 8080:8080 -e CHEK_CLOAK_DOWNLOAD=0 chek:ci
           for _ in $(seq 30); do
             if curl -fsS localhost:8080/health; then
               # The admin panel is bundled and its screens get its page.

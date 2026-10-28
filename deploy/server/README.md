@@ -65,8 +65,9 @@ Its patched fingerprint passes sites' Turnstile checks on its own, so Comix
 completes comix.to's human check without anyone opening a page. The binary
 goes into the `chek-data` volume (`/data/.cloakbrowser`) because its license
 doesn't allow shipping it in the image; the first start needs network access.
-Stock Chromium stays as the fallback when that download fails. If a check
-still doesn't pass, open `/verify` on your Chek instance and sign in, enter
+Stock Chromium stays as the fallback when that download fails. Set
+`CHEK_CLOAK_DOWNLOAD=0` to skip the download and keep stock Chromium. If a
+check still doesn't pass, open `/verify` on your Chek instance and sign in, enter
 source ID `page.chek.comix` and website `https://comix.to`, open verification,
 and complete the site's checkbox. Retry search once the catalog is visible.
 Clearance cookies are saved in the data volume; they can expire or be rejected
