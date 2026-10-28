@@ -660,6 +660,9 @@ their own repositories, and `chek ext build` builds them into a repository folde
   runs up to four calls at once, or one at a time while a verification browser
   is open, to protect the cookies that browser earns; an active call is not
   interrupted. After three reader calls, waiting catalog work gets a turn.
+  Only one call per source and user has a `browser-session` browser open at
+  a time; another that needs one waits for it to close, so a site check that
+  blocks several calls at once is passed by one browser.
   Debug logs report queue time, browser startup and browser operation durations.
 
 ## Extension libraries
