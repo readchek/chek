@@ -422,6 +422,7 @@ impl Host {
             warming: AtomicUsize::new(0),
             verification: Arc::clone(&verification),
             calls: calls::Calls::new(verification),
+            browsers: calls::Browsers::default(),
             user,
             _clock: Arc::clone(&self.clock),
             worker_executable: self.worker_executable.clone(),
@@ -460,6 +461,7 @@ struct Context {
     native_sites: Option<Vec<String>>,
     browser_args: Vec<String>,
     verification: Arc<calls::Verification>,
+    browsers: calls::Browsers,
     handoff: Mutex<Option<session::Session>>,
     /// A gate per image being fetched, so a page asked for while it's
     /// already on its way waits for that fetch instead of starting another.
@@ -1233,6 +1235,7 @@ fn new_store(
         transforming,
         session: None,
         persistent_session: false,
+        holds_browser: false,
         image_operations: 0,
     };
     let mut store = Store::new(engine, state);
@@ -1252,6 +1255,8 @@ struct State {
     transforming: bool,
     session: Option<session::Session>,
     persistent_session: bool,
+    /// Whether this call holds the source's one browser.
+    holds_browser: bool,
     image_operations: u32,
 }
 
@@ -1349,11 +1354,17 @@ impl State {
 impl bindings::chek::source::browser_session::Host for State {
     fn open(&mut self, url: String) -> Result<(), String> {
         self.release_browser();
-        let context = self.context()?;
+        // Held apart from `self`, which records below that it took the browser.
+        self.context()?;
+        let context = Arc::clone(self.context.as_ref().ok_or("no source context")?);
+        let context = context.as_ref();
         context.net.allowed_url(&url)?;
         if context.verification.pending() {
             return Err("complete the open verification browser and resume before retrying".into());
         }
+        // A call waits as long as another's browser may stay open.
+        context.browsers.take(session::LIFETIME)?;
+        self.holds_browser = true;
         let saved = context
             .handoff
             .lock()
@@ -1410,6 +1421,11 @@ impl State {
             *context.handoff.lock().unwrap_or_else(|e| e.into_inner()) = session;
         }
         self.persistent_session = false;
+        if std::mem::take(&mut self.holds_browser)
+            && let Some(context) = &self.context
+        {
+            context.browsers.give_back();
+        }
     }
 
     fn browser_operation(&mut self, command: serde_json::Value) -> Result<String, String> {

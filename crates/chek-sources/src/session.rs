@@ -13,7 +13,7 @@ use crate::Context;
 use crate::cookies::BrowserCookie;
 use crate::worker::{Worker, remaining};
 
-const LIFETIME: Duration = Duration::from_secs(120);
+pub(crate) const LIFETIME: Duration = Duration::from_secs(120);
 const OPERATION: Duration = Duration::from_secs(30);
 const MAX_RESULT: usize = 1 << 20;
 const MAX_SCRIPT: usize = 64 << 10;

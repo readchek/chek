@@ -1,6 +1,6 @@
 //! Reader work goes ahead of queued catalog calls, without sharing a live browser.
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Calls one extension may run at once. Each waits mostly on the network, so
 /// a few overlap well.
@@ -111,10 +111,45 @@ impl Drop for Call<'_> {
     }
 }
 
+/// One browser per extension and user at a time. Calls run in parallel, and
+/// a site block can reach several at once; each starting its own browser to
+/// pass the same check costs a Chromium apiece and solves it several times.
+/// The rest wait here, then find the cookies the first one earned.
+#[derive(Default)]
+pub(crate) struct Browsers {
+    open: Mutex<bool>,
+    closed: Condvar,
+}
+
+impl Browsers {
+    /// Waits up to `wait` for the browser to be free and takes it.
+    pub(crate) fn take(&self, wait: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + wait;
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while *open {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err("another call is still using this source's browser; retry".into());
+            }
+            open = self
+                .closed
+                .wait_timeout(open, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        *open = true;
+        Ok(())
+    }
+
+    pub(crate) fn give_back(&self) {
+        *self.open.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        self.closed.notify_one();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn an_abandoned_verification_browser_stops_holding_calls_back() {
@@ -134,5 +169,21 @@ mod tests {
         verification.start(Instant::now() + Duration::from_secs(600));
         verification.end();
         assert!(!verification.pending());
+    }
+
+    #[test]
+    fn calls_that_need_a_browser_take_turns() {
+        let browsers = Arc::new(Browsers::default());
+        browsers.take(Duration::from_secs(1)).unwrap();
+        assert!(browsers.take(Duration::from_millis(20)).is_err());
+
+        let waiting = {
+            let browsers = Arc::clone(&browsers);
+            std::thread::spawn(move || browsers.take(Duration::from_secs(5)))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        browsers.give_back();
+        assert!(waiting.join().unwrap().is_ok());
+        assert!(browsers.take(Duration::from_millis(20)).is_err());
     }
 }
