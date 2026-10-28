@@ -9,9 +9,12 @@ Set `CHEK_SETUP_TOKEN` to at least 32 random characters, then deploy. Open
 This runs `ghcr.io/readchek/chek:edge-browser`, which CI publishes from main
 and is built from the Dockerfile's `browser` target: Chromium, Xvfb, fonts and process
 cleanup are included. No browser path, display or launch arguments are needed.
-The container runs as the `chek` user. Chromium's own sandbox is disabled for
-container compatibility; use this image only for trusted source extensions.
-The plain Docker build remains browser-free. The App Store demo is unchanged.
+On first start the entrypoint downloads CloakBrowser's stealth Chromium into
+the data volume and uses it instead of the packaged Chromium, whose stock
+fingerprint sites' bot checks reject; see below. The container runs as the
+`chek` user. Chromium's own sandbox is disabled for container compatibility;
+use this image only for trusted source extensions. The plain Docker build
+remains browser-free. The App Store demo is unchanged.
 
 The server keeps its default official extension repository and uses its own
 `chek-data` volume. Install extensions for your account after setup. There is
@@ -57,8 +60,14 @@ The browser runtime packages dependencies; it does not guarantee that a site
 accepts a particular outbound IP. If verification fails, inspect the source
 error rather than replacing the solver URL with a proxy address.
 
-For an interactive challenge, open `/verify` on your Chek instance and sign in.
-Enter source ID `page.chek.comix` and website `https://comix.to`, open verification,
+The browser image downloads CloakBrowser's stealth Chromium on first start.
+Its patched fingerprint passes sites' Turnstile checks on its own, so Comix
+completes comix.to's human check without anyone opening a page. The binary
+goes into the `chek-data` volume (`/data/.cloakbrowser`) because its license
+doesn't allow shipping it in the image; the first start needs network access.
+Stock Chromium stays as the fallback when that download fails. If a check
+still doesn't pass, open `/verify` on your Chek instance and sign in, enter
+source ID `page.chek.comix` and website `https://comix.to`, open verification,
 and complete the site's checkbox. Retry search once the catalog is visible.
 Clearance cookies are saved in the data volume; they can expire or be rejected
 by the site later. No remote desktop or exposed Chrome debugging port is needed.

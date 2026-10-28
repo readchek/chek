@@ -485,8 +485,10 @@ their own repositories, and `chek ext build` builds them into a repository folde
   counts as a request. The solver's browser follows the page wherever it
   leads, so the solver is the admin's to trust, like the server itself.
 - Interactive pages use a separate `browser-session` capability. With
-  `CHEK_BROWSER_EXECUTABLE` set to an absolute Chromium/headless-shell path,
-  Chek starts a Rust CDP worker for one export call. It provides async script
+  `CHEK_BROWSER_EXECUTABLE` set to an absolute Chromium/headless-shell path
+  (the browser image supplies CloakBrowser's patched Chromium), Chek starts a
+  Rust CDP worker for one export call. Its stealth fingerprint is what lets
+  sources pass a site's Turnstile check without a person. It provides async script
   evaluation, click and scroll, with no Playwright or JavaScript runtime on
   the host. Browser HTTP requests are intercepted and relayed through the
   host's HTTPS/site checks, including frames and redirects; a non-forwarding
@@ -655,10 +657,9 @@ their own repositories, and `chek ext build` builds them into a repository folde
 - Browsing stores nothing; following a series into an extension library
   does.
 - Reader page-list calls take priority over queued catalog work. A source
-  runs up to four calls at once, or one at a time when it has the
-  `browser-session` capability, to protect verification sessions; an active
-  call is not interrupted. After three reader calls, waiting catalog work
-  gets a turn.
+  runs up to four calls at once, or one at a time while a verification browser
+  is open, to protect the cookies that browser earns; an active call is not
+  interrupted. After three reader calls, waiting catalog work gets a turn.
   Debug logs report queue time, browser startup and browser operation durations.
 
 ## Extension libraries

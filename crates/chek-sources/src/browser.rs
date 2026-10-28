@@ -222,6 +222,12 @@ impl Browser {
         lock(&self.user_agent).clone()
     }
 
+    /// Whether an actual solver service is configured, rather than only a
+    /// local browser executable.
+    pub(crate) fn has_solver(&self) -> bool {
+        self.solver.is_some()
+    }
+
     pub(crate) fn solves(&self) -> u64 {
         self.solves.load(Ordering::SeqCst)
     }
