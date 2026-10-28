@@ -60,14 +60,17 @@ ENTRYPOINT ["/usr/local/bin/chek"]
 FROM runtime AS browser
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium xvfb xauth tini fonts-liberation \
+    && apt-get install -y --no-install-recommends chromium xvfb xauth tini fonts-liberation curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --chmod=755 deploy/server/entrypoint.sh /usr/local/bin/chek-browser
 USER chek
+# CloakBrowser's stealth Chromium is downloaded into the data volume on first
+# start, because its license doesn't allow redistributing the binary in an
+# image. Stock Chromium stays as the fallback when the download fails.
 ENV HOME=/data \
     CHEK_BROWSER_EXECUTABLE=/usr/bin/chromium \
     CHEK_BROWSER_NATIVE=true \
-    CHEK_BROWSER_ARGS='["--no-sandbox","--disable-blink-features=AutomationControlled"]'
+    CHEK_BROWSER_ARGS='["--no-sandbox","--disable-blink-features=AutomationControlled","--fingerprint-platform=windows"]'
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/chek-browser"]
 
 FROM runtime AS default

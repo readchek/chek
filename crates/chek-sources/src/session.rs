@@ -96,7 +96,15 @@ impl Session {
         command.arg("--extension-browser-worker").arg(executable);
         let worker = Worker::start(command, lifetime)?;
         let deadline = Instant::now() + OPERATION;
-        let mut start = json!({"type": "start", "userAgent": context.net.browser().and_then(|b| b.user_agent())});
+        // Only a solver-earned clearance is tied to the user agent it was
+        // earned with. A local browser brings its own, and forcing an old one
+        // would undo the browser's stealth fingerprint.
+        let saved_agent = context
+            .net
+            .browser()
+            .filter(|browser| browser.has_solver())
+            .and_then(crate::browser::Browser::user_agent);
+        let mut start = json!({"type": "start", "userAgent": saved_agent});
         start["args"] = json!(context.browser_args);
         if let Some(sites) = sites {
             start["sites"] = json!(sites);
