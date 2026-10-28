@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # same app; raise it to ship a newer one. It's plain files, so it builds once
 # on the build machine's platform for every image.
 FROM --platform=$BUILDPLATFORM oven/bun:1.4.3-slim AS web
-ARG CHEK_WEB_REF=872d892c4641ce62f890c5ed536dd258743f9249
+ARG CHEK_WEB_REF=bd0b121443d686c8091ee3f3ef04f5130bf27e66
 ADD https://github.com/readchek/app.git#${CHEK_WEB_REF}:web /web
 WORKDIR /web
 RUN bun install --frozen-lockfile && bun run build:server
