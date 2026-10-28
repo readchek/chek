@@ -1,5 +1,4 @@
 //! Reader work goes ahead of queued catalog calls, without sharing a live browser.
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,7 +11,30 @@ pub(crate) struct Calls {
     ready: Condvar,
     /// Set while a person has a verification browser open. Calls queue then,
     /// so their cookies can't replace the ones the person's browser earns.
-    verification_pending: Arc<AtomicBool>,
+    verification: Arc<Verification>,
+}
+
+/// Whether a person has a verification browser open. It lapses with that
+/// browser, so one left open and abandoned doesn't hold calls back forever.
+#[derive(Default)]
+pub(crate) struct Verification(Mutex<Option<Instant>>);
+
+impl Verification {
+    /// The person's browser is open until `until`.
+    pub(crate) fn start(&self, until: Instant) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(until);
+    }
+
+    pub(crate) fn end(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    pub(crate) fn pending(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|until| Instant::now() < until)
+    }
 }
 
 #[derive(Default)]
@@ -26,16 +48,16 @@ struct State {
 pub(crate) struct Call<'a>(&'a Calls);
 
 impl Calls {
-    pub(crate) fn new(verification_pending: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new(verification: Arc<Verification>) -> Self {
         Self {
             state: Mutex::default(),
             ready: Condvar::new(),
-            verification_pending,
+            verification,
         }
     }
 
     fn limit(&self) -> usize {
-        if self.verification_pending.load(Ordering::SeqCst) {
+        if self.verification.pending() {
             1
         } else {
             PARALLEL
@@ -44,13 +66,12 @@ impl Calls {
 
     pub(crate) fn lock(&self, reader: bool) -> Call<'_> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let limit = self.limit();
         if reader {
             state.readers += 1;
         } else {
             state.catalog += 1;
         }
-        while state.active >= limit
+        while state.active >= self.limit()
             || (reader && state.catalog > 0 && state.reader_streak >= 3)
             || (!reader && state.readers > 0 && state.reader_streak < 3)
         {
@@ -129,6 +150,26 @@ impl Browsers {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_abandoned_verification_browser_stops_holding_calls_back() {
+        let verification = Arc::new(Verification::default());
+        let calls = Calls::new(Arc::clone(&verification));
+        assert_eq!(calls.limit(), PARALLEL);
+
+        verification.start(Instant::now() + Duration::from_secs(600));
+        assert!(verification.pending());
+        assert_eq!(calls.limit(), 1);
+
+        // The person's browser closed on its own without a resume or close.
+        verification.start(Instant::now() - Duration::from_secs(1));
+        assert!(!verification.pending());
+        assert_eq!(calls.limit(), PARALLEL);
+
+        verification.start(Instant::now() + Duration::from_secs(600));
+        verification.end();
+        assert!(!verification.pending());
+    }
 
     #[test]
     fn calls_that_need_a_browser_take_turns() {

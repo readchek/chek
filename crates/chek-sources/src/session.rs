@@ -76,6 +76,11 @@ impl Session {
         )
     }
 
+    /// When the browser closes on its own.
+    pub(crate) fn deadline(&self) -> Instant {
+        self.worker.deadline
+    }
+
     pub(crate) fn expired(&self) -> bool {
         Instant::now() >= self.worker.deadline
     }

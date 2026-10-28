@@ -31,7 +31,7 @@ mod worker;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -388,7 +388,7 @@ impl Host {
                 .iter()
                 .any(|c| matches!(c, Capability::Browser | Capability::BrowserSession))
         });
-        let verification_pending = Arc::new(AtomicBool::new(false));
+        let verification = Arc::new(calls::Verification::default());
         let context = Arc::new(Context {
             browser_args: self.browser_args.clone(),
             native_sites: self.browser_native.then(|| manifest.sites.clone()),
@@ -420,8 +420,8 @@ impl Host {
             handoff: Mutex::new(None),
             fetching: Mutex::default(),
             warming: AtomicUsize::new(0),
-            verification_pending: Arc::clone(&verification_pending),
-            calls: calls::Calls::new(verification_pending),
+            verification: Arc::clone(&verification),
+            calls: calls::Calls::new(verification),
             browsers: calls::Browsers::default(),
             user,
             _clock: Arc::clone(&self.clock),
@@ -460,7 +460,7 @@ pub struct Source {
 struct Context {
     native_sites: Option<Vec<String>>,
     browser_args: Vec<String>,
-    verification_pending: Arc<AtomicBool>,
+    verification: Arc<calls::Verification>,
     browsers: calls::Browsers,
     handoff: Mutex<Option<session::Session>>,
     /// A gate per image being fetched, so a page asked for while it's
@@ -532,7 +532,7 @@ impl Source {
             return Err("a browser is already open; close it before starting another".into());
         }
         *slot = None;
-        context.verification_pending.store(false, Ordering::SeqCst);
+        context.verification.end();
         let mut session = session::Session::handoff(
             context
                 .worker_executable
@@ -546,8 +546,8 @@ impl Source {
             &self.manifest.sites,
         )?;
         session.operation(context, json!({"type":"open","url":url}), &mut 0)?;
+        context.verification.start(session.deadline());
         *slot = Some(session);
-        context.verification_pending.store(true, Ordering::SeqCst);
         Ok(())
     }
 
@@ -564,9 +564,7 @@ impl Source {
             .handoff
             .try_lock()
             .map_err(|_| "browser is busy")?;
-        self.context
-            .verification_pending
-            .store(false, Ordering::SeqCst);
+        self.context.verification.end();
         if !slot.as_ref().is_some_and(|session| !session.expired()) {
             return Err("no verification browser is open".into());
         }
@@ -597,9 +595,7 @@ impl Source {
             .handoff
             .try_lock()
             .map_err(|_| "browser is busy")? = None;
-        self.context
-            .verification_pending
-            .store(false, Ordering::SeqCst);
+        self.context.verification.end();
         Ok(())
     }
 
@@ -620,9 +616,7 @@ impl Source {
         if let Err(error) = &result {
             tracing::warn!(%error, "verification browser operation failed");
             *slot = None;
-            self.context
-                .verification_pending
-                .store(false, Ordering::SeqCst);
+            self.context.verification.end();
         }
         result
     }
@@ -1365,7 +1359,7 @@ impl bindings::chek::source::browser_session::Host for State {
         let context = Arc::clone(self.context.as_ref().ok_or("no source context")?);
         let context = context.as_ref();
         context.net.allowed_url(&url)?;
-        if context.verification_pending.load(Ordering::SeqCst) {
+        if context.verification.pending() {
             return Err("complete the open verification browser and resume before retrying".into());
         }
         // A call waits as long as another's browser may stay open.
