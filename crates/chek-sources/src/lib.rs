@@ -18,6 +18,7 @@ mod cookies;
 mod http;
 mod images;
 mod installed;
+mod order;
 mod proxy;
 pub mod repository;
 mod resolve;
@@ -653,8 +654,16 @@ impl Source {
             .map_err(Error::Source)
     }
 
-    /// The series' chapters in reading order.
+    /// The series' chapters in reading order, whichever way round the
+    /// source listed them.
     pub fn chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
+        let mut chapters = self.listed_chapters(series_id)?;
+        order::into_reading_order(&mut chapters);
+        Ok(chapters)
+    }
+
+    /// The series' chapters as the source lists them.
+    fn listed_chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
         if self.pagination.is_none() {
             return self
                 .call(|bindings, store| bindings.call_chapters(store, series_id))?
@@ -816,6 +825,12 @@ impl Source {
             || page.items.iter().map(chapter_bytes).sum::<usize>() > 4 << 20
         {
             return Err(Error::Pagination("invalid chapter page".into()));
+        }
+        if order::page_runs_against(&page.items, order) {
+            // The extension pages the wrong way round. The complete list is
+            // put in reading order by its numbers, so page through that.
+            tracing::debug!("chapter page runs against its order; reading the whole list");
+            return Ok(None);
         }
         Ok(Some(page))
     }
