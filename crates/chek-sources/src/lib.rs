@@ -18,6 +18,7 @@ mod cookies;
 mod http;
 mod images;
 mod installed;
+mod order;
 mod proxy;
 pub mod repository;
 mod resolve;
@@ -80,6 +81,18 @@ mod content_bindings {
     });
 }
 
+mod comments_bindings {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "chapter-discussion",
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
+    });
+}
+
+pub use comments_bindings::exports::chek::source::chapter_comments::{
+    Author as CommentAuthor, Comment, CommentOrder, CommentPage, CommentSummary, Run as CommentRun,
+    RunStyle,
+};
 pub use content_bindings::exports::chek::source::chapter_content::{
     Asset, Content, ContentFormat, Reading, Rights,
 };
@@ -140,6 +153,8 @@ pub enum Error {
     Image(String),
     #[error("the source returned invalid chapter content: {0}")]
     Content(String),
+    #[error("the source returned invalid comments: {0}")]
+    Comments(String),
     #[error("couldn't fetch the file: {0}")]
     Asset(String),
     #[error("the extension doesn't match its index entry: {0}")]
@@ -333,6 +348,11 @@ impl Host {
             .map(|_| content_bindings::ChapterContentsPre::new(instance.clone()))
             .transpose()
             .map_err(|error| Error::Invalid(format!("invalid chapter content: {error:#}")))?;
+        let comments = component
+            .get_export_index(None, "chek:source/chapter-comments@0.6.0")
+            .map(|_| comments_bindings::ChapterDiscussionPre::new(instance.clone()))
+            .transpose()
+            .map_err(|error| Error::Invalid(format!("invalid chapter comments: {error:#}")))?;
         let pre = bindings::SourcePre::new(instance).map_err(link_error)?;
         // The manifest is read without network, before its sites are known.
         let manifest = run(&pre, None, false, |bindings, store| {
@@ -351,6 +371,19 @@ impl Host {
                 check_formats(formats)?
             }
             None => vec![ContentFormat::Images],
+        };
+        // And the comment orders, so the index can be checked against them.
+        let comment_orders = match &comments {
+            Some(pre) => {
+                let mut store = new_store(pre.engine(), None, false)?;
+                let bindings = pre.instantiate(&mut store).map_err(trap)?;
+                let orders = bindings
+                    .chek_source_chapter_comments()
+                    .call_orders(&mut store)
+                    .map_err(trap)?;
+                Some(check_orders(orders))
+            }
+            None => None,
         };
         let sites = Sites::parse(&manifest.sites).map_err(Error::Manifest)?;
         // State belongs to the id and sites together, so a component from
@@ -433,6 +466,8 @@ impl Host {
             pages,
             contents,
             formats,
+            comments,
+            comment_orders,
             manifest,
             context,
             digest,
@@ -451,6 +486,11 @@ pub struct Source {
     /// What the extension's chapters come in, sorted; only images without
     /// `contents`.
     formats: Vec<ContentFormat>,
+    /// Set when the extension answers readers' comments.
+    comments: Option<comments_bindings::ChapterDiscussionPre<State>>,
+    /// The orders its comments come in, the site's default first; empty
+    /// when it gives only a summary. None without `comments`.
+    comment_orders: Option<Vec<CommentOrder>>,
     manifest: Manifest,
     context: Arc<Context>,
     digest: String,
@@ -620,6 +660,11 @@ impl Source {
         }
         result
     }
+    /// The SHA-256 digest of the component, which names its build.
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -627,6 +672,92 @@ impl Source {
     /// The formats the extension's chapters come in, never empty.
     pub fn formats(&self) -> &[ContentFormat] {
         &self.formats
+    }
+
+    /// The orders the extension's comments come in, the site's default
+    /// first, or empty when it gives only a count. None when it has no
+    /// comments.
+    pub fn comment_orders(&self) -> Option<&[CommentOrder]> {
+        self.comment_orders.as_deref()
+    }
+
+    /// How many comments a chapter has and where, or None when it has no
+    /// thread.
+    pub fn comment_summary(&self, chapter_id: &str) -> Result<Option<CommentSummary>, Error> {
+        let summary =
+            self.comments_call(|comments, store| comments.call_summary(store, chapter_id))?;
+        Ok(summary.map(|mut summary| {
+            keep_https(&mut summary.url);
+            summary
+        }))
+    }
+
+    /// A page of a chapter's top-level comments.
+    pub fn comments(
+        &self,
+        chapter_id: &str,
+        order: CommentOrder,
+        cursor: Option<&str>,
+    ) -> Result<CommentPage, Error> {
+        if !self
+            .comment_orders
+            .as_ref()
+            .is_some_and(|orders| orders.contains(&order))
+        {
+            return Err(Error::Comments(format!(
+                "the extension doesn't list comments by {}",
+                order_name(order)
+            )));
+        }
+        let page = self.comments_call(|comments, store| {
+            comments.call_list(store, chapter_id, order, cursor)
+        })?;
+        Ok(check_comment_page(page))
+    }
+
+    /// A page of the replies to one comment.
+    pub fn comment_replies(
+        &self,
+        chapter_id: &str,
+        comment_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<CommentPage, Error> {
+        if self.comment_orders.as_ref().is_none_or(Vec::is_empty) {
+            return Err(Error::Comments(
+                "the extension gives only a count of comments".to_owned(),
+            ));
+        }
+        let page = self.comments_call(|comments, store| {
+            comments.call_replies(store, chapter_id, comment_id, cursor)
+        })?;
+        let mut page = check_comment_page(page);
+        // Replies are one level deep, so none of them has replies itself.
+        for reply in &mut page.items {
+            reply.reply_count = 0;
+        }
+        Ok(page)
+    }
+
+    /// Runs one comments export. These queue as catalog work, behind the
+    /// calls that turn a reader's pages.
+    fn comments_call<R>(
+        &self,
+        call: impl FnOnce(
+            &comments_bindings::exports::chek::source::chapter_comments::Guest,
+            &mut Store<State>,
+        ) -> wasmtime::Result<Result<R, SourceError>>,
+    ) -> Result<R, Error> {
+        let Some(pre) = &self.comments else {
+            return Err(Error::Comments(
+                "the extension doesn't give comments".to_owned(),
+            ));
+        };
+        let _call = self.context.calls.lock(false);
+        let mut store = new_store(pre.engine(), Some(Arc::clone(&self.context)), false)?;
+        let bindings = pre.instantiate(&mut store).map_err(trap)?;
+        call(bindings.chek_source_chapter_comments(), &mut store)
+            .map_err(trap)?
+            .map_err(Error::Source)
     }
 
     /// A page of series matching `query`, counting pages from 1. An empty
@@ -653,8 +784,16 @@ impl Source {
             .map_err(Error::Source)
     }
 
-    /// The series' chapters in reading order.
+    /// The series' chapters in reading order, whichever way round the
+    /// source listed them.
     pub fn chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
+        let mut chapters = self.listed_chapters(series_id)?;
+        order::into_reading_order(&mut chapters);
+        Ok(chapters)
+    }
+
+    /// The series' chapters as the source lists them.
+    fn listed_chapters(&self, series_id: &str) -> Result<Vec<Chapter>, Error> {
         if self.pagination.is_none() {
             return self
                 .call(|bindings, store| bindings.call_chapters(store, series_id))?
@@ -816,6 +955,12 @@ impl Source {
             || page.items.iter().map(chapter_bytes).sum::<usize>() > 4 << 20
         {
             return Err(Error::Pagination("invalid chapter page".into()));
+        }
+        if order::page_runs_against(&page.items, order) {
+            // The extension pages the wrong way round. The complete list is
+            // put in reading order by its numbers, so page through that.
+            tracing::debug!("chapter page runs against its order; reading the whole list");
+            return Ok(None);
         }
         Ok(Some(page))
     }
@@ -1152,6 +1297,99 @@ fn check_formats(mut formats: Vec<ContentFormat>) -> Result<Vec<ContentFormat>, 
         return Err(Error::Manifest("the extension lists no formats".to_owned()));
     }
     Ok(formats)
+}
+
+/// What a comment order is called in the API and in indexes.
+pub fn order_name(order: CommentOrder) -> &'static str {
+    match order {
+        CommentOrder::Top => "top",
+        CommentOrder::Newest => "newest",
+        CommentOrder::Oldest => "oldest",
+    }
+}
+
+/// Keeps the first of each order, in the extension's order, since the first
+/// is the site's default.
+fn check_orders(orders: Vec<CommentOrder>) -> Vec<CommentOrder> {
+    let mut kept = Vec::new();
+    for order in orders {
+        if !kept.contains(&order) {
+            kept.push(order);
+        }
+    }
+    kept
+}
+
+/// Comments in one page, past which the rest are dropped.
+const MAX_COMMENTS: usize = 50;
+/// Characters of one comment's text, past which it is cut off.
+const MAX_COMMENT_TEXT: usize = 10_000;
+/// Runs in one comment, past which the rest are dropped.
+const MAX_RUNS: usize = 500;
+/// Images attached to one comment, past which the rest are dropped.
+const MAX_COMMENT_IMAGES: usize = 4;
+/// The longest continuation passed back to an extension.
+const MAX_CURSOR: usize = 1024;
+
+/// Holds a page of comments to the contract's limits. Comments come from
+/// strangers on another site, so past a limit the host trims rather than
+/// failing the page, and links that aren't web pages never reach readers.
+fn check_comment_page(mut page: CommentPage) -> CommentPage {
+    page.items.truncate(MAX_COMMENTS);
+    page.items.retain(|comment| !comment.id.is_empty());
+    for comment in &mut page.items {
+        truncate(&mut comment.id, MAX_FIELD);
+        truncate(&mut comment.author.name, MAX_FIELD);
+        for text in [&mut comment.author.badge, &mut comment.reply_to]
+            .into_iter()
+            .flatten()
+        {
+            truncate(text, MAX_FIELD);
+        }
+        if let Some(published) = &mut comment.published {
+            truncate(published, MAX_FIELD);
+        }
+        keep_https(&mut comment.url);
+        comment.images.truncate(MAX_COMMENT_IMAGES);
+        comment.body.truncate(MAX_RUNS);
+        let mut left = MAX_COMMENT_TEXT;
+        comment.body.retain_mut(|run| {
+            if left == 0 {
+                return false;
+            }
+            let chars = run.text.chars().count();
+            if chars > left {
+                let end = run
+                    .text
+                    .char_indices()
+                    .nth(left)
+                    .map_or(run.text.len(), |(index, _)| index);
+                run.text.truncate(end);
+            }
+            left = left.saturating_sub(chars);
+            keep_https(&mut run.link);
+            true
+        });
+    }
+    if page
+        .next
+        .as_ref()
+        .is_some_and(|next| next.len() > MAX_CURSOR)
+    {
+        tracing::warn!("dropped a comments cursor over {MAX_CURSOR} bytes");
+        page.next = None;
+    }
+    page
+}
+
+/// Drops a link that isn't an HTTPS web page.
+fn keep_https(link: &mut Option<String>) {
+    if link
+        .as_deref()
+        .is_some_and(|url| url.len() > MAX_TEXT || !url.starts_with("https://"))
+    {
+        *link = None;
+    }
 }
 
 /// The longest file id, file name or rights text kept from an extension.

@@ -52,6 +52,12 @@
             "type": "array",
             "minItems": 1,
             "items": { "type": "string", "enum": ["images", "epub", "pdf"] }
+          },
+          "comments": {
+            "description": "The orders the extension lists readers' comments in, the site's default first. Empty means it gives only a count. Absent means it gives no comments.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "enum": ["top", "newest", "oldest"] }
           }
         }
       }

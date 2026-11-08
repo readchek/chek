@@ -31,6 +31,11 @@ pub struct InstalledDto {
     /// What its chapters come in, `images`, `epub` or `pdf`, so clients
     /// know which readers it needs.
     formats: Vec<String>,
+    /// The orders readers' comments come in, the site's default first, or
+    /// empty when the source gives only a count. Absent when it gives none,
+    /// or the admin hasn't turned comments on for its repository.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comments: Option<Vec<String>>,
     installed_at: String,
     /// False while it came from the user's own repository and the admin
     /// allows only the allow list.
@@ -56,11 +61,12 @@ pub async fn list_installed(
     current: CurrentUser,
 ) -> Result<Json<InstalledList>, ApiError> {
     let user_id = current.user.id;
-    let (installs, repositories, allow_any) = blocking(&state, move |c| {
+    let (installs, repositories, allow_any, comments_on) = blocking(&state, move |c| {
         Ok((
             c.extension_installs(user_id)?,
             c.extension_repositories(user_id)?,
             c.allow_any_repository()?,
+            c.extension_comments()?,
         ))
     })
     .await?;
@@ -78,7 +84,8 @@ pub async fn list_installed(
                         .find(|e| e.id == install.extension_id)
                 })
                 .map(|e| e.version);
-            dto(install, usable, listed)
+            let comments = comments_on && repository.is_some_and(|r| r.owner_id.is_none());
+            dto(install, usable, listed, comments)
         })
         .collect::<Result<_, _>>()?;
     Ok(Json(InstalledList { items }))
@@ -173,17 +180,31 @@ async fn install_for(
                 .collect::<Vec<_>>(),
         )
         .map_err(ApiError::internal)?,
+        comments: source
+            .comment_orders()
+            .map(|orders| {
+                serde_json::to_string(
+                    &orders
+                        .iter()
+                        .map(|o| chek_sources::order_name(*o))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .transpose()
+            .map_err(ApiError::internal)?,
         installed_at: String::new(),
     };
+    let server_wide = repository.owner_id.is_none();
     let user_id = install.user_id;
     let extension_id = install.extension_id.clone();
-    let (existed, unused, saved) = blocking(state, move |c| {
+    let (existed, unused, saved, comments_on) = blocking(state, move |c| {
         let existed = c.extension_install(user_id, &extension_id)?.is_some();
         let unused = c.save_extension_install(&install)?;
         Ok((
             existed,
             unused,
             c.extension_install(user_id, &extension_id)?,
+            c.extension_comments()?,
         ))
     })
     .await?;
@@ -196,7 +217,10 @@ async fn install_for(
     } else {
         StatusCode::CREATED
     };
-    Ok((status, Json(dto(saved, true, None)?)))
+    Ok((
+        status,
+        Json(dto(saved, true, None, comments_on && server_wide)?),
+    ))
 }
 
 pub async fn uninstall(
@@ -232,8 +256,16 @@ fn dto(
     install: ExtensionInstall,
     usable: bool,
     listed: Option<String>,
+    comments_on: bool,
 ) -> Result<InstalledDto, ApiError> {
+    let comments = match install.comments.as_deref() {
+        Some(orders) if comments_on => {
+            Some(serde_json::from_str(orders).map_err(ApiError::internal)?)
+        }
+        _ => None,
+    };
     Ok(InstalledDto {
+        comments,
         update: listed.filter(|v| *v != install.version),
         sites: serde_json::from_str(&install.sites).map_err(ApiError::internal)?,
         languages: serde_json::from_str(&install.languages).map_err(ApiError::internal)?,

@@ -2924,6 +2924,122 @@ paths:
           $ref: "#/components/responses/SourceFailed"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/comments/summary:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: getRemoteCommentSummary
+      summary: Count a chapter's comments on its source's site
+      description: >-
+        How many readers' comments the chapter has on the source's site,
+        and a link to read them there. Only for extensions whose
+        `comments` the extension list shows, which the admin turns on with
+        `extensionComments`. Clients ask when a reader reaches a chapter's
+        end, not with its pages.
+      parameters:
+        - $ref: "#/components/parameters/CommentChapterId"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: The count. Kept for thirty minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentSummary"
+        "204":
+          description: The chapter has no comment thread.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/CommentsUnavailable"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/comments:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemoteComments
+      summary: Read a page of a chapter's comments
+      description: >-
+        Readers' comments on the chapter, top-level ones only, as the
+        source's site shows them. Read-only. Images come back as links to
+        getRemoteImage. A source whose `comments` is empty gives only a
+        count, and answers 404 here.
+      parameters:
+        - $ref: "#/components/parameters/CommentChapterId"
+        - name: order
+          in: query
+          description: >-
+            One of the extension's `comments` orders. The first, the site's
+            default, when left out.
+          schema:
+            $ref: "#/components/schemas/CommentOrder"
+        - $ref: "#/components/parameters/CommentCursor"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: A page of comments. Kept for ten minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/CommentsUnavailable"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/me/extensions/{extensionId}/comments/replies:
+    parameters:
+      - $ref: "#/components/parameters/ExtensionId"
+    get:
+      tags: [Extensions]
+      operationId: listRemoteCommentReplies
+      summary: Read a page of replies to a comment
+      description: >-
+        Replies to one comment, oldest first, one level deep. A reply to a
+        reply names who it answers in `replyTo`.
+      parameters:
+        - $ref: "#/components/parameters/CommentChapterId"
+        - name: commentId
+          in: query
+          required: true
+          description: The comment's `id`.
+          schema:
+            type: string
+            maxLength: 1024
+        - $ref: "#/components/parameters/CommentCursor"
+      responses:
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "200":
+          description: A page of replies. Kept for ten minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/CommentsUnavailable"
+        "502":
+          $ref: "#/components/responses/SourceFailed"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/settings:
     get:
       tags: [Extensions]
@@ -3313,6 +3429,21 @@ components:
       description: The extension's reverse-DNS id.
       schema:
         type: string
+    CommentChapterId:
+      name: chapterId
+      in: query
+      required: true
+      description: The source's own chapter id.
+      schema:
+        type: string
+        maxLength: 1024
+    CommentCursor:
+      name: cursor
+      in: query
+      description: The `next` of the previous page; left out for the first.
+      schema:
+        type: string
+        maxLength: 1024
     RemoteSeriesId:
       name: seriesId
       in: query
@@ -3444,6 +3575,16 @@ components:
       description: >-
         The extension reported an error, went over a limit, or the image
         couldn't be fetched.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CommentsUnavailable:
+      description: >-
+        Not installed, or comments aren't available for it
+        (`comments_unavailable`): the admin hasn't turned on
+        `extensionComments`, it came from a user's own repository, it gives
+        no comments, or, for a page of comments, it gives only a count.
       content:
         application/json:
           schema:
@@ -3738,6 +3879,8 @@ components:
             type: string
         formats:
           $ref: "#/components/schemas/ContentFormats"
+        comments:
+          $ref: "#/components/schemas/CommentOrders"
     ContentFormat:
       type: string
       enum: [images, epub, pdf]
@@ -3994,14 +4137,148 @@ components:
         update:
           type: [string, "null"]
           description: The version the repository lists, when it differs from the installed one.
+        comments:
+          $ref: "#/components/schemas/CommentOrders"
     Settings:
       type: object
       additionalProperties: false
-      required: [allowAnyRepository]
+      description: >-
+        Every setting when read. A change may send only the settings it
+        changes; the rest keep their value.
+      required: [allowAnyRepository, extensionComments]
       properties:
         allowAnyRepository:
           type: boolean
           description: Whether users other than admins may add repositories that aren't on the allow list.
+        extensionComments:
+          type: boolean
+          description: >-
+            Whether extensions from server-wide repositories that give
+            readers' comments may show them. Off by default. Extensions from
+            a user's own repository never do.
+    CommentOrders:
+      type: array
+      description: >-
+        The orders the source lists readers' comments in, the site's default
+        first. Empty when it gives only a count. Absent when it gives no
+        comments, or the admin hasn't turned on `extensionComments` for its
+        repository, so clients show comments only where this is present.
+      items:
+        $ref: "#/components/schemas/CommentOrder"
+    CommentOrder:
+      type: string
+      enum: [top, newest, oldest]
+      description: "`top` is the site's own ranking, such as most liked first."
+    CommentSummary:
+      type: object
+      required: [count, url]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        url:
+          type: [string, "null"]
+          format: uri
+          description: The thread on the source's site, always HTTPS.
+    CommentPage:
+      type: object
+      required: [items, next, total]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Comment"
+        next:
+          type: [string, "null"]
+          description: Pass as `cursor` for the next page. Null on the last.
+        total:
+          type: [integer, "null"]
+          minimum: 0
+          description: How many comments the thread has, when the site says.
+    Comment:
+      type: object
+      description: >-
+        A comment as the source's site shows it. Its text is runs of styled
+        plain text, never HTML, so clients render it without parsing markup.
+      required: [id, author, published, edited, body, images, spoiler, score, replyTo, replyCount, url]
+      properties:
+        id:
+          type: string
+        author:
+          $ref: "#/components/schemas/CommentAuthor"
+        published:
+          type: [string, "null"]
+          description: When it was posted, as RFC 3339, when the site says.
+        edited:
+          type: boolean
+        body:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CommentRun"
+        images:
+          type: array
+          maxItems: 4
+          description: Links to getRemoteImage for pictures attached to the comment.
+          items:
+            type: string
+        spoiler:
+          type: boolean
+          description: The whole comment is a spoiler; hide it until the reader asks.
+        score:
+          type: [integer, "null"]
+          description: Likes minus dislikes, or likes alone, as the site counts them.
+        replyTo:
+          type: [string, "null"]
+          description: For a reply to a reply, the name of the author it answers.
+        replyCount:
+          type: integer
+          minimum: 0
+          description: How many replies it has; listRemoteCommentReplies reads them. Zero for a reply.
+        url:
+          type: [string, "null"]
+          format: uri
+          description: The comment on the source's site, always HTTPS, where readers report it.
+    CommentAuthor:
+      type: object
+      required: [name, avatarUrl, badge]
+      properties:
+        name:
+          type: string
+        avatarUrl:
+          type: [string, "null"]
+          description: A link to getRemoteImage.
+        badge:
+          type: [string, "null"]
+          description: A role the site shows beside the name, such as `Uploader`.
+    CommentRun:
+      type: object
+      description: >-
+        A stretch of text in one style. Line breaks are `\n`. Styles that are
+        off are left out. A comment's text is at most 10,000 characters.
+      required: [text]
+      properties:
+        text:
+          type: string
+        bold:
+          type: boolean
+        italic:
+          type: boolean
+        strike:
+          type: boolean
+        code:
+          type: boolean
+        spoiler:
+          type: boolean
+          description: Hide this run until the reader asks.
+        quote:
+          type: boolean
+          description: Quoted from another comment.
+        link:
+          type: string
+          format: uri
+          description: Always HTTPS.
     Library:
       type: object
       required: [id, name, kind, path, scan, createdAt]

@@ -61,6 +61,33 @@ async fn readers_add_repositories_only_when_the_admin_allows() {
     )
     .await;
     assert_eq!(settings["allowAnyRepository"], true);
+    // Comments stay off until an admin turns them on, and a change that
+    // names one setting keeps the others.
+    assert_eq!(settings["extensionComments"], false);
+    let settings = body(
+        server
+            .put("/api/v1/settings")
+            .bearer_auth(&admin)
+            .json(&json!({ "extensionComments": true }))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(settings["extensionComments"], true);
+    assert_eq!(settings["allowAnyRepository"], true);
+    assert_error(
+        server
+            .put("/api/v1/settings")
+            .bearer_auth(&reader)
+            .json(&json!({ "extensionComments": false }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "forbidden",
+    )
+    .await;
 
     // Refused before anything is fetched: a password in the address would
     // be shown to everyone, and an empty header list can't sign in.

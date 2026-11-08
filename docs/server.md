@@ -435,6 +435,14 @@ their own repositories, and `chek ext build` builds them into a repository folde
   name. It may add the license, attribution and source page of an openly
   licensed publication; links in them must be HTTPS. The host refuses
   content in a format the source didn't list.
+- Sources whose site shows readers' comments may export `chapter-comments`
+  too, read-only. Its `orders` lists how comments can be sorted, read
+  without network like `formats`, and is empty for a source that gives only
+  a count and a link. `summary`, `list` and `replies` return a count, pages
+  of top-level comments and pages of replies, one level deep. Comment text
+  is runs of styled plain text, never HTML, so no client parses a site's
+  markup. The host trims comments past its limits and drops links that
+  aren't HTTPS. Comment calls queue behind the reader's page calls.
 - The host downloads a file itself, held to the manifest's sites like an
   image, up to 128 MiB within five minutes, and checks it starts as the
   format does (`PK` for EPUB's ZIP, `%PDF-` for PDF) before sending it with
@@ -654,6 +662,15 @@ their own repositories, and `chek ext build` builds them into a repository folde
   on in the Chek web app at app.chek.page, after the person confirms they're
   an adult, as App Review Guideline 1.2 asks of NSFW content from a web
   service. See [The web app](#the-web-app).
+- An admin turns readers' comments on with `extensionComments` in
+  `/api/v1/settings`, off by default. Even then, only extensions from
+  server-wide repositories give them, so a user's own repository can't add
+  them, and the public catalog doesn't ship any. The extension list shows
+  `comments`, the orders a source gives, only where they're available, and
+  `/api/v1/me/extensions/{id}/comments`, its `summary` and its `replies`
+  answer `comments_unavailable` elsewhere. Answers are kept in memory for
+  ten minutes, thirty for a count, per user and component build, and never
+  stored. Avatars and pictures are links to the image route.
 - Browsing stores nothing; following a series into an extension library
   does.
 - Reader page-list calls take priority over queued catalog work. A source

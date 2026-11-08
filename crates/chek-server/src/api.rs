@@ -52,6 +52,9 @@ pub struct AppState {
     /// Complete chapter lists read from sources lately; see
     /// [`crate::browse::ChapterLists`].
     pub chapter_lists: Arc<crate::browse::ChapterLists>,
+    /// Comment answers read from sources lately; see
+    /// [`crate::comments::CommentPages`].
+    pub comment_pages: Arc<crate::comments::CommentPages>,
     /// Origins of the Chek web app, which may call the API from a browser.
     pub web_origins: Arc<Vec<String>>,
     /// One-time codes that sign the web app in; see [`crate::web`].
@@ -253,6 +256,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/me/extensions/{id}/content", get(browse::content))
         .route("/api/v1/me/extensions/{id}/file", get(browse::file))
         .route("/api/v1/me/extensions/{id}/image", get(browse::image))
+        .route(
+            "/api/v1/me/extensions/{id}/comments",
+            get(crate::comments::list),
+        )
+        .route(
+            "/api/v1/me/extensions/{id}/comments/summary",
+            get(crate::comments::summary),
+        )
+        .route(
+            "/api/v1/me/extensions/{id}/comments/replies",
+            get(crate::comments::replies),
+        )
         .route(
             "/api/v1/settings",
             get(extensions::get_settings).put(extensions::update_settings),

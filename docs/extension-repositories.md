@@ -46,6 +46,12 @@ is its JSON Schema.
 - `formats` lists what the extension's chapters come in: `images`, `epub`
   or `pdf`. Leave it out for a source of images, as indexes from before
   formats existed do; `chek ext index` writes it from the component.
+- `comments` lists the orders the extension's readers' comments come in:
+  `top`, `newest` or `oldest`, the site's default first, or `[]` when it
+  gives only a count. Leave it out for an extension without comments.
+  `chek ext index` writes it from the component, and Chek refuses a
+  component that gives different orders. Comments show only when the admin
+  turns on `extensionComments`, and never for a user's own repository.
 - Ids are reverse-DNS names. Ids, names and versions are at most 200 bytes. An index
   is at most 1 MiB and lists at most 1,000 extensions, and a component is at
   most 32 MiB.
