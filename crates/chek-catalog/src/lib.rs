@@ -53,6 +53,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0019_release_groups.sql"),
     include_str!("../migrations/0020_content_ratings.sql"),
     include_str!("../migrations/0021_extension_formats.sql"),
+    include_str!("../migrations/0022_extension_comments.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

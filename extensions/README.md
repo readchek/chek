@@ -99,6 +99,40 @@ within five minutes, and refuses one that doesn't start as its format does,
 such as a sign-in page served with a 200. Respect each site's terms for
 automated downloads, and prefer the catalogs and mirrors it offers for them.
 
+## Readers' comments
+
+A source whose site shows readers' comments under a chapter can pass them
+on, read-only, by implementing `chek_extension::ChapterComments` and
+invoking `chek_extension::export_chapter_comments!(YourSource)` beside
+`export_source!`. Chek shows them only when the server's admin turns on
+`extensionComments`, and only for extensions from server-wide repositories,
+so keep comment sources in your own repository rather than a public one.
+
+- `orders` lists how `list` can sort them, the site's default first:
+  `CommentOrder::Top`, `Newest` or `Oldest`. It's read without network, and
+  `chek ext index` copies it into the index. Return an empty list when the
+  site gives only a count, and only `summary` is called.
+- `summary(chapter_id)` returns the count and an HTTPS link to the thread,
+  or `None` when the chapter has none.
+- `list(chapter_id, order, cursor)` returns a `CommentPage` of top-level
+  comments, at most 50, with an opaque `next` cursor of at most 1 KiB.
+  `replies(chapter_id, comment_id, cursor)` returns replies oldest first.
+  Replies are one level deep: flatten deeper ones into the same list and
+  name who each answers in `reply_to`.
+- A comment's `body` is a list of `Run`s, plain text with `RunStyle` flags
+  and an optional HTTPS link. `chek_extension::runs_from_html` turns the
+  site's comment HTML into runs, keeping bold, italic, struck and code text,
+  links, line breaks, quotes and spoilers, and dropping scripts and images.
+  Put attached pictures in `images` and avatars in `author.avatar`; Chek
+  fetches them from the manifest's sites like pages.
+- Set `spoiler` for a comment the site marks as a spoiler, and `url` to the
+  comment's page, where readers report it.
+
+Chek trims what goes past its limits rather than failing the page: 10,000
+characters and 500 runs per comment, and four images. Links that aren't
+HTTPS are dropped. Nothing in the contract posts or votes, and comments are
+never stored.
+
 ## Interactive pages
 
 Declare `Capability::BrowserSession` to use `browser_session`. The admin must

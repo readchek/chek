@@ -6,6 +6,7 @@ mod api;
 mod app;
 mod auth;
 mod browse;
+mod comments;
 mod config;
 mod content_ratings;
 mod edits;
@@ -105,6 +106,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )),
         demo_users: Arc::new(config.demo_users),
         chapter_lists: Arc::default(),
+        comment_pages: Arc::default(),
         web_origins: Arc::new(config.web_origins),
         web_links: Arc::default(),
         web_dir: config.web_dir,

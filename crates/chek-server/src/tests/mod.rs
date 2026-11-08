@@ -113,6 +113,7 @@ impl Server {
             oidc: Arc::new(oidc::Oidc::new(None, Vec::new(), Vec::new())),
             demo_users: Arc::new(demo_users),
             chapter_lists: Arc::default(),
+            comment_pages: Arc::default(),
             web_origins: Arc::new(vec![WEB_ORIGIN.to_owned()]),
             web_links: Arc::default(),
             web_dir,

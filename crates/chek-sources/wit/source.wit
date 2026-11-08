@@ -434,3 +434,103 @@ interface chapter-content {
 world chapter-contents {
     export chapter-content;
 }
+
+// Optional export alongside `source`, for sources whose site shows readers'
+// comments under a chapter. Read-only: nothing here posts, votes or signs in
+// as the reader. Older components need not implement it, and the server
+// calls it only when its admin turns comments on.
+interface chapter-comments {
+    use types.{image, error};
+
+    enum comment-order {
+        // The site's own ranking, such as most liked first.
+        top,
+        newest,
+        oldest,
+    }
+
+    flags run-style {
+        bold,
+        italic,
+        strike,
+        code,
+        // Hidden until the reader asks to see it.
+        spoiler,
+        // Quoted from another comment.
+        quote,
+    }
+
+    // A stretch of text in one style. Line breaks are `\n` in `text`.
+    // Extensions turn the site's HTML or markup into runs, so readers never
+    // parse a site's markup themselves.
+    record run {
+        text: string,
+        style: run-style,
+        // An HTTPS link the run points to. Others are dropped.
+        link: option<string>,
+    }
+
+    record author {
+        name: string,
+        // Fetched by the server and held to the manifest's sites.
+        avatar: option<image>,
+        // A role the site shows beside the name, such as `Uploader`.
+        badge: option<string>,
+    }
+
+    record comment {
+        // The site's own id, the same on every call.
+        id: string,
+        author: author,
+        // When it was posted, as an RFC 3339 date-time, when the site says.
+        published: option<string>,
+        edited: bool,
+        body: list<run>,
+        // Pictures attached to the comment, at most four.
+        images: list<image>,
+        // The whole comment is a spoiler.
+        spoiler: bool,
+        // Likes minus dislikes, or likes alone, as the site counts them.
+        score: option<s32>,
+        // For a reply to a reply, the name of the author it answers, since
+        // replies are shown one level deep.
+        reply-to: option<string>,
+        // How many replies it has; zero for a reply.
+        reply-count: u32,
+        // An HTTPS link to the comment on the site, where readers report it.
+        url: option<string>,
+    }
+
+    record comment-page {
+        // At most 50.
+        items: list<comment>,
+        // Opaque continuation for the same thread, at most 1 KiB. None means
+        // there are no more.
+        next: option<string>,
+        // How many comments the thread has, when the site says.
+        total: option<u32>,
+    }
+
+    record comment-summary {
+        count: u32,
+        // An HTTPS link to the thread on the site.
+        url: option<string>,
+    }
+
+    // The orders `list` accepts, the site's default first. Called without
+    // network access, like `manifest`; the repository's index must list the
+    // same. Empty means the source answers only `summary`.
+    orders: func() -> list<comment-order>;
+    // How many comments the chapter has and where. None when it has no
+    // thread.
+    summary: func(chapter-id: string) -> result<option<comment-summary>, error>;
+    // The chapter's top-level comments, a page at a time.
+    %list: func(chapter-id: string, order: comment-order, cursor: option<string>) -> result<comment-page, error>;
+    // Replies to one comment, oldest first, with deeper replies flattened
+    // into the same list and named by `reply-to`.
+    replies: func(chapter-id: string, comment-id: string, cursor: option<string>) -> result<comment-page, error>;
+}
+
+world chapter-discussion {
+    export chapter-comments;
+}
