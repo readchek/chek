@@ -49,9 +49,9 @@ const IMAGE_MAX_AGE: &str = "private, max-age=86400";
 const FILE_MAX_AGE: &str = "private, max-age=86400";
 
 /// A JSON answer with the `Cache-Control` it may be kept for.
-type Cached<T> = ([(header::HeaderName, HeaderValue); 1], Json<T>);
+pub(crate) type Cached<T> = ([(header::HeaderName, HeaderValue); 1], Json<T>);
 
-fn cached<T>(max_age: &'static str, body: T) -> Cached<T> {
+pub(crate) fn cached<T>(max_age: &'static str, body: T) -> Cached<T> {
     (
         [(header::CACHE_CONTROL, HeaderValue::from_static(max_age))],
         Json(body),
@@ -873,6 +873,7 @@ pub(crate) fn source_error(error: chek_sources::Error) -> ApiError {
         | Error::Image(_)
         | Error::Pagination(_)
         | Error::Content(_)
+        | Error::Comments(_)
         | Error::Asset(_) => {
             tracing::warn!(error = %error, "source request failed");
             ApiError {

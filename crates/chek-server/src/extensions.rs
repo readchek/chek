@@ -71,6 +71,10 @@ pub struct ExtensionDto {
     capabilities: Vec<String>,
     /// What its chapters come in, `images`, `epub` or `pdf`.
     formats: Vec<String>,
+    /// The orders its readers' comments come in, when it gives comments and
+    /// the admin turned them on for its repository.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comments: Option<Vec<String>>,
     /// The version the user installed from this repository, if any.
     installed_version: Option<String>,
 }
@@ -80,10 +84,19 @@ pub struct ExtensionList {
     items: Vec<ExtensionDto>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
     allow_any_repository: bool,
+    extension_comments: bool,
+}
+
+/// Settings to change; the ones left out keep their value.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsChanges {
+    allow_any_repository: Option<bool>,
+    extension_comments: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -305,11 +318,12 @@ pub async fn list_extensions(
     current: CurrentUser,
 ) -> Result<Json<ExtensionList>, ApiError> {
     let user_id = current.user.id;
-    let (repositories, allow_any, installs) = blocking(&state, move |c| {
+    let (repositories, allow_any, installs, comments_on) = blocking(&state, move |c| {
         Ok((
             c.extension_repositories(user_id)?,
             c.allow_any_repository()?,
             c.extension_installs(user_id)?,
+            c.extension_comments()?,
         ))
     })
     .await?;
@@ -317,10 +331,11 @@ pub async fn list_extensions(
     let items = repositories
         .iter()
         .filter(|r| r.owner_id.is_none() || allow_any)
-        .filter_map(|r| Some((r.id, parsed_index(r)?)))
-        .flat_map(|(repository_id, index)| {
+        .filter_map(|r| Some((r.id, r.owner_id.is_none(), parsed_index(r)?)))
+        .flat_map(|(repository_id, server_wide, index)| {
             index.extensions.into_iter().map(move |e| ExtensionDto {
                 repository_id,
+                comments: e.comments.filter(|_| comments_on && server_wide),
                 installed_version: installs
                     .iter()
                     .find(|i| i.extension_id == e.id && i.repository_id == repository_id)
@@ -348,22 +363,37 @@ pub async fn get_settings(
     State(state): State<AppState>,
     _current: CurrentUser,
 ) -> Result<Json<SettingsDto>, ApiError> {
-    let allow_any_repository = blocking(&state, |c| c.allow_any_repository()).await?;
-    Ok(Json(SettingsDto {
-        allow_any_repository,
-    }))
+    Ok(Json(settings(&state).await?))
+}
+
+async fn settings(state: &AppState) -> Result<SettingsDto, ApiError> {
+    blocking(state, |c| {
+        Ok(SettingsDto {
+            allow_any_repository: c.allow_any_repository()?,
+            extension_comments: c.extension_comments()?,
+        })
+    })
+    .await
 }
 
 pub async fn update_settings(
     State(state): State<AppState>,
     current: CurrentUser,
-    body: Result<Json<SettingsDto>, JsonRejection>,
+    body: Result<Json<SettingsChanges>, JsonRejection>,
 ) -> Result<Json<SettingsDto>, ApiError> {
     current.require_admin()?;
     let Json(body) = body.map_err(|e| ApiError::bad_request(e.body_text()))?;
-    let allow = body.allow_any_repository;
-    blocking(&state, move |c| c.set_allow_any_repository(allow)).await?;
-    Ok(Json(body))
+    blocking(&state, move |c| {
+        if let Some(allow) = body.allow_any_repository {
+            c.set_allow_any_repository(allow)?;
+        }
+        if let Some(on) = body.extension_comments {
+            c.set_extension_comments(on)?;
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(Json(settings(&state).await?))
 }
 
 /// A repository on the allow list or one the user added; others answer as

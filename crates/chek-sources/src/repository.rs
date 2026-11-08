@@ -68,6 +68,11 @@ pub struct IndexEntry {
     /// Empty means images.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub formats: Vec<String>,
+    /// The orders the extension lists readers' comments in, `top`, `newest`
+    /// or `oldest`, the site's default first. Empty means it gives only a
+    /// count; absent means it gives no comments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comments: Option<Vec<String>>,
 }
 
 /// How to sign in to a private repository.

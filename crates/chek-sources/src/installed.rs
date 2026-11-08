@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::repository::{IndexEntry, sha256_hex};
-use crate::{Capability, Error, Host, Options, Source, format_name};
+use crate::{Capability, Error, Host, Options, Source, format_name, order_name};
 
 pub struct Extensions {
     host: Host,
@@ -77,6 +77,20 @@ impl Extensions {
         if formats != listed_formats {
             return Err(Error::Mismatch(format!(
                 "the index lists the formats {listed_formats:?}, but the component reads {formats:?}"
+            )));
+        }
+        // Comments are shown only where the index says, so it must say
+        // what the component answers, in the same order.
+        let comments: Option<Vec<&str>> = source
+            .comment_orders()
+            .map(|orders| orders.iter().map(|o| order_name(*o)).collect());
+        let listed_comments: Option<Vec<&str>> = entry
+            .comments
+            .as_ref()
+            .map(|orders| orders.iter().map(String::as_str).collect());
+        if comments != listed_comments {
+            return Err(Error::Mismatch(format!(
+                "the index lists the comment orders {listed_comments:?}, but the component gives {comments:?}"
             )));
         }
         if manifest.id != entry.id || manifest.version != entry.version || declared != listed {

@@ -33,6 +33,10 @@ pub struct Entry {
     /// before formats existed are.
     #[serde(skip_serializing_if = "is_images")]
     pub formats: Vec<String>,
+    /// The orders readers' comments come in, left out for sources that
+    /// give none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comments: Option<Vec<String>>,
 }
 
 /// Writes `index.json` in `dir` for every `.wasm` file there.
@@ -167,6 +171,28 @@ impl ManifestReader {
                 return Err("it lists no formats".to_owned());
             }
         }
+        // Comment orders come from the optional chapter comments export,
+        // in the extension's order, since the first is the site's default.
+        let orders = instance
+            .get_export_index(&mut store, None, "chek:source/chapter-comments@0.6.0")
+            .and_then(|interface| instance.get_export_index(&mut store, Some(&interface), "orders"))
+            .and_then(|index| instance.get_func(&mut store, index));
+        if let Some(orders) = orders {
+            let mut results = [Val::Bool(false)];
+            orders
+                .call(&mut store, &[], &mut results)
+                .map_err(|e| format!("its comment orders failed: {e}"))?;
+            let [Val::List(items)] = results else {
+                return Err("its comment orders aren't a list".to_owned());
+            };
+            let mut kept: Vec<String> = Vec::new();
+            for order in strings(items)? {
+                if !kept.contains(&order) {
+                    kept.push(order);
+                }
+            }
+            entry.comments = Some(kept);
+        }
         Ok(entry)
     }
 }
@@ -183,6 +209,7 @@ impl Entry {
             languages: Vec::new(),
             capabilities: Vec::new(),
             formats: vec!["images".to_owned()],
+            comments: None,
         };
         for (name, value) in fields {
             match (name.as_str(), value) {
@@ -238,6 +265,7 @@ mod tests {
                 languages: vec!["en".to_owned()],
                 capabilities: vec!["browser".to_owned()],
                 formats: vec!["epub".to_owned()],
+                comments: Some(vec!["top".to_owned(), "newest".to_owned()]),
             }],
         };
         let json = serde_json::to_vec(&index).unwrap();
@@ -245,6 +273,10 @@ mod tests {
         assert_eq!(read.spec, Some(chek_sources::repository::SPEC_VERSION));
         assert_eq!(read.extensions[0].capabilities, ["browser"]);
         assert_eq!(read.extensions[0].formats, ["epub"]);
+        assert_eq!(
+            read.extensions[0].comments.as_deref(),
+            Some(&["top".to_owned(), "newest".to_owned()][..])
+        );
     }
 
     #[test]

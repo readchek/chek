@@ -38,11 +38,14 @@ pub struct ExtensionInstall {
     pub languages: String,
     /// JSON array of the formats its chapters come in, such as `images`.
     pub formats: String,
+    /// JSON array of the orders it lists comments in, or `None` when it
+    /// gives no comments.
+    pub comments: Option<String>,
     pub installed_at: String,
 }
 
 const SELECT_INSTALL: &str = "SELECT user_id, extension_id, repository_id, name, version, sha256,
-            sites, languages, installed_at, formats
+            sites, languages, installed_at, formats, comments
      FROM extension_install";
 
 const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fetch_error, created_at,
@@ -50,6 +53,7 @@ const SELECT: &str = r#"SELECT id, url, owner_id, name, "index", fetched_at, fet
      FROM extension_repository"#;
 
 const ALLOW_ANY_REPOSITORY: &str = "allow_any_repository";
+const EXTENSION_COMMENTS: &str = "extension_comments";
 
 impl Catalog {
     /// Repositories on the allow list, then the ones `user_id` added, each
@@ -178,6 +182,29 @@ impl Catalog {
         Ok(value.as_deref() == Some("true"))
     }
 
+    /// Whether extensions from server-wide repositories may show readers'
+    /// comments. Off until an admin turns it on.
+    pub fn extension_comments(&self) -> Result<bool> {
+        let value: Option<String> = self
+            .conn()
+            .query_row(
+                "SELECT value FROM server_setting WHERE key = ?1",
+                [EXTENSION_COMMENTS],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    pub fn set_extension_comments(&self, on: bool) -> Result<()> {
+        self.conn().execute(
+            "INSERT INTO server_setting (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![EXTENSION_COMMENTS, if on { "true" } else { "false" }],
+        )?;
+        Ok(())
+    }
+
     pub fn set_allow_any_repository(&self, allow: bool) -> Result<()> {
         self.conn().execute(
             "INSERT INTO server_setting (key, value) VALUES (?1, ?2)
@@ -230,13 +257,14 @@ impl Catalog {
         tx.execute(
             "INSERT INTO extension_install
                  (user_id, extension_id, repository_id, name, version, sha256, sites, languages,
-                  formats, installed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                  formats, comments, installed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                     strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
              ON CONFLICT (user_id, extension_id) DO UPDATE SET
                  repository_id = excluded.repository_id, name = excluded.name,
                  version = excluded.version, sha256 = excluded.sha256, sites = excluded.sites,
                  languages = excluded.languages, formats = excluded.formats,
-                 installed_at = excluded.installed_at",
+                 comments = excluded.comments, installed_at = excluded.installed_at",
             params![
                 install.user_id,
                 install.extension_id,
@@ -246,7 +274,8 @@ impl Catalog {
                 install.sha256,
                 install.sites,
                 install.languages,
-                install.formats
+                install.formats,
+                install.comments
             ],
         )?;
         let unused = match previous {
@@ -402,6 +431,7 @@ fn install_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionInstal
         languages: row.get(7)?,
         installed_at: row.get(8)?,
         formats: row.get(9)?,
+        comments: row.get(10)?,
     })
 }
 

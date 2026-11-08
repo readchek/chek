@@ -95,6 +95,29 @@ pub use content_bindings::export_chapter_content;
 pub use content_bindings::exports::chek::source::chapter_content::{
     Asset, Content, ContentFormat, Guest as ChapterContent, Reading, Rights,
 };
+/// For sites that show readers' comments under a chapter: implement
+/// [`ChapterComments`] and export it with [`export_chapter_comments!`]
+/// beside [`export_source!`]. `orders` says how the site sorts them, or is
+/// empty when only `summary` answers. [`runs_from_html`] turns a comment's
+/// HTML into the runs the contract carries.
+#[doc(hidden)]
+pub mod comments_bindings {
+    wit_bindgen::generate!({
+        path: "../../crates/chek-sources/wit",
+        world: "chapter-discussion",
+        with: { "chek:source/types@0.6.0": crate::bindings::chek::source::types },
+        pub_export_macro: true,
+        export_macro_name: "export_chapter_comments",
+        default_bindings_module: "chek_extension::comments_bindings",
+    });
+}
+pub use comments_bindings::export_chapter_comments;
+pub use comments_bindings::exports::chek::source::chapter_comments::{
+    Author, Comment, CommentOrder, CommentPage, CommentSummary, Guest as ChapterComments, Run,
+    RunStyle,
+};
+mod runs;
+pub use runs::{plain, runs_from_html};
 pub use serde_json::{self, Value};
 
 use bindings::chek::source::http::{HttpError, Method, Request, Response};
