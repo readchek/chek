@@ -255,6 +255,7 @@ fn item_for(
         series_remote_id: series.id.to_string(),
         series_sort_title: chek_formats::natural_key(&series_sort),
         series_title,
+        series_reading_direction: None,
         sort_title: chek_formats::natural_key(&title),
         title,
         format,

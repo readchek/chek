@@ -200,7 +200,8 @@ pub struct PublicationDetails {
     pub language: Option<String>,
     /// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`.
     pub published: Option<String>,
-    /// `ltr` or `rtl`.
+    /// `ltr` or `rtl` as recorded. Read back, it is `ttb` when the
+    /// publication has none of its own and its series is a vertical strip.
     pub reading_direction: Option<String>,
     pub contributors: Vec<ContributorRecord>,
 }
@@ -627,8 +628,12 @@ impl Catalog {
         let conn = self.conn();
         let details = conn
             .query_row(
-                "SELECT summary, publisher, language, published, reading_direction
-                 FROM publication WHERE id = ?1",
+                // A publication's own direction is only ltr or rtl. A strip
+                // is known by its series, so its chapters read as one too.
+                "SELECT p.summary, p.publisher, p.language, p.published,
+                        COALESCE(p.reading_direction,
+                                 CASE WHEN s.reading_direction = 'ttb' THEN 'ttb' END)
+                 FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?1",
                 [id],
                 |row| {
                     Ok(PublicationDetails {
