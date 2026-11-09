@@ -426,6 +426,13 @@ their own repositories, and `chek ext build` builds them into a repository folde
   a record or call bumps it, and every source is rebuilt and republished.
   New abilities that older sources can do without come as optional exports
   alongside `source` instead, so existing components keep working.
+- `CONTRACTS` in `chek-sources` maps each contract version to the first
+  release that runs it, and `chek ext index` writes that release as each
+  build's `minServer`. A server skips builds whose `minServer` is newer
+  than itself and takes the newest one it runs from the entry and its
+  `previous` builds, so a breaking contract change doesn't strand servers
+  that haven't updated yet. Bumping the contract means adding a row there
+  and in chek-cli's copy, naming the release the change ships in.
 - Sources of books and other files export `chapter-content` too. Its
   `formats` lists what the source's chapters come in, `images`, `epub` or
   `pdf`, and is read without network when the component loads, like the
@@ -617,9 +624,12 @@ their own repositories, and `chek ext build` builds them into a repository folde
   them. Each component is compiled once and shared by every user of it, and
   the machine code is kept in `extensions/compiled` so a restart loads it
   without compiling again.
-- Installing again updates to the version the index lists now; the API
-  reports when the index lists a different version. Removing a repository
-  removes every install from it.
+- Installing again updates to the newest version the index lists that
+  this server runs; the API reports when that differs from the installed
+  one, and lists a newer version that needs a newer server as
+  `blockedUpdate`. Installing an extension none of whose builds runs here
+  fails with `extension_needs_newer_server`, naming the release to update
+  to. Removing a repository removes every install from it.
 
 ## Browsing sources
 

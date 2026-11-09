@@ -12,7 +12,12 @@ const TARGET: &str = "wasm32-wasip2";
 struct Metadata {
     packages: Vec<Package>,
     target_directory: PathBuf,
+    workspace_root: PathBuf,
 }
+
+/// The folder, at the workspace root, of older components to keep
+/// publishing for servers too old for the new builds.
+const PREVIOUS: &str = "previous";
 
 #[derive(Deserialize)]
 struct Package {
@@ -28,7 +33,8 @@ struct Target {
 }
 
 /// Builds the sources and leaves one `<crate>-<version>.wasm` per source in
-/// `out`, replacing what an earlier build left there.
+/// `out`, replacing what an earlier build left there, along with every
+/// component in the workspace's `previous` folder.
 pub fn build(out: &Path) -> Result<(), String> {
     let status = Command::new("cargo")
         .args(["build", "--release", "--target", TARGET])
@@ -82,6 +88,30 @@ pub fn build(out: &Path) -> Result<(), String> {
         return Err(
             "no crate here builds a cdylib; sources need `crate-type = [\"cdylib\"]`".to_owned(),
         );
+    }
+
+    // Builds kept from before a contract change, so servers that can't run
+    // the new ones still get one they can. The index lists them as
+    // `previous`.
+    let previous = metadata.workspace_root.join(PREVIOUS);
+    if previous.is_dir() {
+        for entry in std::fs::read_dir(&previous)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "wasm") {
+                let published = out.join(entry.file_name());
+                if published.exists() {
+                    return Err(format!(
+                        "{} has the same name as a new build; remove it from {PREVIOUS}/",
+                        path.display()
+                    ));
+                }
+                std::fs::copy(&path, &published)
+                    .map_err(|e| format!("couldn't copy {}: {e}", path.display()))?;
+            }
+        }
     }
     Ok(())
 }

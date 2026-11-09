@@ -77,6 +77,13 @@ pub struct ExtensionDto {
     comments: Option<Vec<String>>,
     /// The version the user installed from this repository, if any.
     installed_version: Option<String>,
+    /// The oldest Chek release that runs this build, when the repository
+    /// says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_server: Option<String>,
+    /// False when every build the repository lists needs a newer server.
+    /// `minServer` is then the oldest release that runs one of them.
+    supported: bool,
 }
 
 #[derive(Serialize)]
@@ -333,26 +340,43 @@ pub async fn list_extensions(
         .filter(|r| r.owner_id.is_none() || allow_any)
         .filter_map(|r| Some((r.id, r.owner_id.is_none(), parsed_index(r)?)))
         .flat_map(|(repository_id, server_wide, index)| {
-            index.extensions.into_iter().map(move |e| ExtensionDto {
-                repository_id,
-                comments: e.comments.filter(|_| comments_on && server_wide),
-                installed_version: installs
-                    .iter()
-                    .find(|i| i.extension_id == e.id && i.repository_id == repository_id)
-                    .map(|i| i.version.clone()),
-                id: e.id,
-                name: e.name,
-                version: e.version,
-                sites: e.sites,
-                languages: e.languages,
-                capabilities: e.capabilities,
-                // An index that lists no formats predates them, when every
-                // source read images.
-                formats: if e.formats.is_empty() {
-                    vec!["images".to_owned()]
-                } else {
-                    e.formats
-                },
+            index.extensions.into_iter().map(move |listed| {
+                // Shown as the newest build this server runs, or, when it
+                // runs none, as the newest build with what it would take.
+                let (e, supported, min_server) = match listed.build_for_server() {
+                    Some(build) => {
+                        let build = build.clone();
+                        let min_server = build.min_server.clone();
+                        (build, true, min_server)
+                    }
+                    None => {
+                        let min_server = listed.oldest_min_server().map(str::to_owned);
+                        (listed, false, min_server)
+                    }
+                };
+                ExtensionDto {
+                    min_server,
+                    supported,
+                    repository_id,
+                    comments: e.comments.filter(|_| comments_on && server_wide),
+                    installed_version: installs
+                        .iter()
+                        .find(|i| i.extension_id == e.id && i.repository_id == repository_id)
+                        .map(|i| i.version.clone()),
+                    id: e.id,
+                    name: e.name,
+                    version: e.version,
+                    sites: e.sites,
+                    languages: e.languages,
+                    capabilities: e.capabilities,
+                    // An index that lists no formats predates them, when every
+                    // source read images.
+                    formats: if e.formats.is_empty() {
+                        vec!["images".to_owned()]
+                    } else {
+                        e.formats
+                    },
+                }
             })
         })
         .collect();

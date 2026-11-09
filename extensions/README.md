@@ -200,6 +200,14 @@ inputs and outputs are capped at 8 MiB and WASM keeps its 64 MiB memory cap.
 
 ## Contract updates
 
+Every build in an index carries `minServer`, the first Chek release that
+runs its contract, so a server too old for a build skips it. When a contract
+change breaks older servers, copy the last build for the old contract into a
+`previous` folder at your workspace root before you rebuild, and commit it.
+`chek ext build` publishes it beside the new build, and servers that can't
+run the new one install it instead. See
+[Older servers](../docs/extension-repositories.md#older-servers).
+
 Chapter pagination is an optional export alongside the existing 0.6 source
 world. Implement `chek_extension::ChapterPagination` and invoke
 `chek_extension::export_chapter_pagination!(YourSource)` as well as
