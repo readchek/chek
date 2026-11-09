@@ -200,6 +200,9 @@ fn item_for(
             .and_then(chek_formats::leading_number)
     });
     let series_metadata = series.map(|s| s.metadata);
+    let series_reading_direction = series_metadata
+        .as_ref()
+        .and_then(|m| direction_of(&m.reading_direction));
     let details = PublicationDetails {
         summary: text(&metadata.summary, MAX_SUMMARY_CHARS),
         publisher: series_metadata
@@ -209,11 +212,10 @@ fn item_for(
             .as_ref()
             .and_then(|m| text(&m.language, MAX_FIELD_CHARS)),
         published: metadata.release_date.filter(|d| is_date(d)),
-        reading_direction: series_metadata.and_then(|m| match m.reading_direction.as_str() {
-            "LEFT_TO_RIGHT" => Some("ltr".to_owned()),
-            "RIGHT_TO_LEFT" => Some("rtl".to_owned()),
-            _ => None,
-        }),
+        // A publication says only ltr or rtl. A strip is kept on its series.
+        reading_direction: series_reading_direction
+            .filter(|d| *d != "ttb")
+            .map(str::to_owned),
         contributors: metadata
             .authors
             .iter()
@@ -233,6 +235,7 @@ fn item_for(
         series_remote_id: book.series_id,
         series_sort_title: chek_formats::natural_key(&series_sort),
         series_title,
+        series_reading_direction,
         sort_title: chek_formats::natural_key(&title),
         title,
         format,
@@ -248,12 +251,30 @@ fn item_for(
 /// Changes when the book, its file or its series' metadata changes in
 /// Komga, which is when Chek reads the book again.
 fn version_of(book: &Book, series: Option<&Series>) -> String {
-    format!(
+    let version = format!(
         "{}|{}|{}",
         book.last_modified,
         book.size_bytes,
         series.map_or("", |s| s.last_modified.as_str())
-    )
+    );
+    // Strips were once recorded without their direction. Marking them
+    // reads each one again, once, and leaves every other book alone.
+    match series.and_then(|s| direction_of(&s.metadata.reading_direction)) {
+        Some("ttb") => format!("{version}|ttb"),
+        _ => version,
+    }
+}
+
+/// Chek's reading direction for Komga's. Komga's `VERTICAL` turns pages
+/// downward and `WEBTOON` scrolls them as one strip; Chek reads both top
+/// to bottom.
+fn direction_of(komga: &str) -> Option<&'static str> {
+    match komga {
+        "LEFT_TO_RIGHT" => Some("ltr"),
+        "RIGHT_TO_LEFT" => Some("rtl"),
+        "VERTICAL" | "WEBTOON" => Some("ttb"),
+        _ => None,
+    }
 }
 
 /// The Chek format for a media type Komga detected.
@@ -304,4 +325,18 @@ fn is_date(s: &str) -> bool {
                 c.is_ascii_digit()
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_komgas_vertical_and_webtoon_series_top_to_bottom() {
+        assert_eq!(direction_of("LEFT_TO_RIGHT"), Some("ltr"));
+        assert_eq!(direction_of("RIGHT_TO_LEFT"), Some("rtl"));
+        assert_eq!(direction_of("WEBTOON"), Some("ttb"));
+        assert_eq!(direction_of("VERTICAL"), Some("ttb"));
+        assert_eq!(direction_of(""), None);
+    }
 }

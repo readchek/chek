@@ -4511,8 +4511,11 @@ components:
               example: "2014-06"
             readingDirection:
               type: [string, "null"]
-              enum: [ltr, rtl, null]
-              description: Set when the file says; right to left for manga marked so.
+              enum: [ltr, rtl, ttb, null]
+              description: >-
+                Set when the file says; right to left for manga marked so. `ttb`
+                is a vertical strip, read by scrolling down, and comes from its
+                series when the publication has no direction of its own.
     Contributor:
       type: object
       required: [name, role]

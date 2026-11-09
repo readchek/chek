@@ -22,6 +22,10 @@ pub struct RemoteItem {
     pub series_remote_id: String,
     pub series_title: String,
     pub series_sort_title: String,
+    /// How the source says its series reads: `ltr`, `rtl`, or `ttb` for a
+    /// vertical strip. A publication can't say `ttb` itself, so it reads
+    /// its series' when it has no direction of its own.
+    pub series_reading_direction: Option<&'static str>,
     pub title: String,
     pub sort_title: String,
     pub format: &'static str,
@@ -66,10 +70,18 @@ impl Catalog {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let series_id: i64 = tx.query_row(
-            "INSERT INTO series (library_id, title, sort_title, remote_id) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (library_id, remote_id) DO UPDATE SET title = excluded.title, sort_title = excluded.sort_title
+            "INSERT INTO series (library_id, title, sort_title, remote_id, reading_direction)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (library_id, remote_id) DO UPDATE SET title = excluded.title,
+                 sort_title = excluded.sort_title, reading_direction = excluded.reading_direction
              RETURNING id",
-            params![library_id, item.series_title, item.series_sort_title, item.series_remote_id],
+            params![
+                library_id,
+                item.series_title,
+                item.series_sort_title,
+                item.series_remote_id,
+                item.series_reading_direction
+            ],
             |row| row.get(0),
         )?;
         crate::edits::keep_series_edit(&tx, series_id)?;
@@ -209,5 +221,75 @@ impl Catalog {
                 |row| row.get(0),
             )
             .optional()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(remote_id: &str, series: Option<&'static str>, own: Option<&str>) -> RemoteItem {
+        RemoteItem {
+            remote_id: remote_id.to_owned(),
+            version: "1".to_owned(),
+            hash: remote_id.to_owned(),
+            series_remote_id: "s".to_owned(),
+            series_title: "Tower".to_owned(),
+            series_sort_title: "tower".to_owned(),
+            series_reading_direction: series,
+            title: remote_id.to_owned(),
+            sort_title: remote_id.to_owned(),
+            format: "cbz",
+            size: 1,
+            pages: Vec::new(),
+            cover: None,
+            number_label: None,
+            sort_number: None,
+            details: PublicationDetails {
+                reading_direction: own.map(str::to_owned),
+                ..PublicationDetails::default()
+            },
+        }
+    }
+
+    fn direction(catalog: &Catalog, library: i64, remote_id: &str) -> Option<String> {
+        let publication: i64 = catalog
+            .conn()
+            .query_row(
+                "SELECT publication_id FROM content WHERE library_id = ?1 AND remote_id = ?2",
+                params![library, remote_id],
+                |row| row.get(0),
+            )
+            .expect("the item's publication");
+        catalog
+            .publication_details(publication)
+            .expect("a query")
+            .expect("the publication")
+            .reading_direction
+    }
+
+    #[test]
+    fn a_strip_series_publications_read_top_to_bottom() {
+        let catalog = Catalog::open_in_memory().expect("a catalog");
+        let library = catalog
+            .add_source_library("Komga", "{}")
+            .expect("a library")
+            .id;
+
+        catalog
+            .record_remote(library, &item("a", Some("ttb"), None))
+            .expect("recorded");
+        assert_eq!(direction(&catalog, library, "a").as_deref(), Some("ttb"));
+
+        // The source changes its mind, and the series follows.
+        catalog
+            .record_remote(library, &item("a", Some("rtl"), Some("rtl")))
+            .expect("recorded");
+        assert_eq!(direction(&catalog, library, "a").as_deref(), Some("rtl"));
+
+        catalog
+            .record_remote(library, &item("a", None, None))
+            .expect("recorded");
+        assert_eq!(direction(&catalog, library, "a"), None);
     }
 }
