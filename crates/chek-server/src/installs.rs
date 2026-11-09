@@ -40,9 +40,45 @@ pub struct InstalledDto {
     /// False while it came from the user's own repository and the admin
     /// allows only the allow list.
     usable: bool,
-    /// The version the repository's index lists, when it differs from the
-    /// installed one.
+    /// The newest version the repository's index lists that this server
+    /// runs, when it differs from the installed one.
     update: Option<String>,
+    /// A newer version the index lists that needs a newer server, and the
+    /// oldest Chek release that runs it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_update: Option<BlockedUpdate>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedUpdate {
+    version: String,
+    min_server: String,
+}
+
+/// What the index offers an install: the newest build this server runs,
+/// and a newer one it can't run, if any.
+fn offered(
+    entry: Option<repository::IndexEntry>,
+    installed: &str,
+) -> (Option<String>, Option<BlockedUpdate>) {
+    let Some(entry) = entry else {
+        return (None, None);
+    };
+    let update = entry
+        .build_for_server()
+        .map(|b| b.version.clone())
+        .filter(|v| v != installed);
+    let blocked = match &entry.min_server {
+        Some(min_server) if !entry.runs_here() && entry.version != installed => {
+            Some(BlockedUpdate {
+                version: entry.version.clone(),
+                min_server: min_server.clone(),
+            })
+        }
+        _ => None,
+    };
+    (update, blocked)
 }
 
 #[derive(Serialize)]
@@ -75,17 +111,15 @@ pub async fn list_installed(
         .map(|install| {
             let repository = repositories.iter().find(|r| r.id == install.repository_id);
             let usable = repository.is_some_and(|r| r.owner_id.is_none() || allow_any);
-            let listed = repository
-                .and_then(parsed_index)
-                .and_then(|index| {
-                    index
-                        .extensions
-                        .into_iter()
-                        .find(|e| e.id == install.extension_id)
-                })
-                .map(|e| e.version);
+            let listed = repository.and_then(parsed_index).and_then(|index| {
+                index
+                    .extensions
+                    .into_iter()
+                    .find(|e| e.id == install.extension_id)
+            });
+            let offered = offered(listed, &install.version);
             let comments = comments_on && repository.is_some_and(|r| r.owner_id.is_none());
-            dto(install, usable, listed, comments)
+            dto(install, usable, offered, comments)
         })
         .collect::<Result<_, _>>()?;
     Ok(Json(InstalledList { items }))
@@ -138,7 +172,7 @@ async fn install_for(
     if repository.owner_id.is_some() && !allow_any {
         return Err(not_usable());
     }
-    let entry = parsed_index(&repository)
+    let listed = parsed_index(&repository)
         .and_then(|index| index.extensions.into_iter().find(|e| e.id == id))
         .ok_or_else(|| {
             ApiError::not_found(format!(
@@ -146,6 +180,10 @@ async fn install_for(
                 repository.id
             ))
         })?;
+    let entry = match listed.build_for_server() {
+        Some(build) => build.clone(),
+        None => return Err(needs_newer_server(&listed)),
+    };
 
     let extensions = Arc::clone(&state.extensions);
     let index_url = repository.url.clone();
@@ -219,7 +257,7 @@ async fn install_for(
     };
     Ok((
         status,
-        Json(dto(saved, true, None, comments_on && server_wide)?),
+        Json(dto(saved, true, (None, None), comments_on && server_wide)?),
     ))
 }
 
@@ -255,7 +293,7 @@ pub(crate) async fn remove_file(state: &AppState, digest: String) {
 fn dto(
     install: ExtensionInstall,
     usable: bool,
-    listed: Option<String>,
+    (update, blocked_update): (Option<String>, Option<BlockedUpdate>),
     comments_on: bool,
 ) -> Result<InstalledDto, ApiError> {
     let comments = match install.comments.as_deref() {
@@ -266,7 +304,8 @@ fn dto(
     };
     Ok(InstalledDto {
         comments,
-        update: listed.filter(|v| *v != install.version),
+        update,
+        blocked_update,
         sites: serde_json::from_str(&install.sites).map_err(ApiError::internal)?,
         languages: serde_json::from_str(&install.languages).map_err(ApiError::internal)?,
         formats: serde_json::from_str(&install.formats).map_err(ApiError::internal)?,
@@ -299,6 +338,21 @@ fn invalid_extension(error: chek_sources::Error) -> ApiError {
             code: "extension_invalid",
             message: error.to_string(),
         },
+    }
+}
+
+/// Every build the index lists needs a newer server than this one.
+fn needs_newer_server(entry: &repository::IndexEntry) -> ApiError {
+    let needed = entry.oldest_min_server().unwrap_or("a newer release");
+    ApiError {
+        status: StatusCode::UNPROCESSABLE_ENTITY,
+        code: "extension_needs_newer_server",
+        message: format!(
+            "{} {} needs Chek {needed} or newer, and this server runs {}; update Chek to install it",
+            entry.name,
+            entry.version,
+            repository::SERVER_VERSION
+        ),
     }
 }
 

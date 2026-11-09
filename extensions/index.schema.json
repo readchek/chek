@@ -58,6 +58,16 @@
             "type": "array",
             "uniqueItems": true,
             "items": { "type": "string", "enum": ["top", "newest", "oldest"] }
+          },
+          "minServer": {
+            "description": "The oldest Chek release that runs this build. Absent means any server that links its contract.",
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].*)?$"
+          },
+          "previous": {
+            "description": "Older builds of the same extension, newest first, for servers too old to run this one. Each is an entry with the same id and no previous builds of its own.",
+            "type": "array",
+            "items": { "$ref": "#/properties/extensions/items" }
           }
         }
       }

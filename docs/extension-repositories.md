@@ -52,6 +52,16 @@ is its JSON Schema.
   `chek ext index` writes it from the component, and Chek refuses a
   component that gives different orders. Comments show only when the admin
   turns on `extensionComments`, and never for a user's own repository.
+- `minServer` is the oldest Chek release that runs the build, such as
+  `0.6.0`. `chek ext index` writes it from the version of the source
+  contract the component was built against. A server older than that
+  doesn't offer the build; servers from before the field ignore it and
+  fail to link the build instead. Leave it out to mean any server that
+  links the build's contract.
+- `previous` lists older builds of the same extension, newest first, each
+  an entry like this one with the same id. A server installs the newest
+  build it runs, so people whose server is too old for the new build keep
+  getting one that works. See [Older servers](#older-servers).
 - Ids are reverse-DNS names. Ids, names and versions are at most 200 bytes. An index
   is at most 1 MiB and lists at most 1,000 extensions, and a component is at
   most 32 MiB.
@@ -95,6 +105,39 @@ and digest. The server reads every repository's index again every six hours,
 and when you refresh by hand, and then offers the new version as an update.
 Keep old components until nobody needs them; a file name with its version in
 it keeps caches from serving an old component as a new one.
+
+## Older servers
+
+When the SDK moves to a new version of the source contract, new builds need
+a newer Chek server. To keep serving servers that haven't updated, keep the
+last build made for the old contract next to the new one. Put it in a
+`previous` folder at the root of your sources' workspace, and `chek ext
+build` copies it into the repository. `chek ext index` lists each extension
+once, as its newest build, and puts the newest build for each older
+`minServer` in `previous`:
+
+```json
+{
+  "id": "page.example.my-source",
+  "version": "2.0.0",
+  "file": "my-source-2.0.0.wasm",
+  "minServer": "0.7.0",
+  "previous": [
+    {
+      "id": "page.example.my-source",
+      "version": "1.4.0",
+      "file": "my-source-1.4.0.wasm",
+      "minServer": "0.6.0"
+    }
+  ]
+}
+```
+
+Entries are shortened here; each build lists every field an entry has. A
+server on 0.6.0 installs 1.4.0 and doesn't offer 2.0.0 as an update. Once it
+updates to 0.7.0, which links only the new contract, it offers 2.0.0, and
+1.4.0 stops loading until the user updates. Servers before 0.5.4 don't read
+`minServer` or `previous`, and fail to install a build they can't link.
 
 ## Who sees a repository
 

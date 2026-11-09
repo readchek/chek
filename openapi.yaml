@@ -2409,7 +2409,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          description: Invalid or incompatible extension component.
+          description: >-
+            Invalid or incompatible extension component, or every version
+            the index lists needs a newer server
+            (`extension_needs_newer_server`), as when installing for yourself.
           content:
             application/json:
               schema:
@@ -2426,10 +2429,11 @@ paths:
       operationId: installExtension
       summary: Install or update an extension
       description: >-
-        Downloads the version the repository's index lists now and checks it
-        against the index's digest, then checks that the component's manifest
-        has the same id, version and sites. Installing again updates the
-        install, or moves it to another repository.
+        Downloads the newest version the repository's index lists that this
+        server runs, by its `minServer`, and checks it against the index's
+        digest, then checks that the component's manifest has the same id,
+        version and sites. Installing again updates the install, or moves it
+        to another repository.
       requestBody:
         required: true
         content:
@@ -2472,7 +2476,9 @@ paths:
             The component isn't a valid source extension (`extension_invalid`),
             doesn't match the index (`extension_mismatch`), or was built for
             another version of the source contract (`extension_incompatible`).
-            It can also be one of the repository codes of
+            `extension_needs_newer_server` means every version the index
+            lists needs a newer Chek than this server; its message names the
+            oldest release that runs one. It can also be one of the repository codes of
             `RepositoryNeedsCredentials` when the host refuses the component:
             stored credentials were revoked, or the component is on another
             origin, which isn't sent them.
@@ -3841,8 +3847,21 @@ components:
                     type: string
     AvailableExtension:
       type: object
-      required: [repositoryId, id, name, version, sites, languages, capabilities, formats, installedVersion]
+      required: [repositoryId, id, name, version, sites, languages, capabilities, formats, installedVersion, supported]
+      description: >-
+        The newest version the repository lists that this server runs. When
+        it runs none, the newest version, with `supported` false.
       properties:
+        supported:
+          type: boolean
+          description: False when every version the repository lists needs a newer server.
+        minServer:
+          type: string
+          description: >-
+            The oldest Chek release that runs this version, such as `0.6.0`,
+            when the repository says. When `supported` is false, the oldest
+            release that runs any version the repository lists.
+          example: 0.6.0
         installedVersion:
           type: [string, "null"]
           description: The version the user installed from this repository, if any.
@@ -4136,7 +4155,22 @@ components:
             allows only the allow list.
         update:
           type: [string, "null"]
-          description: The version the repository lists, when it differs from the installed one.
+          description: >-
+            The newest version the repository lists that this server runs,
+            when it differs from the installed one.
+        blockedUpdate:
+          type: object
+          required: [version, minServer]
+          description: >-
+            A newer version the repository lists that this server can't run
+            yet. Absent when there is none.
+          properties:
+            version:
+              type: string
+            minServer:
+              type: string
+              description: The oldest Chek release that runs it.
+              example: 0.6.0
         comments:
           $ref: "#/components/schemas/CommentOrders"
     Settings:

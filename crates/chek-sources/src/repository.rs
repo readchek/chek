@@ -73,6 +73,76 @@ pub struct IndexEntry {
     /// count; absent means it gives no comments.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comments: Option<Vec<String>>,
+    /// The oldest Chek server release that runs this build, such as
+    /// `0.6.0`. Absent means any server that links its contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_server: Option<String>,
+    /// Older builds of the same extension, newest first, for servers too
+    /// old to run this one. Servers that predate the field ignore it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous: Vec<IndexEntry>,
+}
+
+impl IndexEntry {
+    /// Whether this build, leaving `previous` aside, runs on this server.
+    pub fn runs_here(&self) -> bool {
+        self.min_server
+            .as_deref()
+            .is_none_or(|needed| at_least(SERVER_VERSION, needed))
+    }
+
+    /// The newest build this server runs: this one, or the first of
+    /// `previous` that runs here.
+    pub fn build_for_server(&self) -> Option<&IndexEntry> {
+        std::iter::once(self)
+            .chain(&self.previous)
+            .find(|build| build.runs_here())
+    }
+
+    /// The oldest server release that runs any of the builds listed, for
+    /// saying what to update to when none runs here.
+    pub fn oldest_min_server(&self) -> Option<&str> {
+        std::iter::once(self)
+            .chain(&self.previous)
+            .map(|build| build.min_server.as_deref())
+            .min_by(|a, b| match (a, b) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, _) => std::cmp::Ordering::Less,
+                (_, None) => std::cmp::Ordering::Greater,
+                (Some(a), Some(b)) => compare_versions(a, b),
+            })
+            .flatten()
+    }
+}
+
+/// The Chek release this server is, which index entries' `minServer` is
+/// compared with.
+pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A release's major, minor and patch numbers. A pre-release or build
+/// suffix is ignored, so a server built from `0.6.0-dev` counts as 0.6.0.
+pub fn parse_version(version: &str) -> Option<[u64; 3]> {
+    let core = version.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let mut numbers = [0; 3];
+    for number in &mut numbers {
+        let part = parts.next()?;
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        *number = part.parse().ok()?;
+    }
+    parts.next().is_none().then_some(numbers)
+}
+
+/// Orders two release versions, putting one that doesn't parse first.
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    parse_version(a).cmp(&parse_version(b))
+}
+
+/// Whether release `have` is `needed` or newer.
+pub fn at_least(have: &str, needed: &str) -> bool {
+    compare_versions(have, needed).is_ge()
 }
 
 /// How to sign in to a private repository.
@@ -334,7 +404,41 @@ pub fn parse_index(bytes: &[u8]) -> Result<Index, RepositoryError> {
     if let Some(name) = &mut index.name {
         crate::truncate(name, MAX_FIELD);
     }
+    let builds: usize = index.extensions.iter().map(|e| 1 + e.previous.len()).sum();
+    if builds > MAX_ENTRIES {
+        return Err(RepositoryError::Invalid(format!(
+            "lists {builds} builds; the limit is {MAX_ENTRIES}"
+        )));
+    }
     for entry in &index.extensions {
+        for build in &entry.previous {
+            if build.id != entry.id {
+                return Err(RepositoryError::Invalid(format!(
+                    "`{}` lists a previous build of `{}`",
+                    entry.id, build.id
+                )));
+            }
+            if !build.previous.is_empty() {
+                return Err(RepositoryError::Invalid(format!(
+                    "a previous build of `{}` lists previous builds of its own",
+                    entry.id
+                )));
+            }
+        }
+    }
+    for entry in index
+        .extensions
+        .iter()
+        .flat_map(|e| std::iter::once(e).chain(&e.previous))
+    {
+        if let Some(version) = &entry.min_server
+            && parse_version(version).is_none()
+        {
+            return Err(RepositoryError::Invalid(format!(
+                "`{}` has minServer `{version}`, which isn't a release such as 0.6.0",
+                entry.id
+            )));
+        }
         if !valid_id(&entry.id) {
             return Err(RepositoryError::Invalid(format!(
                 "extension id `{}` isn't in reverse-DNS form",
@@ -560,6 +664,77 @@ mod tests {
                 .collect(),
         };
         assert!(many.check().is_err());
+    }
+
+    fn entry(version: &str, min_server: Option<&str>) -> IndexEntry {
+        IndexEntry {
+            id: "com.example.mine".to_owned(),
+            name: "Mine".to_owned(),
+            version: version.to_owned(),
+            file: format!("mine-{version}.wasm"),
+            sha256: "a".repeat(64),
+            sites: Vec::new(),
+            languages: Vec::new(),
+            capabilities: Vec::new(),
+            formats: Vec::new(),
+            comments: None,
+            min_server: min_server.map(str::to_owned),
+            previous: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn versions_compare_by_number() {
+        assert!(at_least("0.10.0", "0.9.9"));
+        assert!(at_least("0.6.0-dev", "0.6.0"));
+        assert!(!at_least("0.5.3", "0.6.0"));
+        assert_eq!(parse_version("1.2"), None);
+        assert_eq!(parse_version("1.2.3.4"), None);
+        assert_eq!(parse_version("1.x.3"), None);
+    }
+
+    /// `chek ext index` can't write `minServer` for a contract without a row.
+    #[test]
+    fn the_linked_contract_names_its_first_release() {
+        let release = crate::first_release(crate::CONTRACT_VERSION).unwrap();
+        assert!(parse_version(release).is_some());
+    }
+
+    #[test]
+    fn servers_pick_the_newest_build_they_run() {
+        let mut newest = entry("2.0.0", Some("999.0.0"));
+        newest.previous = vec![entry("1.1.0", Some("998.0.0")), entry("1.0.0", None)];
+        assert_eq!(newest.build_for_server().unwrap().version, "1.0.0");
+        newest.previous[1].min_server = Some("997.0.0".to_owned());
+        assert!(newest.build_for_server().is_none());
+        assert_eq!(newest.oldest_min_server(), Some("997.0.0"));
+        assert_eq!(
+            entry("1.0.0", Some("0.0.1"))
+                .build_for_server()
+                .unwrap()
+                .version,
+            "1.0.0"
+        );
+    }
+
+    #[test]
+    fn previous_builds_are_checked() {
+        let mut newest = entry("2.0.0", Some("999.0.0"));
+        newest.previous = vec![entry("1.0.0", Some("0.5"))];
+        let index = |e: &IndexEntry| {
+            format!(
+                r#"{{"extensions":[{}]}}"#,
+                serde_json::to_string(e).unwrap()
+            )
+        };
+        assert!(parse_index(index(&newest).as_bytes()).is_err());
+        newest.previous[0].min_server = None;
+        newest.previous[0].id = "com.example.other".to_owned();
+        assert!(parse_index(index(&newest).as_bytes()).is_err());
+        newest.previous[0].id = newest.id.clone();
+        let read = parse_index(index(&newest).as_bytes()).unwrap();
+        assert_eq!(read.extensions[0].previous[0].version, "1.0.0");
+        assert_eq!(read.extensions[0].min_server.as_deref(), Some("999.0.0"));
     }
 
     #[test]

@@ -108,6 +108,27 @@ pub use bindings::chek::source::types::{
 /// names it. Components built against another don't link.
 pub const CONTRACT_VERSION: &str = "0.6.0";
 
+/// Each contract version, newest first, with the first Chek release whose
+/// contract a component built against it needs. `chek ext index` writes
+/// that release as the component's `minServer`, so servers too old for a
+/// build skip it instead of failing to link it. When `source.wit` changes
+/// in a way older servers can't run, bump its package version and add a
+/// row naming the release the change ships in, here and in chek-cli's copy.
+pub const CONTRACTS: &[(&str, &str)] = &[
+    // 0.6.0 has been the package version since Chek 0.2.0, and grew until
+    // 0.5.3 added comments. Servers before 0.5.3 ignore `minServer`
+    // anyway, so the row names the release whose contract matches.
+    ("0.6.0", "0.5.3"),
+];
+
+/// The first Chek release that runs components built against `contract`.
+pub fn first_release(contract: &str) -> Option<&'static str> {
+    CONTRACTS
+        .iter()
+        .find(|(version, _)| *version == contract)
+        .map(|(_, release)| *release)
+}
+
 /// Memory one instance may grow to.
 const MAX_MEMORY: usize = 64 << 20;
 /// Instructions, roughly, that one call may run. Time spent waiting on the
