@@ -75,22 +75,23 @@ pub async fn scan_all_libraries(state: &AppState) -> Result<(), CatalogError> {
     Ok(())
 }
 
-/// Syncs every source library each `interval`, skipping one still syncing.
-pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
+/// Scans every library of `kind` again each `interval`, skipping one still
+/// scanning: a sync for source libraries, a walk of the folder for the rest.
+pub fn scan_every(state: AppState, kind: LibraryKind, interval: std::time::Duration) {
     tokio::spawn(async move {
         let mut ticks = tokio::time::interval(interval);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // The first tick is immediate, and startup already synced.
+        // The first tick is immediate, and startup already scanned.
         ticks.tick().await;
         loop {
             ticks.tick().await;
             match blocking(&state, |c| c.libraries()).await {
                 Ok(libraries) => {
-                    for library in libraries.iter().filter(|l| l.kind == LibraryKind::Source) {
+                    for library in libraries.iter().filter(|l| l.kind == kind) {
                         start_scan(&state, library.id);
                     }
                 }
-                Err(e) => error!(error = %e.message, "could not list libraries to sync"),
+                Err(e) => error!(error = %e.message, "could not list libraries to scan"),
             }
         }
     });

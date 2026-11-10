@@ -31,7 +31,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::serve::ListenerExt;
-use chek_catalog::Catalog;
+use chek_catalog::{Catalog, LibraryKind};
 use chek_library::ScanOptions;
 use tracing::{error, info, warn};
 
@@ -121,9 +121,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // tells Chek when a source changes.
     api::scan_all_libraries(&state).await?;
     if config.source_sync_minutes > 0 {
-        api::sync_sources_every(
+        api::scan_every(
             state.clone(),
+            LibraryKind::Source,
             std::time::Duration::from_secs(config.source_sync_minutes * 60),
+        );
+    }
+    // Folders are walked again on a timer too, so files added while the
+    // server runs show up without a restart or a click.
+    if config.folder_scan_minutes > 0 {
+        api::scan_every(
+            state.clone(),
+            LibraryKind::Folder,
+            std::time::Duration::from_secs(config.folder_scan_minutes * 60),
         );
     }
     extensions::refresh_repositories_every(state.clone(), extensions::REFRESH_EVERY);

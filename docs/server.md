@@ -81,8 +81,11 @@ their own repositories, and `chek ext build` builds them into a repository folde
   covers the `<binary>` image its `<coverpage>` points at. Text and Markdown
   books have no cover.
 - Every folder library is rescanned at startup to catch changes made while
-  the server was down. Unchanged files are skipped by size and modification
-  time.
+  the server was down, and again every `CHEK_FOLDER_SCAN_MINUTES` (60 by
+  default; 0 turns the timer off) so files added while it runs show up.
+  Unchanged files are skipped by size and modification time. A timer
+  rather than watching the folders, because file events don't arrive from
+  network shares and many container mounts.
 
 ## Uploads
 

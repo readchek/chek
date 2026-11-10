@@ -36,6 +36,10 @@ pub struct Config {
     /// `CHEK_SOURCE_SYNC_MINUTES`, how often source libraries such as Komga
     /// are synced. Default 60; 0 syncs them only at startup and on request.
     pub source_sync_minutes: u64,
+    /// `CHEK_FOLDER_SCAN_MINUTES`, how often folder libraries are scanned
+    /// for files added, changed or removed. Default 60; 0 scans them only
+    /// at startup and on request.
+    pub folder_scan_minutes: u64,
     /// `CHEK_EXTENSION_IMAGE_CACHE_MB`, how much of the covers and pages
     /// fetched through extensions to keep on disk. Default 2048; 0 keeps
     /// none.
@@ -130,6 +134,7 @@ impl Config {
             },
             max_upload_bytes: parse("CHEK_MAX_UPLOAD_BYTES", "2147483648")?,
             source_sync_minutes: parse("CHEK_SOURCE_SYNC_MINUTES", "60")?,
+            folder_scan_minutes: parse("CHEK_FOLDER_SCAN_MINUTES", "60")?,
             extension_image_cache_mb: parse("CHEK_EXTENSION_IMAGE_CACHE_MB", "2048")?,
             outbound_proxy: outbound_proxy()?,
             browser_solver: match env::var("CHEK_BROWSER_SOLVER_URL") {
