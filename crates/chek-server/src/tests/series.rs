@@ -1,4 +1,5 @@
-//! Renaming a series by hand, which scans keep.
+//! Renaming a series by hand, which scans keep, and walking a series in
+//! either direction.
 
 use reqwest::StatusCode;
 use serde_json::json;
@@ -91,4 +92,75 @@ async fn series_edits_survive_rescans_until_cleared() {
     let restored = body(response).await;
     assert_eq!(restored["title"], "Night Watch");
     assert_eq!(restored["editedFields"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_series_lists_what_comes_before_and_after_a_publication() {
+    let server = Server::start().await;
+    let admin = server.admin().await;
+    let book = cbz(&[("01.png", &RED_PNG)]);
+    let folder = server.folder(
+        "comics",
+        &[
+            ("Night Watch/01.cbz", &book),
+            ("Night Watch/02.cbz", &book),
+            ("Night Watch/03.cbz", &book),
+            ("Night Watch/Extras.cbz", &book),
+        ],
+    );
+    let library = server.folder_library(&admin, "Comics", &folder).await;
+    let publications = server.publications(&admin, library).await;
+    let series = publications[0]["series"]["id"].as_i64().unwrap();
+    let ids: Vec<i64> = publications
+        .iter()
+        .map(|p| p["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 4);
+    let list = async |query: String| -> Vec<i64> {
+        let page = body(
+            server
+                .get(&format!("/api/v1/series/{series}/publications?{query}"))
+                .bearer_auth(&admin)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].as_i64().unwrap())
+            .collect()
+    };
+
+    assert_eq!(list(String::new()).await, ids);
+    let backwards: Vec<i64> = ids.iter().rev().copied().collect();
+    assert_eq!(list("order=desc".into()).await, backwards);
+    assert_eq!(list(format!("cursor={}&limit=1", ids[1])).await, [ids[2]]);
+    assert_eq!(
+        list(format!("cursor={}&limit=1&order=desc", ids[1])).await,
+        [ids[0]]
+    );
+    // The unnumbered extra comes last, so the one before it is number 3.
+    assert_eq!(
+        list(format!("cursor={}&limit=1&order=desc", ids[3])).await,
+        [ids[2]]
+    );
+    assert!(
+        list(format!("cursor={}&order=desc", ids[0]))
+            .await
+            .is_empty()
+    );
+    assert!(list(format!("cursor={}", ids[3])).await.is_empty());
+
+    let response = server
+        .get(&format!(
+            "/api/v1/series/{series}/publications?order=sideways"
+        ))
+        .bearer_auth(&admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

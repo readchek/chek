@@ -75,22 +75,23 @@ pub async fn scan_all_libraries(state: &AppState) -> Result<(), CatalogError> {
     Ok(())
 }
 
-/// Syncs every source library each `interval`, skipping one still syncing.
-pub fn sync_sources_every(state: AppState, interval: std::time::Duration) {
+/// Scans every library of `kind` again each `interval`, skipping one still
+/// scanning: a sync for source libraries, a walk of the folder for the rest.
+pub fn scan_every(state: AppState, kind: LibraryKind, interval: std::time::Duration) {
     tokio::spawn(async move {
         let mut ticks = tokio::time::interval(interval);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // The first tick is immediate, and startup already synced.
+        // The first tick is immediate, and startup already scanned.
         ticks.tick().await;
         loop {
             ticks.tick().await;
             match blocking(&state, |c| c.libraries()).await {
                 Ok(libraries) => {
-                    for library in libraries.iter().filter(|l| l.kind == LibraryKind::Source) {
+                    for library in libraries.iter().filter(|l| l.kind == kind) {
                         start_scan(&state, library.id);
                     }
                 }
-                Err(e) => error!(error = %e.message, "could not list libraries to sync"),
+                Err(e) => error!(error = %e.message, "could not list libraries to scan"),
             }
         }
     });
@@ -636,6 +637,23 @@ struct PageQuery {
 }
 
 #[derive(Deserialize)]
+struct SeriesPublicationsQuery {
+    cursor: Option<String>,
+    limit: Option<u32>,
+    #[serde(default)]
+    order: ListOrder,
+}
+
+/// Which way a list runs.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ListOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RecentQuery {
     library_id: Option<i64>,
@@ -955,15 +973,19 @@ async fn list_series_publications(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
-    Query(query): Query<PageQuery>,
+    Query(query): Query<SeriesPublicationsQuery>,
 ) -> Result<Json<Page<PublicationDto>>, ApiError> {
     readable_series(&state, &current, id).await?;
+    let reversed = query.order == ListOrder::Desc;
     let after = parse_cursor(query.cursor.as_deref())?;
     let limit = query
         .limit
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
-    let items = blocking(&state, move |c| c.series_publications(id, after, limit)).await?;
+    let items = blocking(&state, move |c| {
+        c.series_publications(id, after, limit, reversed)
+    })
+    .await?;
     let next_cursor = (items.len() == limit as usize)
         .then(|| items.last().map(|p| p.id.to_string()))
         .flatten();

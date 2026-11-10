@@ -158,6 +158,7 @@ Everything is set with environment variables. All of them are optional.
 | `CHEK_BIND` | `127.0.0.1:8080` | Address to listen on |
 | `CHEK_DATA_DIR` | `./data` | Where the database and covers live |
 | `CHEK_SCAN_WORKERS` | cores − 1 | How many files to scan at once |
+| `CHEK_FOLDER_SCAN_MINUTES` | `60` | How often folder libraries are scanned for new, changed and removed files; `0` scans only at start and on request |
 | `CHEK_SETUP_TOKEN` | logged at start | Your own setup token, 32 characters or more, so you don't need the log |
 | `CHEK_WEB_DIR` | none; the image sets it | The web app's build, served at `/` with the admin panel at `/admin`. `CHEK_ADMIN_DIR` still works as its old name |
 | `CHEK_MAX_UPLOAD_BYTES` | 2 GiB | Largest file an admin can [upload](docs/server.md#uploads) with `PUT /api/v1/libraries/{id}/files/{path}`; the folder must be mounted read-write |
@@ -201,7 +202,9 @@ before opening it beyond your home network.
 
 A release is a tag on `main` named by its version, such as `0.3.0`, and CI
 publishes its image. Run the Release workflow in the Actions tab with the
-version, or tag it yourself:
+version. It also writes the release's page on GitHub, listing the pull
+requests merged since the last release. Tagging by hand publishes the image
+without that page:
 
 ```sh
 git tag 0.3.0 && git push origin 0.3.0
