@@ -1,10 +1,11 @@
 name: Release
 
-# Cuts a release: tags `main` with the version, pushes the tag and starts
-# the Publish image workflow on it, which pushes ghcr.io/readchek/chek
-# under the version, its minor series and `latest`. Run it from the
-# Actions tab, or tag by hand (`git tag 0.1.0 && git push origin 0.1.0`),
-# which starts the publish on its own.
+# Cuts a release: tags `main` with the version, pushes the tag, writes the
+# release page on GitHub and starts the Publish image workflow on the tag,
+# which pushes ghcr.io/readchek/chek under the version, its minor series
+# and `latest`. Run it from the Actions tab. Tagging by hand
+# (`git tag 0.1.0 && git push origin 0.1.0`) starts the publish on its own
+# but writes no release page.
 on:
   workflow_dispatch:
     inputs:
@@ -41,6 +42,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$VERSION" -m "Chek $VERSION"
           git push origin "refs/tags/$VERSION"
+      - name: Write the release page
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        # The notes list the pull requests merged since the last release.
+        # People running a server read this page to see what an update
+        # changes, and the docs link to it.
+        run: gh release create "$VERSION" --verify-tag --title "Chek $VERSION" --generate-notes
       - name: Publish the image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

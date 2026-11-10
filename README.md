@@ -202,7 +202,9 @@ before opening it beyond your home network.
 
 A release is a tag on `main` named by its version, such as `0.3.0`, and CI
 publishes its image. Run the Release workflow in the Actions tab with the
-version, or tag it yourself:
+version. It also writes the release's page on GitHub, listing the pull
+requests merged since the last release. Tagging by hand publishes the image
+without that page:
 
 ```sh
 git tag 0.3.0 && git push origin 0.3.0
