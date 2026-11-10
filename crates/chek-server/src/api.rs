@@ -637,6 +637,23 @@ struct PageQuery {
 }
 
 #[derive(Deserialize)]
+struct SeriesPublicationsQuery {
+    cursor: Option<String>,
+    limit: Option<u32>,
+    #[serde(default)]
+    order: ListOrder,
+}
+
+/// Which way a list runs.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ListOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RecentQuery {
     library_id: Option<i64>,
@@ -956,15 +973,19 @@ async fn list_series_publications(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(id): Path<i64>,
-    Query(query): Query<PageQuery>,
+    Query(query): Query<SeriesPublicationsQuery>,
 ) -> Result<Json<Page<PublicationDto>>, ApiError> {
     readable_series(&state, &current, id).await?;
+    let reversed = query.order == ListOrder::Desc;
     let after = parse_cursor(query.cursor.as_deref())?;
     let limit = query
         .limit
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
-    let items = blocking(&state, move |c| c.series_publications(id, after, limit)).await?;
+    let items = blocking(&state, move |c| {
+        c.series_publications(id, after, limit, reversed)
+    })
+    .await?;
     let next_cursor = (items.len() == limit as usize)
         .then(|| items.last().map(|p| p.id.to_string()))
         .flatten();

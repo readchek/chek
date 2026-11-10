@@ -319,7 +319,7 @@ async fn series(
     let series = api::readable_series(&state, &current, id).await?;
     let after = api::parse_cursor(query.cursor.as_deref())?;
     let entries = blocking(&state, move |c| {
-        with_details(c, c.series_publications(id, after, PAGE_SIZE)?)
+        with_details(c, c.series_publications(id, after, PAGE_SIZE, false)?)
     })
     .await?;
     Ok(publications_feed(

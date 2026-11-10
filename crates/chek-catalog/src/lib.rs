@@ -231,6 +231,10 @@ pub struct Catalog {
 const ORDER_KEY: &str =
     "s.sort_title, s.id, p.sort_number IS NULL, coalesce(p.sort_number, 0), p.sort_title, p.id";
 
+/// [`ORDER_KEY`] as an `ORDER BY` that runs backwards. Keep the two in step.
+const ORDER_KEY_REVERSED: &str = "s.sort_title DESC, s.id DESC, p.sort_number IS NULL DESC, \
+     coalesce(p.sort_number, 0) DESC, p.sort_title DESC, p.id DESC";
+
 /// A series with its publication count and the first publication, in
 /// reading order, that has a cover.
 const SERIES_SELECT: &str = "SELECT s.id, s.library_id, s.title,
@@ -464,18 +468,20 @@ impl Catalog {
         after: Option<i64>,
         limit: u32,
     ) -> Result<Vec<PublicationSummary>> {
-        self.list_publications("s.library_id", library_id, after, limit)
+        self.list_publications("s.library_id", library_id, after, limit, false)
     }
 
     /// Lists a series' publications in reading order, starting after the
-    /// publication id `after`.
+    /// publication id `after`. With `reversed` the order runs backwards, so
+    /// the first publication after `after` is the one read before it.
     pub fn series_publications(
         &self,
         series_id: i64,
         after: Option<i64>,
         limit: u32,
+        reversed: bool,
     ) -> Result<Vec<PublicationSummary>> {
-        self.list_publications("s.id", series_id, after, limit)
+        self.list_publications("s.id", series_id, after, limit, reversed)
     }
 
     /// Publications whose `scope` column equals `scope_id`, in [`ORDER_KEY`]
@@ -486,7 +492,13 @@ impl Catalog {
         scope_id: i64,
         after: Option<i64>,
         limit: u32,
+        reversed: bool,
     ) -> Result<Vec<PublicationSummary>> {
+        let (past, order) = if reversed {
+            ("<", ORDER_KEY_REVERSED)
+        } else {
+            (">", ORDER_KEY)
+        };
         // The cursor is the last publication's id; comparing whole sort keys
         // against that row's keeps pages stable and complete as long as the
         // row exists, and publications are never deleted, only marked
@@ -496,9 +508,9 @@ impl Catalog {
             "SELECT p.id, s.id, s.title, p.title, p.number_label, p.format, p.page_count, p.available, p.cover IS NOT NULL
              FROM publication p JOIN series s ON s.id = p.series_id
              WHERE {scope} = ?1
-               AND (?2 IS NULL OR ({ORDER_KEY}) > (
+               AND (?2 IS NULL OR ({ORDER_KEY}) {past} (
                    SELECT {ORDER_KEY} FROM publication p JOIN series s ON s.id = p.series_id WHERE p.id = ?2))
-             ORDER BY {ORDER_KEY}
+             ORDER BY {order}
              LIMIT ?3"
         ))?;
         let rows = stmt.query_map(params![scope_id, after, limit], summary_from_row)?;

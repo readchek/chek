@@ -1570,9 +1570,20 @@ paths:
       summary: List a series' publications
       description: >-
         Numbered publications first in number order, then the rest by title.
+        To find what follows a publication, pass its id as `cursor` with
+        `limit=1`. Add `order=desc` to find what comes before it.
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - name: order
+          in: query
+          description: >-
+            `desc` lists the series backwards, so a `cursor` then continues
+            towards the first publication.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
       responses:
         "401":
           $ref: "#/components/responses/Unauthorized"
